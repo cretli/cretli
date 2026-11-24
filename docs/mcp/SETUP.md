@@ -20,6 +20,18 @@ gate; restrict their per-tool permissions if you require all writes to be review
 Configure MCP servers in Cretli (**Settings → MCP**). You do not need to paste
 the same `npx` block into each harness config file.
 
+Automatic roles (delegation children and reviewers, Watcher orchestrators,
+scouts, and `[Todo plan]` coordinators) receive the built-in Cretli MCP tools by
+default. External servers are hidden and calls are rejected unless **For
+automatic agents** is enabled on that server in Settings → MCP. The setting is
+off for existing and newly added servers. Ordinary user chats continue to see
+all enabled servers in their workspace and harness scope.
+
+Current delegation flows that can use external MCP integrations include front
+delegations using `chrome-devtools` and any delegation harness configured with
+other external MCP servers. Their default is restricted; enable **For automatic
+agents** per server to opt in. The same default applies to reviewer delegations.
+
 The managed bridge always loads Cretli's builtin tools independently of external
 integrations. External catalogs load concurrently with a two-second initial
 budget; offline servers appear as errors in Settings and cannot remove tools
@@ -182,6 +194,26 @@ Verified on `@cursor/sdk` **1.0.30** (create + real `Agent.resume` + late-ignore
 
 Do **not** read this table as “history is MCP-only.” MCP remains the supported way to load chats (`chat_show` / `chat_history` / `chat_event`, `scope=all` when intended). File-tool blocks and ignore files reduce accidental Glob/Read of transcripts. A shell on Cursor SDK and on vendor harnesses can still see `data/` when that directory is on the same filesystem.
 
+## Tool catalog cache (external stdio/HTTP servers)
+
+Listing tools (`/api/mcp/bridge/tools`, `listTools`) does not start a process
+when the tool list of that exact server config is already known. The catalog is
+cached in memory per `serverId` + config fingerprint (command, args, cwd, env,
+URL, headers), shared by every session and workspace. A process is spawned only
+on a cold listing (one per fingerprint, concurrent cold listings are
+deduplicated) or on the first `callTool` of a session, which still connects its
+own per-session process.
+
+- TTL: `CRETLI_MCP_CATALOG_TTL_MS` (default 1 hour), next to
+  `CRETLI_MCP_IDLE_TTL_MS`. It is an environment variable, not part of
+  `data/config.json`.
+- Invalidated by a config change (new fingerprint, and settings edits call
+  `invalidateServerConnections`), by `mcp_refresh` / the REST refresh, and by
+  `invalidateServerConnections` (OAuth login, enable/disable, secret changes).
+- A `notifications/tools/list_changed` from a live connection re-fetches the
+  list and updates the shared cache.
+- Failed fetches are never cached.
+
 ## Diagnostics
 
 **Test connection** in Settings lists tools and then closes a throwaway process. That does not mean an already open chat is connected. Status separates saved configuration, applied revision (after the harness accepted the config), and connection state. The next prompt applies the current revision; an in-flight reply is not interrupted.
@@ -211,6 +243,65 @@ Invoke-RestMethod -Method Post -Uri https://HOST:PORT/mcp -Headers $h -ContentTy
 
 `--cacert` points at the server's certificate (see the HTTPS section above); `-k` / `-SkipCertificateCheck` only for a local test. The same rate limit and token mode apply as for a connected client. This is a stopgap: restart the client session afterwards so the tools appear normally.
 
+## External clients: one-click connect (same machine)
+
+For a client that runs on the same computer as Cretli, Settings → MCP → **Connect a client on this computer** does everything in one click: pick the client (Claude Code, Codex, Cursor), the folder and the mode (`agent` by default) and press **Connect** (**Enable and connect** while external MCP access is off).
+
+- Cretli creates a *managed* client (badge **Connected** in the client list; the click of the logged-in person is the consent, agent sessions are refused) and writes the `cretli` entry of the folder's config (`.mcp.json`, `.codex/config.toml` or `.cursor/mcp.json`) for the stdio bridge: loopback URL, the HTTPS certificate when needed, and `CRETLI_MCP_TOKEN_FILE` pointing at a file under `data/mcp-managed-tokens/` (0600). No secret lands in the config file.
+- Cretli keeps that file fresh by itself: a one-hour access token, renewed every few minutes when it has less than 30 minutes left, and right after a server start. The bridge re-reads the file on every request and briefly retries a `401` while the file is being renewed. No refresh token leaves the server, so several client sessions sharing the file are fine.
+- The client stays valid while it is used: each use moves its expiry 30 days forward, up to 365 days after the connect. Revoke deletes the token file at once. Connecting the same client in the same folder again replaces (revokes) the previous connection.
+- **Claude Code permissions** (Claude Code only) is a profile Cretli merges into the folder's `.claude/settings.local.json`; the REST field is `permissionProfile`, the older `allowTools: true|false` maps to `cretli_tools` / `prompt` (and loses to `permissionProfile` when both are sent). Neither field sent leaves the settings as they are. The rule list lives in one constant, `lib/mcp/claude-permission-profiles.js`, which the UI also reads:
+  - `prompt`: nothing is written; Claude Code asks before every tool.
+  - `cretli_tools` (default of Connect): `allow: ["mcp__cretli"]` (named after the server entry).
+  - `edits_bash_guarded` (default of operator chats): `defaultMode: "acceptEdits"`; `allow: ["mcp__cretli", "Bash", "Edit", "Write", "Read"]`; `ask: ["Bash(git push)", "Bash(git push *)", "Bash(rm -rf *)", "Bash(rm -fr *)", "Bash(git reset --hard *)", "Bash(git clean *)", "Bash(*task-restart-server.sh*)", "Bash(sudo *)"]`; `deny: ["Read(./.env)", "Read(./.env.*)"]`.
+  - Claude Code evaluates `deny`, then `ask`, then `allow`, so `Bash` in `allow` plus the `ask` patterns means "prompt for these, allow the rest". The patterns match the command text: `git -C x push`, shell indirection or `cat .env` bypass them. It is a speed bump, not a sandbox.
+  - Merging keeps other keys and rules, adds each rule once, writes atomically and leaves an invalid file untouched (the connection is still made and the problem is reported; wrong-typed `allow` / `ask` / `deny` / `defaultMode` count as invalid). `permissions.defaultMode` is set only when absent; a different value of yours is kept and reported.
+  - Cretli records exactly which rules (and whether `defaultMode`) it added on the managed client. Revoking the connection, removing the operator chat or changing the profile (for example 3 → 2) removes only those rules and restores `defaultMode` only while it still holds Cretli's value; rules you already had are never touched. While another live connection in the same folder needs a rule, it stays and that connection takes it over. A connection that expired or was revoked without a release is not inherited: the rules it added stay and later look like yours, so Cretli never removes them.
+  - The card warns when the file is not ignored by git.
+- For Claude Code, Cretli also approves the `cretli` server of the folder's `.mcp.json` (`enabledMcpjsonServers` in `.claude/settings.local.json`, merged like the rules above; `enableAllProjectMcpServers: true` counts as approved). Claude Code starts project servers only after approval; an interactive session asks once and keeps the answer in memory, but a headless one (Remote Control, `--print`) never asks and silently runs without Cretli, for example after it resumes when the server restarted. Cretli records whether it wrote the approval and takes back only its own when the connection is revoked; starting an operator chat re-checks the approval, which also repairs folders connected earlier.
+- Afterwards: in a running Claude Code session `/mcp` → cretli → Reconnect (a new session picks it up by itself); restart Codex or Cursor or reload their MCP servers.
+- For a client on another computer use the OAuth login below or a static token.
+
+## Operator chats (Claude Remote Control)
+
+Settings → MCP → External clients → **Operator chats** keeps one Claude Code [Remote Control](https://code.claude.com/docs/en/remote-control) session per folder, so you can work in that folder from the Claude mobile app or claude.ai/code with the Cretli tools at hand.
+
+- **Create operator chat** (folder, MCP mode — `operator` by default — and *Start with Cretli*) connects the folder like **Connect** above (Claude Code, managed token file) and starts `claude remote-control --name <folder> --spawn=same-dir` in it as a task run (visible among the task runs, output attachable). Cretli answers the CLI's first-run questions (enabling Remote Control and trusting the folder you picked), reads the session link (**Open in Claude**) and shows *connecting* / *connected* / *stopped*; a stopped session shows its last output lines.
+- The CLI comes from `PATH` or `~/.local/bin` (`CRETLI_CLAUDE_CLI` overrides) and needs a Claude Code version with Remote Control. It runs with the claude.ai login that Cretli's Claude harness uses (Settings → Harness → Claude; Remote Control does not work with an API key). Variables of a surrounding Claude Code session and API-key variables are not passed on.
+- Task runs end with the server; sessions with *Start with Cretli* are started again a few seconds after boot. The card offers the same **Claude Code permissions** profile select (default `edits_bash_guarded`). Creating the chat again for the same folder updates its mode and restarts it; **Remove** stops it and forgets the entry but keeps the folder's MCP connection (the permission rules Cretli added for it are taken back).
+- Self-repair: when an operator chat starts, Cretli also adds a SessionStart hook to the folder's `.claude/settings.local.json` (next to other hooks; removed again with the chat) that tells every new or resumed session: if the `mcp__cretli__*` tools are missing, run `node <cretli>/scripts/cretli-mcp-heal.mjs`. The script finds the `cretli` entry of the nearest `.mcp.json` and calls `POST /mcp/remote-control/heal` with that connection's own token (local machine only, no browser requests, managed Claude Code connections only). Cretli re-approves the `cretli` server and restarts the folder's operator chat three seconds later, so the conversation resumes with the tools; one heal per chat per minute.
+- The list lives in `data/remote-control-sessions.json`; the endpoints (`/api/remote-control/sessions`) accept only a person's login session.
+
+## External clients: OAuth login (no token)
+
+A client that speaks MCP OAuth (Claude Code, Codex, Cursor) can connect to `/mcp` without a token from Settings, and then renews its access by itself. Put only the URL in its configuration, with no `Authorization` header (a configured header turns the client's OAuth off):
+
+```json
+{ "mcpServers": { "cretli": { "type": "http", "url": "https://HOST:PORT/mcp" } } }
+```
+
+- Discovery: `/mcp` answers `401` with `WWW-Authenticate: Bearer resource_metadata="https://HOST:PORT/.well-known/oauth-protected-resource/mcp"`. That document (RFC 9728) and `/.well-known/oauth-authorization-server` (RFC 8414) are built from the origin the client used, so a LAN IP, a hostname and localhost all work.
+- Registration and login: the client registers itself (`/oauth/register`, RFC 7591; redirect URIs only `https` or `http` on a loopback host) and opens `/oauth/authorize` in the browser (PKCE `S256` required). The consent page needs a Cretli login of a person; agent sessions and the agent-driven Browser panel are refused. There you choose the name, the workspace folder and the mode (`plan` by default; `agent`, `operator`). Deny returns `access_denied` to the client.
+- Approving from another device: the client waits on a loopback callback (`http://localhost:PORT/…`) on its own machine. When the consent page is opened from a browser that is not on the Cretli machine (a phone, or a Windows browser in front of Cretli in WSL), Cretli calls that callback itself after Allow or Deny and shows a confirmation page. This needs the MCP client to run on the Cretli machine; for example, start `claude` in a Cretli terminal, choose Authenticate in `/mcp` and open the printed link on the phone. If the callback cannot be reached or answers with an error, the browser is redirected as usual. The server only calls plain `http` loopback callbacks, never Cretli's own port, without cookies and without following redirects.
+- Tokens: an access token (`cmo1.…`) valid for one hour and a refresh token (`cmr1.…`) that rotates on every refresh (`/oauth/token`). Each refresh moves the client's expiry 30 days forward, up to 365 days after the consent; after that, or after 30 idle days, the client opens the browser login again. A refresh token that was already rotated and is used again more than a minute later revokes the whole client (reuse detection); within that minute it is only refused (two refreshes racing). `/oauth/revoke` (RFC 7009) revokes the client for a refresh token and a single access token for an access token. Only hashes are stored.
+- Management: every approved login is a row in Settings → MCP → External clients marked **OAuth**, next to the token clients: mode change and Revoke work the same, export, rotation and install do not apply. Audit, rate limit and operator tools are the same as for a token client.
+- Guards: everything is off while `externalMcpEnabled` is off. Metadata, registration, token and revoke refuse browser `Origin` headers and non-loopback peers unless `externalMcpAllowLan`, like `/mcp`. The browser on the consent step must reach Cretli at the same address as the client; with a self-signed certificate the client still has to trust it (see above).
+- Static `cmx1` tokens keep working unchanged; use them for clients without OAuth or without a browser.
+
+## Fleet summary
+
+An external client in `plan` mode can call the read-only `fleet_summary` builtin
+on `/mcp`. It returns `schemaVersion`, an instance `online` flag, active
+Workspace Watcher cycle count, blocked todo count, plans awaiting approval,
+and usage percentages per provider. For example, a provider entry can look like
+`"codex": { "utilizationPercent": 42, "limitPercent": 100 }`.
+
+The summary contains counters and percentages only. It does not include todo
+titles, paths, chat content, hostnames, or identifiers. Todo and Watcher counts
+are scoped to the external token's workspace; provider usage comes from the
+existing plan-limit readings. The tool uses the normal external token
+authentication, audit trail, and per-client rate limit.
+
 ## External clients: operator mode
 
 An external client token (Settings → MCP → external clients, endpoint `/mcp`) has one of three modes: `plan` (read-only tools), `agent` (the whole builtin catalog) or `operator`. `operator` is `agent` plus tools that act for the user who created the token, for example Claude Code supervising a long Todo run overnight:
@@ -226,6 +317,7 @@ An external client token (Settings → MCP → external clients, endpoint `/mcp`
 - `operator_watcher_limits` — read (no `limits`) or change the Watcher throughput limits (`limits`: maxParallel 1-5, maxParallelWorktree/Project 0-5, maxCyclesPerDay, maxConsecutiveFailures, maxSameFindings, cooldownMs, backoffBaseMs, backoffCapMs; `confirm: true`, operator lease). Policy fields beyond the numbers go through `operator_watcher_policy`; mode and stop reason stay Settings-only.
 - `operator_watcher_policy` — read (no `patch`) or patch whitelisted Watcher policy fields (`patch`, `confirm: true`, operator lease; sensitive fields need `reason`; result shows before/after).
 - `operator_server_status` — read-only readiness probe (pid, uptime).
+- `operator_restart` — supervised server restart, `mode: drain|fast` (see the playbook §3); requires `confirm: true`.
 - `operator_todo_reserve` / `operator_todo_release` — hold a todo out of Watcher selection (default 4 h, max 24 h).
 - `operator_scout_enable` — enable or disable all Workspace Watcher scouts for this workspace (`enabled`, `confirm: true`); profile and finding mutations are lease-protected.
 - `operator_guide` — the full operator playbook (`docs/mcp/OPERATOR-PLAYBOOK.md`): monitoring loop, restarts and resuming, integrating worktree leaves, known traps, building todo trees. Every external client also gets short `instructions` in the MCP `initialize` result (common rules; operator clients additionally the operator loop and a pointer to `operator_guide`).
@@ -233,6 +325,7 @@ An external client token (Settings → MCP → external clients, endpoint `/mcp`
 - `operator_settings_get` — list safe Settings sections or read one allowlisted section. Sensitive fields are redacted; secrets, auth, human gates and browser/network security settings are excluded. This tool is read-only.
 - `operator_settings_set` — patch a REST-backed safe Settings section (`general`, `autoTitle`, `chatAutoArchive`, `debug` or `sdk`). Uses the same validation and save path as `PATCH /api/settings`; requires an operator lease, `confirm: true` and a non-empty `reason`. Fields outside the section or on the sensitive denylist are rejected. Writes are journaled with redacted before/after values.
 - `operator_plan_approve` — approves a Todo plan like the Approve button: CAS on `expected_updated_at`, refused without a plan or while the plan review round is `pending`, and recorded in the todo changelog with the client name and persisted as `plan.approvedBy` (`{ kind: 'mcp-operator', clientId, clientName }`, also shown as `plan_approved_by` in `todo_show`); UI approvals leave it unset and agents cannot write it.
+- `operator_propose` — creates an `operator_proposal` decision card (`todo_id`, `action` one of `extend_scope`, `defer_todo`, `mark_ready_for_integration`, `params`). The operator can only create the card; the owner resolves it in the UI and the server applies the action with a CAS on the todo revision. See [decision cards](../decision-cards.md#operator-proposals).
 - `operator_scope_accept` — accepts the scope proposal a `needs_rescope` report left on a leaf (`watcher_report` `scope_request` `{ files, reason }`, stored as the `## Scope request` body section): the files are appended to `## Leaf scope`, the proposal is removed, the leaf's blocked backoff, blocked-reason streak and failure counter are cleared and a parked (`idea`) leaf becomes `ready`, so the next Watcher cycle resumes from the existing worktree diff (fix round). Optional `files` accepts a subset (the rest stays proposed) and `expected_updated_at` is a CAS token; recorded in the todo changelog with the client name. Refused with `NOT_FOUND` when no proposal is open. REST equivalent: `POST /api/todos/:id/scope-request/accept`.
 - `operator_plan_review_start` — starts the plan review loop for a todo with a draft plan, like "Plan review" in the Todo panel: a fresh read-only coordinator chat gets the server-built refine prompt and starts the reviewers itself. External clients use it (or `todo_start`, or a ready leaf for the Watcher) instead of `reviewer_session` / `delegation_start`, which need a calling chat. An omitted `model` or `auto` selects the harness default (the Cursor default for `sdk`); the result reports the stored `model`, with an empty value denoting a non-SDK harness default. Preflight: before any chat is created the server counts the independent reviewers that qualify (the `model_pick` review path, `diverse`, i.e. one per enabled, ready, delegatable harness; the coordinator's own base model is the only coordinator-derived exclusion, its harness is not). With fewer than two the response is `{ todo_id, accepted: false, code: "insufficient_independent_reviewers", available, required, reviewers, blocked_reason }`, no coordinator is started, the todo's `blocked_reason` (`todo_show`) is set to `insufficient_independent_reviewers` and one Watcher `blocked` notification is pushed. `todo.review` is not touched (it stays server-written). The block is cleared by a successful start or the next todo `status` change; a refusal is not memoized under the `idempotency_key`.
 - `operator_integrate_tree` — integrates a finished todo subtree with one agent chat, like "Integrate subtree with agent" in the Todo panel: the server queues the eligible leaves under `todo_id` in tree order (smart merge for live worktree results, verify for finished todos without one), takes the workspace integration lock, creates the `[Integrate]` chat and starts it. Nothing is pushed; the agent confirms each entry through the usual guarded path. A retry with the same `idempotency_key` returns the first result.

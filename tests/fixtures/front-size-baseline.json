@@ -224,6 +224,10 @@
       "lines": 96,
       "innerHTML": 0
     },
+    "app_front/components/ui/cr-scope-badge.js": {
+      "lines": 37,
+      "innerHTML": 0
+    },
     "app_front/components/ui/cr-searchable-select.js": {
       "lines": 719,
       "innerHTML": 3
@@ -262,6 +266,10 @@
     },
     "app_front/core/api/chats.js": {
       "lines": 782,
+      "innerHTML": 0
+    },
+    "app_front/core/api/devices.js": {
+      "lines": 42,
       "innerHTML": 0
     },
     "app_front/core/api/docs.js": {
@@ -446,6 +454,10 @@
     },
     "app_front/features/apps/index.js": {
       "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/apps/takeoverPids.js": {
+      "lines": 34,
       "innerHTML": 0
     },
     "app_front/features/browser/browserAccessDialog.js": {
@@ -928,6 +940,10 @@
       "lines": 316,
       "innerHTML": 0
     },
+    "app_front/features/chat/history/services/viewportController.js": {
+      "lines": 141,
+      "innerHTML": 0
+    },
     "app_front/features/chat/history/services/workspaceFileLinks.js": {
       "lines": 28,
       "innerHTML": 0
@@ -998,6 +1014,10 @@
     },
     "app_front/features/chat/newChatWorkspacePick.js": {
       "lines": 67,
+      "innerHTML": 0
+    },
+    "app_front/features/chat/operatorChat.js": {
+      "lines": 172,
       "innerHTML": 0
     },
     "app_front/features/chat/pageResumeTrace.js": {
@@ -1313,8 +1333,32 @@
       "innerHTML": 0
     },
     "app_front/features/delegations/delegationCenter.js": {
-      "lines": 491,
+      "lines": 488,
       "innerHTML": 3
+    },
+    "app_front/features/devices/deviceRunActions.js": {
+      "lines": 16,
+      "innerHTML": 0
+    },
+    "app_front/features/devices/deviceViewModel.js": {
+      "lines": 93,
+      "innerHTML": 0
+    },
+    "app_front/features/devices/devicesPanel.js": {
+      "lines": 364,
+      "innerHTML": 0
+    },
+    "app_front/features/devices/index.js": {
+      "lines": 2,
+      "innerHTML": 0
+    },
+    "app_front/features/devices/runConsentCard.js": {
+      "lines": 94,
+      "innerHTML": 0
+    },
+    "app_front/features/devices/runConsentView.js": {
+      "lines": 16,
+      "innerHTML": 0
     },
     "app_front/features/docs/cr-doc-links.js": {
       "lines": 72,
@@ -1420,6 +1464,14 @@
       "lines": 73,
       "innerHTML": 0
     },
+    "app_front/features/fleet/cr-fleet-tile.js": {
+      "lines": 32,
+      "innerHTML": 0
+    },
+    "app_front/features/fleet/fleetPanel.js": {
+      "lines": 75,
+      "innerHTML": 0
+    },
     "app_front/features/git/gitContextBadge.js": {
       "lines": 202,
       "innerHTML": 0
@@ -1489,7 +1541,7 @@
       "innerHTML": 0
     },
     "app_front/features/harness-health/harnessModelStats.js": {
-      "lines": 72,
+      "lines": 69,
       "innerHTML": 1
     },
     "app_front/features/harness-health/harnessModelStatsModel.js": {
@@ -1620,6 +1672,10 @@
       "lines": 24,
       "innerHTML": 0
     },
+    "app_front/features/sendBar/sendBarPromptSuggestion.js": {
+      "lines": 32,
+      "innerHTML": 0
+    },
     "app_front/features/sendBar/sendBarSendMenu.js": {
       "lines": 144,
       "innerHTML": 0
@@ -1684,6 +1740,10 @@
       "lines": 170,
       "innerHTML": 1
     },
+    "app_front/features/settings/externalMcpConnectCards.js": {
+      "lines": 338,
+      "innerHTML": 0
+    },
     "app_front/features/settings/externalMcpSettings.js": {
       "lines": 523,
       "innerHTML": 2
@@ -1698,6 +1758,10 @@
     },
     "app_front/features/settings/harnessVersionModel.js": {
       "lines": 367,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/lessonTextLimit.js": {
+      "lines": 28,
       "innerHTML": 0
     },
     "app_front/features/settings/localHarnessPlugins.js": {
@@ -1798,6 +1862,10 @@
     },
     "app_front/features/settings/settingsFooters.js": {
       "lines": 29,
+      "innerHTML": 0
+    },
+    "app_front/features/settings/settingsScopeBadges.js": {
+      "lines": 67,
       "innerHTML": 0
     },
     "app_front/features/settings/supervisorSettings.js": {
@@ -2517,7 +2585,7 @@
       "innerHTML": 0
     },
     "app_front/features/usage/usageSettings.js": {
-      "lines": 995,
+      "lines": 991,
       "innerHTML": 0
     },
     "app_front/features/usage/usageViews.js": {
@@ -2601,7 +2669,7 @@
       "innerHTML": 0
     },
     "app_front/features/voice/realtimeWorkDeps.js": {
-      "lines": 88,
+      "lines": 81,
       "innerHTML": 0
     },
     "app_front/features/voice/recorder.js": {
@@ -2654,6 +2722,10 @@
     },
     "app_front/features/voice/voiceCommandCatalog.js": {
       "lines": 42,
+      "innerHTML": 0
+    },
+    "app_front/features/voice/voiceCommandTypes.js": {
+      "lines": 40,
       "innerHTML": 0
     },
     "app_front/features/voice/voiceConfirmBinding.js": {
@@ -2836,6 +2908,10 @@
       "lines": 350,
       "innerHTML": 7
     },
+    "app_front/features/watcher/watcherRestartActions.js": {
+      "lines": 52,
+      "innerHTML": 0
+    },
     "app_front/features/watcher/watcherStatus.js": {
       "lines": 320,
       "innerHTML": 0
@@ -2845,7 +2921,7 @@
       "innerHTML": 0
     },
     "app_front/features/watcher/watcherWorkspaceScope.js": {
-      "lines": 88,
+      "lines": 71,
       "innerHTML": 0
     },
     "app_front/features/widgets/index.js": {

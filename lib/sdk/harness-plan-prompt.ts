@@ -206,6 +206,7 @@ export function buildVolatileDecorationBlocks(input: Record<string, any>, skills
     [PROMPT_DECORATION_BLOCK.TITLE_HINT]: buildAgentTitleHint({
       chatId: input.chatId,
       mode: input.mode,
+      chat: input.chat,
     }),
   };
 }
@@ -477,6 +478,7 @@ export function buildSdkVolatileDecorationBlocks(input: Record<string, any>, ski
     [PROMPT_DECORATION_BLOCK.TITLE_HINT]: buildAgentTitleHint({
       chatId: input.chatId,
       mode: input.mode,
+      chat: input.chat,
     }),
   };
 }

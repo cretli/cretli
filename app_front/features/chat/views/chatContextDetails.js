@@ -24,6 +24,7 @@ export function resolveContextDetailsSourceLabel(source) {
   if (normalized === 'sdk-live') return t('chat.contextDetailsSourceSdkLive');
   if (normalized === 'sdk-history') return t('chat.contextDetailsSourceSdkHistory');
   if (normalized === 'codex-measured') return t('chat.contextDetailsSourceCodexMeasured');
+  if (normalized === 'antigravity-measured') return t('chat.contextDetailsSourceAntigravityMeasured');
   if (normalized === 'claude-measured') return t('chat.contextDetailsSourceClaudeMeasured');
   if (normalized === 'claude-estimated') return t('chat.contextDetailsSourceClaudeEstimated');
   if (normalized === 'claude-no-data') return t('chat.contextDetailsSourceClaudeNoData');

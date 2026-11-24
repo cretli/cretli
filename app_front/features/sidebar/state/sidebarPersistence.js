@@ -8,6 +8,12 @@ export const SIDEBAR_PIN_KEY = 'cretli-sidebar-pinned';
 export const SIDEBAR_WIDTH_KEY = 'cretli-sidebar-width';
 export const SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY = 'cretli-sidebar-pin-active-workspace';
 export const SIDEBAR_WATCHER_SHOW_ALL_KEY = 'cretli-sidebar-watcher-show-all';
+export const SIDEBAR_VIEW_MODE_KEY = 'cretli-sidebar-view-mode';
+/** Pre-modes flag of the recent-chats flat view; read once to migrate. */
+const LEGACY_RECENT_FLAT_KEY = 'cretli-sidebar-recent-flat';
+const LEGACY_RECENT_COLLAPSED_KEY = 'cretli-sidebar-recent-collapsed';
+
+export const SIDEBAR_VIEW_MODES = ['workspaces', 'all', 'agents'];
 
 function readFlag(key) {
   if (typeof localStorage === 'undefined') return false;
@@ -33,6 +39,43 @@ export const readPinActiveWorkspaceFlag = () => readFlag(SIDEBAR_PIN_ACTIVE_WORK
 export const writePinActiveWorkspaceFlag = (value) => writeFlag(SIDEBAR_PIN_ACTIVE_WORKSPACE_KEY, value);
 export const readWatcherShowAllFlag = () => readFlag(SIDEBAR_WATCHER_SHOW_ALL_KEY);
 export const writeWatcherShowAllFlag = (value) => writeFlag(SIDEBAR_WATCHER_SHOW_ALL_KEY, value);
+/**
+ * Sidebar view mode: `workspaces` (grouped, default), `all` (one flat recent list) or
+ * `agents` (workspace watchers). A missing key migrates from the old flat flag once.
+ *
+ * @returns {'workspaces' | 'all' | 'agents'}
+ */
+let cachedViewMode = null;
+
+/** Drop the cached mode (another tab changed it). */
+export function invalidateViewModeCache() {
+  cachedViewMode = null;
+}
+
+export function readViewMode() {
+  if (cachedViewMode) return cachedViewMode;
+  if (typeof localStorage === 'undefined') return 'workspaces';
+  try {
+    const stored = readStorageValueWithAlias(localStorage, SIDEBAR_VIEW_MODE_KEY, '');
+    if (SIDEBAR_VIEW_MODES.includes(stored)) return (cachedViewMode = /** @type {any} */ (stored));
+    const migrated = readFlag(LEGACY_RECENT_FLAT_KEY) ? 'all' : 'workspaces';
+    writeStorageValueWithAlias(localStorage, SIDEBAR_VIEW_MODE_KEY, migrated);
+    localStorage.removeItem(LEGACY_RECENT_FLAT_KEY);
+    localStorage.removeItem(LEGACY_RECENT_COLLAPSED_KEY);
+    return (cachedViewMode = /** @type {any} */ (migrated));
+  } catch (_) {
+    return 'workspaces';
+  }
+}
+
+/** @param {string} mode */
+export function writeViewMode(mode) {
+  if (typeof localStorage === 'undefined' || !SIDEBAR_VIEW_MODES.includes(mode)) return;
+  try {
+    writeStorageValueWithAlias(localStorage, SIDEBAR_VIEW_MODE_KEY, mode);
+    cachedViewMode = /** @type {any} */ (mode);
+  } catch (_) {}
+}
 
 function readSet(key, normalize = (value) => String(value || '').trim()) {
   if (typeof localStorage === 'undefined') return new Set();

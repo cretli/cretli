@@ -1,7 +1,8 @@
 import { matchesSidebarSearch } from '../sidebarSearch.js';
 import { collectActiveChatChain, filterChatsByWorktree, filterChatsToLive, chatWorktreeTodoId } from '../sidebarOnlyActiveFilter.js';
 import { readSidebarFavoritesFirstFlag, readSidebarOnlyFavoritesFlag, readSidebarSortMode, filterChatsToFavorites } from '../sidebarListSort.js';
-import { listCloneFoldersForWorkspaceFile, chatBelongsToWorkspaceGroup } from '../workspaceChatMatch.js';
+import { listCloneFoldersForWorkspaceFile, chatBelongsToWorkspaceGroup, findWorkspaceForFolder } from '../workspaceChatMatch.js';
+import { sortChatsByOpened } from '../sidebarOpenedOrder.js';
 
 /** Search and workspace scoping for the sidebar list. */
 export function createSidebarSearchService({
@@ -120,6 +121,8 @@ export function createSidebarSearchService({
   }
 
   function chatsForWorkspace(workspace) {
+    // The virtual flat view owns every chat; per-chat scoping happens in the caller.
+    if (workspace.isAllChats === true) return getChats();
     const workspaceFile = normalizePath(workspace.workspaceFile);
     if (!workspaceFile) return [];
     const memoKey = chatsFingerprint() + '\u0004' + workspacesFingerprint(workspace);
@@ -142,7 +145,9 @@ export function createSidebarSearchService({
 
   function visibleChatsForWorkspace(workspace) {
     // The search pool expansion depends on external hydration state: no memo while searching.
-    const memoable = typeof expandWorkspaceChatsForSearch !== 'function' || !isActive();
+    // The flat view re-sorts on every open (last-opened time is not in the fingerprint).
+    const memoable = workspace.isAllChats !== true
+      && (typeof expandWorkspaceChatsForSearch !== 'function' || !isActive());
     const worktreeId = activeWorktreeFilterId();
     const liveKey = liveFilterKey();
     const memoKey = memoable
@@ -155,7 +160,10 @@ export function createSidebarSearchService({
     stats.visibleChatsForWorkspace += 1;
     const workspaceName = workspace.name || workspace.workspaceFile || '';
     const scoped = filterChatsByWorktree(
-      orderedChats(chatsForWorkspace(workspace)), worktreeId,
+      workspace.isAllChats === true
+        ? sortChatsByOpened(chatsForWorkspace(workspace), readSidebarFavoritesFirstFlag() ? (chat) => isFavorite(chat.id) : () => false)
+        : orderedChats(chatsForWorkspace(workspace)),
+      worktreeId,
     );
     const chain = activeChainIds();
     const live = liveKey
@@ -164,18 +172,27 @@ export function createSidebarSearchService({
     const filtered = readSidebarOnlyFavoritesFlag() && !isActive()
       ? filterChatsToFavorites(live, { isFavorite: (chat) => isFavorite(chat.id), activeChatId: getActiveChatId(), keepIds: chain })
       : live;
-    const pool = typeof expandWorkspaceChatsForSearch === 'function'
+    const pool = typeof expandWorkspaceChatsForSearch === 'function' && workspace.isAllChats !== true
       ? expandWorkspaceChatsForSearch(workspace, filtered)
       : filtered;
     const value = pool
-      .filter((chat) => chat?.watcherPinned !== true)
-      .filter((chat) => matchesSidebarSearch(query, { title: chat.title, workspaceName }));
+      .filter((chat) => chat?.watcherPinned !== true && chat?.operatorChat !== true)
+      .filter((chat) => matchesSidebarSearch(query, {
+        title: chat.title,
+        // In the flat view a chat is matched by its own workspace name (only looked up
+        // while searching: the lookup walks the registry per chat).
+        workspaceName: workspace.isAllChats === true
+          ? (isActive() ? findWorkspaceForFolder(getWorkspaces(), chat.workspaceFolder || '', getPreferredWorkspaceFolder)?.name || '' : '')
+          : workspaceName,
+      }));
     if (memoable) visibleMemo.set(wsKey(workspace), { key: memoKey, value });
     return value;
   }
 
   function archivedCountForWorkspace(workspace) {
     const counts = getArchivedCounts() || {};
+    // The flat view lists live chats only; there is no archive section for it.
+    if (workspace.isAllChats === true) return 0;
     const workspaceFile = normalizePath(workspace.workspaceFile);
     if (!workspaceFile) return 0;
     // Parse the key strings once per counts object (a new object means new counts).

@@ -38,6 +38,12 @@ class CrBarTextarea extends LitElement {
         background var(--cr-transition, 120ms ease);
     }
 
+    @media (max-width: 768px) {
+      .control {
+        font-size: 16px;
+      }
+    }
+
     .control::placeholder {
       color: var(--cr-text-muted);
     }

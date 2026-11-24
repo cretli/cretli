@@ -39,8 +39,9 @@ import { escapeHtml } from '../../chat/chatHtmlUtils.js';
  *   getHostPagePickLabel?: (context: object) => string,
  *   sendActions?: Array<{ id: string, label: string, icon?: string, onSelect: (text: string, meta: { rawText: string, hasText: boolean, hasTrimmedText: boolean, attachmentPaths: string[] }) => boolean | Promise<boolean> }>,
  *   keepInputFocus?: boolean,
+ *   onContextLayoutChange?: () => void,
  * }} options
- * @returns {{ root: HTMLElement, input: HTMLInputElement|HTMLTextAreaElement, focusInput: () => void, submit: (options?: { actionId?: string }) => void | Promise<boolean>, setPlaceholder: (s: string) => void, setReadOnly: (bool: boolean) => void, stopDictation: () => void, startDictation: () => void, setMultiline: (bool: boolean) => void, isMultiline: () => boolean, addExtraBar: (element: HTMLElement) => void }}
+ * @returns {{ root: HTMLElement, input: HTMLInputElement|HTMLTextAreaElement, focusInput: () => void, submit: (options?: { actionId?: string }) => void | Promise<boolean>, setPlaceholder: (s: string) => void, setReadOnly: (bool: boolean) => void, stopDictation: () => void, startDictation: () => void, setMultiline: (bool: boolean) => void, isMultiline: () => boolean, addExtraBar: (element: HTMLElement) => void, todoChipHost: HTMLElement, promptSuggestionHost: HTMLElement, syncContextStack: () => void, addContextItem: (element: HTMLElement) => void }}
  */
 export function createSendBar(options) {
   const {
@@ -142,15 +143,18 @@ export function createSendBar(options) {
   const todoChipHost = document.createElement('div');
   todoChipHost.className = 'send-keys-todo-chip';
   todoChipHost.hidden = true;
+  const promptSuggestionHost = document.createElement('div');
+  promptSuggestionHost.className = 'send-keys-todo-chip';
+  promptSuggestionHost.hidden = true;
   const attachmentsBar = document.createElement('div');
   attachmentsBar.className = 'send-keys-attachments-bar';
   attachmentsBar.hidden = true;
-  contextStack.append(todoChipHost, attachmentsBar);
+  contextStack.append(promptSuggestionHost, todoChipHost, attachmentsBar);
   root.prepend(contextStack);
 
   const contextStackState = createSendBarContextStack({
     stack: contextStack,
-    members: [todoChipHost, attachmentsBar],
+    members: [promptSuggestionHost, todoChipHost, attachmentsBar],
     onChange: () => {
       if (typeof options.onContextLayoutChange === 'function') options.onContextLayoutChange();
     },
@@ -447,6 +451,7 @@ export function createSendBar(options) {
     addExtraBar,
     attachTextareaToWrap: () => inputController.attachTextareaToWrap(),
     todoChipHost,
+    promptSuggestionHost,
     syncContextStack,
     addContextItem,
   };

@@ -112,6 +112,11 @@ test('real stdio-to-HTTP handshake keeps Chrome tools when an external MCP serve
     const { tools } = await client.listTools();
     assert.ok(tools.some((tool) => tool.name.endsWith('__chrome_tools')));
     assert.ok(tools.some((tool) => tool.name.endsWith('__chrome_call')));
+    for (const name of ['chrome_ext_status', 'chrome_ext_open', 'chrome_ext_docs', 'chrome_ext_fetch']) {
+      const tool = tools.find((row) => row.name.endsWith(`__${name}`));
+      assert.ok(tool, name);
+      assert.equal(tool.inputSchema.type, 'object');
+    }
     assert.ok(tools.some((tool) => tool.name.endsWith('__chat_show')));
   } finally {
     await client.close();

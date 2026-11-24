@@ -149,7 +149,7 @@ export function createCarChoiceFlow(deps) {
         return { ok: false, code: cards.length === 0 ? 'no_card' : 'ambiguous_card' };
       }
       const choice = buildCarChoice(card, { source: args?.source });
-      if (!choice.ok) return { ok: false, code: choice.code };
+      if (choice.ok === false) return { ok: false, code: choice.code };
       const number = parseOptionNumber(args?.option);
       const picked = number
         ? choice.options[number - 1]
@@ -186,7 +186,7 @@ export function createCarChoiceFlow(deps) {
       if (!card || !choice.ok || choice.revision !== current.revision
         || !choice.options.some((option) => option.id === current.optionId)) {
         pending = null;
-        return { ok: false, code: choice.ok ? 'stale' : choice.code };
+        return { ok: false, code: choice.ok === false ? choice.code : 'stale' };
       }
       pending = null;
       const result = await runOnce(`${current.cardId}:${current.revision}`, () => deps.submit({
@@ -196,7 +196,7 @@ export function createCarChoiceFlow(deps) {
       }));
       return result.ok
         ? { ok: true, cardId: current.cardId, optionId: current.optionId }
-        : { ok: false, code: result.stale ? 'stale' : 'send_failed', error: result.error };
+        : { ok: false, code: /** @type {any} */ (result).stale ? 'stale' : 'send_failed', error: result.error };
     },
   };
 }

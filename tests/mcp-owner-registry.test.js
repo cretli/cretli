@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { createMcpServer, disposeMcpContext } from '../lib/mcp/mcp-service.js';
 import {
   callTool,
-  listTools,
   resetMcpRuntimeForTests,
   snapshotPoolEntries,
 } from '../lib/mcp/mcp-runtime.js';
@@ -26,7 +25,7 @@ const fixture = path.join(here, 'helpers/mcp-fixture-server.js');
 process.env.CRETLI_MCP_CONNECT_TIMEOUT_MS = '8000';
 
 const created = await createMcpServer({
-  name: 'Owners', enabled: true, harnesses: ['sdk'], transport: 'stdio',
+  name: 'Owners', enabled: true, harnesses: ['sdk', 'openrouter'], transport: 'stdio',
   connection: { command: process.execPath, args: [fixture] },
 }, 0);
 const server = normalizeMcpServers(loadMcpDocument().servers).find((row) => row.id === created.server.id);
@@ -45,7 +44,7 @@ after(async () => {
 test('pool entries carry age, active-call counter and owner generation', async () => {
   const room = { busy: false };
   rooms.set('s-meta', room);
-  await listTools(ctx('s-meta'), server);
+  await callTool(ctx('s-meta'), server, 'ping_read', {});
   const [entry] = snapshotPoolEntries().filter((e) => e.sessionId === 's-meta');
   assert.ok(entry.createdAt > 0 && entry.lastUsedAt >= entry.createdAt);
   assert.equal(entry.activeCalls, 0);
@@ -58,7 +57,7 @@ test('pool entries carry age, active-call counter and owner generation', async (
 });
 
 test('a harness without a registered source reports unknown, never ownerless', async () => {
-  await listTools({ ...ctx('s-unk'), harness: 'openrouter' }, server);
+  await callTool({ ...ctx('s-unk'), harness: 'openrouter' }, server, 'ping_read', {});
   const [entry] = snapshotPoolEntries().filter((e) => e.sessionId === 's-unk');
   assert.equal(classifyOwner(entry), 'unknown');
   await teardown('s-unk');
@@ -66,7 +65,7 @@ test('a harness without a registered source reports unknown, never ownerless', a
 
 test('room close during connect cancels the pending connect', async () => {
   rooms.set('s-race', {});
-  const racing = listTools(ctx('s-race'), server).then(() => 'connected', () => 'rejected');
+  const racing = callTool(ctx('s-race'), server, 'ping_read', {}).then((r) => (r.ok ? 'connected' : 'rejected'), () => 'rejected');
   await teardown('s-race');
   rooms.delete('s-race');
   assert.equal(await racing, 'rejected');
@@ -96,9 +95,9 @@ test('reopening the same sessionId right after close keeps the new generation co
 test('observation never closes live, delegation-without-client or unknown-owner connections', async () => {
   rooms.set('s-live', { clients: new Set(), busy: false });
   rooms.set('s-deleg', { clients: new Set(), busy: true, serverHold: true });
-  await listTools(ctx('s-live'), server);
-  await listTools(ctx('s-deleg'), server);
-  await listTools({ ...ctx('s-unk2'), harness: 'openrouter' }, server);
+  await callTool(ctx('s-live'), server, 'ping_read', {});
+  await callTool(ctx('s-deleg'), server, 'ping_read', {});
+  await callTool({ ...ctx('s-unk2'), harness: 'openrouter' }, server, 'ping_read', {});
   const before = snapshotPoolEntries().length;
   const observer = createMcpResourceObserver({ measure: () => ({ state: 'ok', children: 3, rssKb: 10, byProgram: {} }) });
   for (let i = 0; i < 8; i += 1) observer.sample();

@@ -48,14 +48,20 @@ export function buildSidebarChatRowHtml(chat, activeChatId, opts, deps) {
       mistral: 'Mistral',
       zai: 'Z.AI SDK',
       mimo: 'MiMo',
+      antigravity: 'Antigravity',
       codex: 'Codex',
       qwen: 'Qwen',
       claude: 'Claude',
     })[harness] || 'Cursor SDK';
   const harnessModifier = localHarnessDisplay.blocked
     ? 'local'
-    : (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'mistral', 'zai', 'mimo', 'codex', 'qwen', 'claude'].includes(harness) ? harness : 'sdk'));
+    : (harness === 'cursor-sdk' ? 'sdk' : (['sdk', 'openrouter', 'opencode', 'codebuddy', 'deepseek', 'mistral', 'zai', 'mimo', 'antigravity', 'codex', 'qwen', 'claude'].includes(harness) ? harness : 'sdk'));
   const harnessTitle = localHarnessDisplay.blocked ? resolvePersistedLocalChatUnavailableMessage(chat, t) : harnessLabel;
+  // Flat view: which workspace the chat belongs to (marker + name).
+  const resolveWorkspaceLineHtml = /** @type {any} */ (deps).resolveWorkspaceLineHtml;
+  const workspaceLineHtml = typeof resolveWorkspaceLineHtml === 'function'
+    ? resolveWorkspaceLineHtml(chat)
+    : '';
   const actionHtml = typeof deps.renderChatActionButtonsHtml === 'function'
     ? deps.renderChatActionButtonsHtml(chat, { archived })
     : '';
@@ -76,6 +82,7 @@ export function buildSidebarChatRowHtml(chat, activeChatId, opts, deps) {
     + (archived ? ' is-archived' : '')
     + (hasPinAction ? ' has-pin-actions' : '')
     + (pushPreview ? ' has-push-preview' : '')
+    + (workspaceLineHtml ? ' has-workspace-line' : '')
     + '" role="option" aria-selected="'
     + (chat.id === activeChatId ? 'true' : 'false')
     + '" data-chat-id="'
@@ -134,6 +141,9 @@ export function buildSidebarChatRowHtml(chat, activeChatId, opts, deps) {
       ? '<span class="sidebar-chat-item-pin-badge" title="' + escapeHtml(t('sidebar.pinnedUrlTitle')) + '">URL</span>'
       : '')
     + '</span>'
+    + (workspaceLineHtml
+      ? '<span class="sidebar-chat-item-workspace">' + workspaceLineHtml + '</span>'
+      : '')
     + (pushPreview && !archived
       ? '<span class="sidebar-chat-item-preview" title="'
         + escapeHtml(pushPreview)

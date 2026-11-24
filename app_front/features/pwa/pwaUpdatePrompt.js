@@ -153,7 +153,7 @@ function showPwaUpdateBanner() {
   banner.innerHTML = `
     <span class="cr-pwa-update-banner__text">${t('pwa.updateAvailable')}</span>
     <button type="button" class="cr-pwa-update-banner__action">${t('pwa.reloadApp')}</button>
-    <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('pwa.dismissUpdate')}">×</button>
+    <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('pwa.dismissUpdate')}"><span class="mdi mdi-close" aria-hidden="true"></span></button>
   `;
   const action = banner.querySelector('.cr-pwa-update-banner__action');
   const dismiss = banner.querySelector('.cr-pwa-update-banner__dismiss');

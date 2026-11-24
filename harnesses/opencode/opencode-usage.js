@@ -152,3 +152,24 @@ export function resolveOpenCodeUsageFromStreamEvent(event, tokensByMessageId) {
   }
   return null;
 }
+
+/**
+ * Assistant messages created at or after the run start. A session is shared by
+ * every run of a chat, so the end-of-run fallback must not replay earlier runs.
+ * Messages without a creation time are skipped (cannot be attributed).
+ *
+ * @param {unknown[]} messages `session.messages` entries (`{ info, parts }`)
+ * @param {number} runStartedAtMs
+ * @returns {Record<string, unknown>[]} message infos of the current run
+ */
+export function selectOpenCodeRunAssistantInfos(messages, runStartedAtMs) {
+  if (!Number.isFinite(runStartedAtMs) || runStartedAtMs <= 0) return [];
+  const infos = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const info = asRecord(asRecord(message)?.info);
+    if (!info || info.role !== 'assistant') continue;
+    const created = Number(asRecord(info.time)?.created);
+    if (Number.isFinite(created) && created >= runStartedAtMs) infos.push(info);
+  }
+  return infos;
+}

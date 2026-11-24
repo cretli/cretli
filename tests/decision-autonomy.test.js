@@ -153,7 +153,7 @@ test('cards derive harness from the source chat and diff size from evidence', as
   assert.equal(deriveDiffSize([{ filesChanged: 7 }]), 7);
   assert.equal(deriveDiffSize([{ diffStat: '3 files changed, 10 insertions(+), 4 deletions(-)' }]), 14);
   assert.equal(deriveDiffSize([{ label: 'x' }]), null);
-  const { addChat } = await import('../lib/persist/chats-persist.js');
+  const { addChat } = await import('../lib/persist/chats-legacy-store.js');
   const chat = addChat('sess-harness', 'Harness chat', null, ws, 'm', { agentTransport: 'codex' });
   const viaChat = await createDecision(dataDir, { kind: 'question', workspaceFolder: ws, title: 'C', subject: { chatId: chat.id, updatedAt: '1' },
     dedupeKey: 'harness-chat', options: opts, recommended: 'yes' });

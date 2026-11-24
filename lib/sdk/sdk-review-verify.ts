@@ -10,6 +10,7 @@
  * before spawn.
  */
 
+import { applyBackgroundPriority } from '../process-priority.js';
 import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -989,6 +990,7 @@ function spawnReviewVerifyFileNow(input: {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     });
+    applyBackgroundPriority(child.pid);
     let stdout = '';
     let stderr = '';
     let settled = false;

@@ -2,7 +2,7 @@ import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { CretliApiClient } from '../lib/remote-api-client.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';

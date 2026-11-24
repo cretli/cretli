@@ -196,7 +196,7 @@ test('reachesPersist follows transitive and dynamic imports', () => {
 test('isolationViolations reproduces the todo-tools incident shape', () => {
   const abs = '/r/tests/x.test.js';
   const files = {
-    '/r/tests/fixtures/fake-transport.js': "import { saveChats } from '../../lib/persist/chats-persist.js';",
+    '/r/tests/fixtures/fake-transport.js': "import { saveChats } from '../../lib/persist/chats-legacy-store.js';",
     '/r/tests/helpers/isolated-data-dir.js': '',
     '/r/lib/persist/chats-persist.js': "import { resolveDataPath } from '../runtime-paths.js';",
     '/r/lib/runtime-paths.js': '',

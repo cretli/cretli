@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { DELEGATION_MCP_TOOLS } from '../lib/mcp/builtin/delegation-tools.js';
 import { inspectReviewRecheckWithoutChange } from '../lib/delegation-review-recheck-gate.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';

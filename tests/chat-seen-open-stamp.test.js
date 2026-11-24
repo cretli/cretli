@@ -2,7 +2,7 @@ import './helpers/isolated-data-dir.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import express from 'express';
-import { loadChats, saveChats } from '../lib/persist/chats-persist.js';
+import { loadChats, saveChats } from '../lib/persist/chats-legacy-store.js';
 import { registerChatsRoutes } from '../lib/routes/chats-routes.js';
 import { widgetChatListScope } from '../lib/widget/widget-chat-scope.ts';
 

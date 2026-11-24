@@ -114,7 +114,7 @@ test('unreadable todos fail closed', async () => {
 });
 
 // ---- real persistence layer (temp data dir from isolated-data-dir.js) ----
-import { saveChats, loadChats } from '../lib/persist/chats-persist.js';
+import { saveChats, loadChats } from '../lib/persist/chats-legacy-store.js';
 
 const realDeps = () => ({
   isChatRunConfirmedIdle: () => true,

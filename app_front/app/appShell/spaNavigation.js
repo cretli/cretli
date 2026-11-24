@@ -1,3 +1,5 @@
+import { syncSettingsSidebarMode } from '../../features/settings/settingsSidebarMode.js';
+import { syncSettingsNavigationView } from '../../features/settings/settingsNavigationState.js';
 /**
  * SPA navigation (plan stage 3): single owner of History API writes.
  *
@@ -316,7 +318,11 @@ export function createSpaNavigation(deps = {}) {
     if (token !== generation) return;
     showPanel(panel, modeConfig);
     if (token !== generation) return;
-    if (panel === 'settings' && route.settingsTab) applySettingsTab(route.settingsTab);
+    if (panel === 'settings') {
+      if (route.settingsTab) applySettingsTab(route.settingsTab);
+      syncSettingsNavigationView(route.settingsTab);
+    }
+    syncSettingsSidebarMode(panel, route.settingsTab);
     if (panel === 'git') applyGitSubview(route.subview || 'main');
     applyRouteGitScope();
     await restoreRouteResources(route, token);

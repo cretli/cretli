@@ -70,7 +70,7 @@ test('Breakdown head renders sortable headers with aria-sort for tr/thead hosts'
   const out = templateToString(renderBreakdownHeadView(columns, { sortKey: 'tokens', sortDir: 'asc' }, t));
   assert.match(out, /^<tr>/);
   assert.match(out, /<th scope="col">usage\.colModel<\/th>/);
-  assert.match(out, /aria-sort="ascending"><button type="button" class="settings-usage-sort is-active" data-sort-key="tokens">usage\.colTokens<span class="settings-usage-sort-arrow" aria-hidden="true">▲<\/span>/);
+  assert.match(out, /aria-sort="ascending"><button type="button" class="settings-usage-sort is-active" data-sort-key="tokens">usage\.colTokens<span class="settings-usage-sort-arrow" aria-hidden="true"><span class="mdi mdi-arrow-up"><\/span><\/span>/);
   assert.match(out, /aria-sort="none"><button type="button" class="settings-usage-sort" data-sort-key="usd">/);
 });
 

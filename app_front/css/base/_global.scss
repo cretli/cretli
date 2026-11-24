@@ -3,6 +3,20 @@
   box-sizing: border-box;
 }
 
+// Mobile browsers paint a blue flash over tapped controls; Cretli shows its
+// own hover/active states, and keyboard focus keeps its :focus-visible ring.
+button,
+a,
+[role='button'],
+[role='tab'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+// Focus moved by code after a tap (see settingsSidebarTree.js) shows no ring.
+.is-pointer-focus:focus-visible {
+  outline: none !important;
+}
+
 :root {
   --cr-keyboard-offset: 0px;
   --cr-debug-overlay-height: 0px;
@@ -15,7 +29,7 @@
 
 /* MDI: consistent icon size in buttons and in the file tree */
 .mdi {
-  font-size: 1.125rem;
+  font-size: var(--cr-font-size-xl);
   line-height: 1;
   vertical-align: middle;
 }
@@ -33,28 +47,28 @@
 .send-keys-up-btn .mdi,
 .send-keys-stop-btn .mdi,
 .chat-fullscreen-btn .mdi {
-  font-size: 1.15rem;
+  font-size: var(--cr-font-size-legacy-115);
 }
 
 .files-tree-arrow .mdi {
-  font-size: 0.9rem;
+  font-size: var(--cr-font-size-legacy-09);
   width: 1em;
   display: inline-block;
   text-align: center;
 }
 
 .files-tree-icon .mdi {
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   opacity: 0.9;
 }
 
 .settings-back-btn .mdi {
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   margin: 0;
 }
 
 .agents-toggle .mdi {
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   margin-right: 0.2rem;
   vertical-align: -0.1em;
 }
@@ -124,7 +138,7 @@ body {
     max(1rem, env(safe-area-inset-left));
   background: var(--cr-surface);
   border-bottom: 1px solid var(--cr-border);
-  font-size: 0.9rem;
+  font-size: var(--cr-font-size-legacy-09);
 
   .header-workspace-wrap {
     display: flex;
@@ -143,7 +157,7 @@ body {
     align-items: center;
     gap: 0.25rem;
     padding: 0.25rem 0.5rem;
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     background: var(--cr-surface-2);
     color: var(--cr-text);
     border: 1px solid var(--cr-border-control);
@@ -170,7 +184,7 @@ body {
 
     .header-workspace-arrow {
       flex-shrink: 0;
-      font-size: 0.65rem;
+      font-size: var(--cr-font-size-legacy-065);
       opacity: 0.8;
     }
   }
@@ -187,7 +201,7 @@ body {
     color: var(--cr-text-muted);
     padding: 0.25rem 0.4rem;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: var(--cr-font-size-legacy-11);
     line-height: 1;
 
     &:hover {
@@ -286,6 +300,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
 }
 
 .tabs {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   background: var(--cr-surface);
@@ -306,7 +321,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
     color: var(--cr-text-muted);
     padding: 0.6rem 1rem;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--cr-font-size-legacy-09);
     border-bottom: 2px solid transparent;
     white-space: nowrap;
 
@@ -318,6 +333,42 @@ body:has(#settings-panel.active) #settings-panel.panel {
       color: var(--cr-text);
       border-bottom-color: var(--cr-accent);
     }
+
+    // A pointer click must not leave a focus ring; keyboard focus still shows one.
+    &:focus:not(:focus-visible) {
+      outline: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--cr-accent);
+      outline-offset: -2px;
+    }
+  }
+
+  // With the sliding indicator the active border is drawn by .tabs-indicator.
+  &.has-indicator button.active {
+    border-bottom-color: transparent;
+  }
+}
+
+// Positioned in the scroll content of .tabs, so it scrolls with the buttons.
+.tabs-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--tab-w, 0px);
+  height: 2px;
+  background: var(--cr-accent);
+  transform: translateX(var(--tab-x, 0px));
+  transition: transform 0.25s ease, width 0.25s ease;
+  pointer-events: none;
+
+  &.no-anim {
+    transition: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
   }
 }
 
@@ -400,7 +451,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   flex: 0 0 auto;
   margin: 0 0.65rem 0 0;
   padding: 0.55rem 0;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   font-weight: 600;
   color: var(--cr-text);
   white-space: nowrap;
@@ -427,7 +478,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
     color: var(--cr-text-muted);
     padding: 0.55rem 0.85rem;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: var(--cr-font-size-md);
     border-bottom: 2px solid transparent;
     white-space: nowrap;
 
@@ -459,6 +510,55 @@ body:has(#settings-panel.active) #settings-panel.panel {
 .settings-workspace-cards {
   display: grid;
   gap: var(--cr-space-2);
+}
+
+// Workspace accent colour classes, shared by the settings swatches and sidebar markers.
+@each $name in ('red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'gray') {
+  .ws-color-#{$name} {
+    --ws-accent: var(--cr-ws-#{$name});
+  }
+}
+
+.settings-workspace-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cr-space-2);
+  margin-bottom: var(--cr-space-1);
+}
+
+.settings-workspace-icon-row {
+  display: flex;
+  gap: var(--cr-space-2);
+  align-items: center;
+  margin-bottom: var(--cr-space-2);
+
+  cr-bar-input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.settings-workspace-swatch {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--ws-accent, transparent);
+  cursor: pointer;
+
+  &.is-none {
+    border: 1px dashed var(--cr-border-strong);
+  }
+
+  &.is-active {
+    border-color: var(--cr-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--cr-accent);
+    outline-offset: 2px;
+  }
 }
 
 .settings-workspace-card {
@@ -529,13 +629,13 @@ body:has(#settings-panel.active) #settings-panel.panel {
   }
 
   .settings-workspace-card-path {
-    font-size: 0.78rem;
+    font-size: var(--cr-font-size-legacy-078);
     color: var(--cr-text-muted);
     word-break: break-all;
   }
 
   .settings-workspace-file-missing {
-    font-size: 0.78rem;
+    font-size: var(--cr-font-size-legacy-078);
     color: var(--cr-error);
     border: 1px solid var(--cr-error-border, var(--cr-color-rgba-244-135-113-0-35));
     background: var(--cr-error-bg, var(--cr-color-rgba-244-135-113-0-1));
@@ -548,7 +648,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   }
 
   .settings-workspace-card-tools cr-bar-button {
-    font-size: 0.78rem;
+    font-size: var(--cr-font-size-legacy-078);
   }
 
   .settings-workspace-card-folder,
@@ -584,7 +684,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
 }
 
 .settings-workspace-scan-toggle {
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   color: var(--cr-text-muted);
 }
 
@@ -596,7 +696,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   display: grid;
   gap: var(--cr-space-2);
   margin: var(--cr-space-3) 0;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 
   > div {
     display: grid;
@@ -623,7 +723,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   overflow: auto;
   padding: var(--cr-space-2);
   font-family: var(--cr-font-mono);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   line-height: 1.4;
   color: var(--cr-text-muted);
   background: var(--cr-surface);
@@ -642,7 +742,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
 
 .settings-workspace-folder-empty {
   padding: var(--cr-space-2) 0;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
 }
 
@@ -677,12 +777,12 @@ body:has(#settings-panel.active) #settings-panel.panel {
 }
 
 .settings-workspace-folder-name {
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   color: var(--cr-text);
 }
 
 .settings-workspace-folder-path {
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
   word-break: break-all;
 }
@@ -692,7 +792,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   flex-wrap: wrap;
   gap: var(--cr-space-1) var(--cr-space-2);
   margin-top: 0;
-  font-size: 0.7rem;
+  font-size: var(--cr-font-size-legacy-07);
   color: var(--cr-text-muted);
 }
 
@@ -711,7 +811,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   .header-workspace-popover-count {
     flex-shrink: 0;
     color: var(--cr-text-muted);
-    font-size: 0.72rem;
+    font-size: var(--cr-font-size-xs);
   }
 }
 
@@ -786,7 +886,7 @@ body:has(#settings-panel.active) #settings-panel.panel {
   }
 
   .mdi {
-    font-size: 1.15rem;
+    font-size: var(--cr-font-size-legacy-115);
     line-height: 1;
   }
 }
@@ -811,7 +911,7 @@ body.harness-setup-drag-active {
   flex: 0 0 auto;
   align-self: center;
   min-width: 2.75rem;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   font-variant-numeric: tabular-nums;
   color: var(--cr-text-muted);
   text-align: right;
@@ -830,7 +930,7 @@ body.harness-setup-drag-active {
   border-radius: var(--cr-radius-sm);
   background: var(--cr-surface);
   font: inherit;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   line-height: 1.35;
   color: var(--cr-text);
   text-align: left;
@@ -885,7 +985,7 @@ body.harness-setup-drag-active {
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--cr-space-1) var(--cr-space-2);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   line-height: 1.35;
 }
 
@@ -930,7 +1030,7 @@ body.harness-setup-drag-active {
 /* Approval Broker (OpenCode) settings panel */
 .settings-subsection-title {
   margin: var(--cr-space-4) 0 var(--cr-space-2) 0;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   font-weight: 600;
   color: var(--cr-text);
 }
@@ -991,7 +1091,7 @@ body.harness-setup-drag-active {
 .settings-section .agents-toggle {
   cursor: pointer;
   color: var(--cr-code-string);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 
   &:hover {
     text-decoration: underline;
@@ -1003,14 +1103,14 @@ body.harness-setup-drag-active {
   padding: 0.5rem;
   background: var(--cr-surface);
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   max-height: 200px;
   overflow-y: auto;
 
   h4 {
     margin: 0 0 0.25rem 0;
     color: var(--cr-link);
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
   }
 
   ul {
@@ -1069,7 +1169,7 @@ body.harness-setup-drag-active {
   border-radius: var(--cr-radius-sm);
   margin: var(--cr-space-2);
   color: var(--cr-error);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .panel-load-error-retry {
@@ -1081,7 +1181,7 @@ body.harness-setup-drag-active {
   color: var(--cr-text);
   cursor: pointer;
   font-family: var(--cr-font-ui);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   transition: background var(--cr-transition);
 
   &:hover {

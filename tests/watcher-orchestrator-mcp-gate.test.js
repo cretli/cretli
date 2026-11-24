@@ -14,6 +14,11 @@ import {
 } from '../lib/mcp/watcher-orchestrator-mcp-gate.js';
 import { probeMcpBridgeCatalog } from '../lib/mcp/mcp-bridge-preflight.js';
 import { createCodeBuddyLiveSession } from '../harnesses/codebuddy/codebuddy-live-session.js';
+import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
+import { createMcpServer } from '../lib/mcp/mcp-service.js';
+import { loadMcpDocument } from '../lib/persist/mcp-persist.js';
+import { buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
+import { addChatAsync } from '../lib/persist/chats-persist.js';
 
 const ORCHESTRATOR_CHAT = { pickPurpose: 'watcher-orchestrator' };
 const ORCHESTRATOR_ROOM = (chatId) => ({ chatId, watcherOrchestrator: true });
@@ -145,6 +150,13 @@ const managedOk = await gate({
   liveToolNames: ORCHESTRATOR_MCP_CONTRACT_TOOLS,
 });
 assert.equal(managedOk, null);
+
+const currentMcpRevision = loadMcpDocument().revision;
+const external = await createMcpServer({ name: 'Offline external', harnesses: ['codex'], connection: { command: 'missing-mcp-executable' } }, currentMcpRevision);
+const watcherRow = await addChatAsync('watcher-filtered-gate', 'Watcher', '', '/tmp/project', '', { agentTransport: 'codex', pickPurpose: 'watcher-orchestrator' });
+const watcherContext = buildMcpRuntimeContext({ chat: watcherRow, room: { chatId: watcherRow.id, sessionKey: watcherRow.cursorSessionId }, harness: 'codex' });
+const filteredManaged = await gate({ chat: watcherRow, room: { chatId: watcherRow.id }, mcpPrep: { bridge: null }, mcpContext: watcherContext });
+assert.equal(filteredManaged, null, 'a disallowed external server cannot block the managed Watcher contract');
 
 // No bridge and no managed context: still a readiness failure, never a pass.
 const noBridge = await gate({

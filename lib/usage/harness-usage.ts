@@ -26,6 +26,9 @@ import { decodeModelValue } from '../model-catalog.js';
 import { resolveChildUsageModel, resolveUsageContract } from './usage-contract.js';
 import { noteHarnessCacheState } from './cache-state.ts';
 import { beginRunEndSnapshot } from './run-end-snapshot.js';
+import { getChatByIdAsync } from '../persist/chats-persist.js';
+import { loadSettings } from '../persist/settings.js';
+import { resolveChatWorkspaceScope } from '../workspace-scope.js';
 
 export const HARNESS_PROVIDERS = Object.freeze({
   sdk: 'cursor',
@@ -36,6 +39,36 @@ export const HARNESS_PROVIDERS = Object.freeze({
 });
 
 const DELEGATION_ROLES = new Set(['plan', 'implement', 'review', 'fix']);
+
+/** Resolve the ledger's workspace key from durable chat state, never global selection. */
+async function resolveHarnessWorkspaceFile(room) {
+  const chatId = String(room?.chatId || '').trim();
+  if (!chatId) return undefined;
+  try {
+    const chat = await getChatByIdAsync(chatId);
+    const scope = resolveChatWorkspaceScope(chat, loadSettings());
+    return scope.workspaceFile || scope.workspaceId || scope.folder || undefined;
+  } catch (error) {
+    // Keep the measurement even when workspace metadata is unavailable.
+    console.error('[usage] workspace attribution failed', error instanceof Error ? error.message : error);
+    return undefined;
+  }
+}
+
+/**
+ * Production run starts share one metadata lookup across measurements. Injected
+ * recorders without a persisted start remain synchronous and side-effect free.
+ */
+function recordHarnessPartial(room, partial, record) {
+  const workspace = room?._usageWorkspaceFilePromise;
+  if (workspace) {
+    return workspace.then((workspaceFile) => record({ ...partial, workspaceFile: workspaceFile || partial.workspaceFile }));
+  }
+  if (record === safeRecordUsage && partial.chatId) {
+    return resolveHarnessWorkspaceFile(room).then((workspaceFile) => record({ ...partial, workspaceFile: workspaceFile || partial.workspaceFile }));
+  }
+  return record(partial);
+}
 
 /**
  * @param {string} harness
@@ -50,8 +83,13 @@ export function resolveHarnessProvider(harness) {
  * @returns {string}
  */
 export function resolveHarnessRole(room) {
+  const workRole = String(room?.delegationWorkRole || '').trim().toLowerCase();
+  if (DELEGATION_ROLES.has(workRole)) return workRole;
   const assignment = String(room?.delegationAssignment || '').trim().toLowerCase();
-  return DELEGATION_ROLES.has(assignment) ? assignment : 'chat';
+  if (DELEGATION_ROLES.has(assignment)) return assignment;
+  // A watcher cycle's own room has a cycle id but no delegation.
+  if (room?.watcherCycleId && !room?.delegationId) return 'orchestrator';
+  return 'chat';
 }
 
 /**
@@ -97,6 +135,7 @@ export function buildHarnessBaselineKey(room, harness) {
  */
 export function beginHarnessRun(room, payload: Record<string, unknown> = {}, ctx: Partial<{ dataDir?: string, persistRunStart?: boolean, harness?: string }> = {}) {
   if (!room || typeof room !== 'object') return;
+  room._usageWorkspaceFilePromise = ctx.persistRunStart === true ? resolveHarnessWorkspaceFile(room) : null;
   room._runStartedAt = Date.now();
   room._firstOutputAt = null;
   // A fresh run: no finish recorded yet and no inherited token snapshot.
@@ -298,6 +337,7 @@ function baseUsagePartial(room, harness, eventType) {
     eventType,
     feature: 'chat',
     model: resolveTelemetryModel(room),
+    workspaceFile: room?.workspaceFile || room?.workspaceId || room?.workspaceFolder || undefined,
     chatId: room?.chatId ? String(room.chatId) : undefined,
     // The watcher stamps the cycle on its orchestrator room; a plain chat or a
     // delegated child has no cycle id (children are linked by delegation ids).
@@ -378,6 +418,8 @@ export function resolveHarnessUsageTokens(harness, event) {
   if (harness === 'mistral') return fromMistralUsage(usage);
   if (harness === 'zai') return fromOpenRouterUsage(usage);
   if (harness === 'mimo') return fromOpenRouterUsage(usage);
+  // Antigravity ACP uses the same disjoint camelCase split as DeepSeek.
+  if (harness === 'antigravity') return fromDeepSeekUsage(usage);
   if (harness === 'sdk') return fromSdkUsage(usage);
   if (harness === 'qwen') return fromQwenUsage(usage);
   if (harness === 'opencode') return fromOpenCodeUsage(usage?.tokens);
@@ -540,7 +582,7 @@ export function buildHarnessRunUsage(room, harness, payload) {
     ...(coverage ? { coverage } : {}),
     // Qwen only: a run that produced output but never saw provider usage is
     // flagged with the reason, so a missing measurement is explicit, not silent.
-    ...((harness === 'qwen' || harness === 'sdk') && !measurementPresent && hasStart && Number.isFinite(firstOutputAt) && firstOutputAt >= startedAt
+    ...((harness === 'qwen' || harness === 'sdk' || harness === 'opencode') && !measurementPresent && hasStart && Number.isFinite(firstOutputAt) && firstOutputAt >= startedAt
       ? { usageMissingReason: outcome === 'ok' ? 'provider_reported_no_usage' : `${outcome}_before_usage` }
       : {}),
   };
@@ -600,7 +642,7 @@ function noteHarnessCacheObservation(room, harness, tokens, modelOverride = '') 
  * @param {string} harness
  * @param {Record<string, any>} event
  * @param {(partial: Record<string, any>) => unknown} [record]
- * @returns {Record<string, any>|null}
+ * @returns {unknown} Recorder result, or a promise while workspace metadata is resolved.
  */
 export function recordHarnessUsageDelta(room, harness, event, record: (partial: object) => unknown = safeRecordUsage) {
   const tokens = resolveHarnessUsageTokens(harness, event);
@@ -642,7 +684,7 @@ export function recordHarnessUsageDelta(room, harness, event, record: (partial: 
     }
   );
   if (!partial) return null;
-  return record(applyHarnessPricing(partial, harness, event));
+  return recordHarnessPartial(room, applyHarnessPricing(partial, harness, event), record);
 }
 
 /**
@@ -683,7 +725,7 @@ export function noteHarnessCallUsage(room, harness, event) {
  * @param {Record<string, any>} room
  * @param {string} harness
  * @param {(partial: Record<string, any>) => unknown} [record]
- * @returns {Record<string, any>|null}
+ * @returns {unknown} Recorder result, or a promise while workspace metadata is resolved.
  */
 export function recordHarnessFallbackUsage(room, harness, record: (partial: object) => unknown = safeRecordUsage) {
   if (harness !== 'codex' || !room || typeof room !== 'object') return null;
@@ -710,7 +752,7 @@ export function recordHarnessFallbackUsage(room, harness, record: (partial: obje
     ...(resolveChildUsageModel({ model: last.model }) ? { model: resolveChildUsageModel({ model: last.model }) } : {}),
   });
   if (!partial) return null;
-  return record(applyHarnessPricing(partial, harness, { usage: {}, model: last.model }));
+  return recordHarnessPartial(room, applyHarnessPricing(partial, harness, { usage: {}, model: last.model }), record);
 }
 
 /**
@@ -732,14 +774,14 @@ function toTokenCount(value) {
  * @param {string} harness
  * @param {Record<string, any>} payload
  * @param {(partial: Record<string, any>) => unknown} [record]
- * @returns {Record<string, any>|null}
+ * @returns {unknown} Recorder result, or a promise while workspace metadata is resolved.
  */
 export function recordHarnessRunFinished(room, harness, payload, record: (partial: object) => unknown = safeRecordUsage): any {
   if (room && typeof room === 'object' && room._runFinishedRecorded === true) return null;
   const partial = buildHarnessRunUsage(room, harness, payload);
   if (room && typeof room === 'object') room._runFinishedRecorded = true;
   resetHarnessRun(room);
-  return record(partial);
+  return recordHarnessPartial(room, partial, record);
 }
 
 /**
@@ -848,7 +890,7 @@ export function isPlanLimitLockout(snapshot) {
  * @param {string} [harness]
  * @param {Record<string, any>} usage
  * @param {(partial: Record<string, any>) => unknown} [record]
- * @returns {Record<string, any>|null}
+ * @returns {unknown} Recorder result, or a promise while workspace metadata is resolved.
  */
 export function recordHarnessUsageSnapshot(room, harness = 'sdk', usage, record: (partial: object) => unknown = safeRecordUsage) {
   if (!usage || typeof usage !== 'object') return null;
@@ -870,5 +912,5 @@ export function recordHarnessUsageSnapshot(room, harness = 'sdk', usage, record:
     snapshotTokens: current,
   });
   if (!partial) return null;
-  return record(partial);
+  return recordHarnessPartial(room, partial, record);
 }

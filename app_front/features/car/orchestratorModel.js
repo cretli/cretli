@@ -39,7 +39,7 @@ function normPath(value) {
  *   states?: Record<string, any>,
  *   cards?: Array<Record<string, any>>,
  *   activeChatId?: string,
- *   limit?: number, optional cut for callers that present a short list
+ *   limit?: number,
  * }} input
  * @returns {AgentRow[]} needs_decision first, then errors, working, done, unknown, idle
  */
@@ -120,7 +120,7 @@ export function resolveAgent(rows, ref) {
     const hit = matchWorkspaceBySpokenName([...files.values()], workspace);
     if (hit.ambiguous) return { ok: false, code: 'ambiguous', candidates: hit.candidates };
     if (!hit.match) return { ok: false, code: 'not_found' };
-    pool = rows.filter((row) => row.workspaceFile === hit.match.workspaceFile);
+    pool = rows.filter((row) => row.workspaceFile === /** @type {any} */ (hit.match).workspaceFile);
   }
   const result = matchChatBySpokenTitle(pool.map((row) => ({ id: row.chatId, title: row.title })), name);
   if (result.ambiguous) return { ok: false, code: 'ambiguous', candidates: result.candidates };

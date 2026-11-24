@@ -17,6 +17,8 @@ import {
   selectMissingSdkHistoryRecords,
 } from '../app_front/features/chat/sdkEventReplayGuard.js';
 import { runSdkHistoryConvergence } from '../app_front/features/chat/chatHistoryConvergenceRun.js';
+import { installHistoryApply } from '../app_front/features/chat/history/services/historyApply.js';
+import { createMountedHistoryRecordRegistry } from '../app_front/lib/sdkHistoryMountedWindow.js';
 
 resetViewAppliedSeqMemoryForTests();
 
@@ -32,6 +34,7 @@ function createFakeView(options = {}) {
         throw new Error('render failed');
       }
       for (const record of records) {
+        if (record?.kind === 'meta' && record.variant === 'contextNotice' && Number(record.historySeq) > 0 && nodes.some((row) => row?.kind === 'meta' && row.variant === 'contextNotice' && Number(row.historySeq) === Number(record.historySeq))) continue;
         if (record?.kind === 'localUser') {
           const text = typeof record.text === 'string' ? record.text.trim() : '';
           if (!text) continue;
@@ -115,6 +118,28 @@ await applyLiveServerHistoryCards(liveChat, [
 ]);
 assert.equal(getViewAppliedSeq('apply-c', liveChat), 100);
 assert.equal(liveChat._sdkRichView.nodes[0].historySeq, 102);
+
+const contextChat = { id: 'apply-context-notice' };
+replaceViewAppliedRecords('apply-context-notice', contextChat, [{ historySeq: 300 }]);
+const renderedNotices = [];
+const contextRv = {
+  chat: contextChat,
+  stream: {},
+  realStream: {},
+  mountedHistoryRecordRegistry: createMountedHistoryRecordRegistry(),
+  findStreamChildByOrderKey: () => null,
+  findInsertBeforeChild: () => null,
+  cloneHistoryRecordForParking: (record) => record,
+  lineMeta: (...args) => renderedNotices.push(args),
+};
+installHistoryApply(contextRv);
+contextChat._sdkRichView = {
+  async appendHistoryRecords(records) { for (const record of records) contextRv.applyHistoryRecord(record); },
+};
+const contextRecord = { kind: 'meta', variant: 'contextNotice', historySeq: 301, payload: '{"code":"context_restored","turns":2}' };
+assert.equal(await applyCatchUpSdkHistoryRecords(contextChat, [contextRecord]), 1);
+assert.equal(await applyCatchUpSdkHistoryRecords(contextChat, [contextRecord]), 1, 'server-authored notices may be replayed for idempotent renderer handling');
+assert.equal(renderedNotices.length, 1, 'reconnect catch-up does not render a duplicate notice');
 
 let resolveStaleAppend = () => {};
 liveChat._sdkRichView = {

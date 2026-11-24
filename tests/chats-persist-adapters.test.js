@@ -11,13 +11,8 @@ import { openStorageDb } from '../lib/storage/db-lifecycle.js';
 import { bindDatasetGeneration } from '../lib/storage/dataset-binding.js';
 import { StorageError } from '../lib/storage/errors.js';
 import { WRITE_GATE_TEST_EXEMPTION } from '../lib/storage/maintenance-coordinator.js';
-import {
-  addChat,
-  legacyChatsBackend,
-  loadChats,
-  loadChatsAsync,
-  saveChats,
-} from '../lib/persist/chats-persist.js';
+import { legacyChatsBackend, loadChatsAsync } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats, saveChats } from '../lib/persist/chats-legacy-store.js';
 import {
   CHATS_RUNTIME_TEST_HOOK,
   CHATS_SQLITE_RUNTIME_ENABLED,
@@ -207,7 +202,7 @@ async function runScript(a) {
 }
 
 describe('facade surface', () => {
-  it('exports the Async twin of every store-touching sync function', async () => {
+  it('exports only the Async API; the sync functions live in the legacy store', async () => {
     const mod = await import('../lib/persist/chats-persist.js');
     const sync = [
       'loadChats', 'loadChatsSnapshot', 'peekChatsSnapshot', 'peekChats', 'peekChatsByIds', 'getChatById', 'getChatByCursorSessionId',
@@ -217,13 +212,13 @@ describe('facade surface', () => {
       'rotateChatSdkSession', 'migrateChatWorkspaceIds',
     ];
     for (const name of sync) {
-      assert.equal(typeof mod[name], 'function', name);
+      if (name !== 'deleteChat') assert.equal(mod[name], undefined, `${name} must not be a facade export`);
       assert.equal(typeof mod[`${name}Async`], 'function', `${name}Async`);
     }
   });
 
   it('defaults to the legacy runtime and the sync and async API see the same rows', async () => {
-    assert.equal(CHATS_SQLITE_RUNTIME_ENABLED, false);
+    assert.equal(CHATS_SQLITE_RUNTIME_ENABLED, true);
     assert.equal(getActiveChatsRuntime().backendKind, 'legacy');
     saveChats([]);
     addChat('s1', 'One', undefined, '/w/a', undefined, { id: 'one' });
@@ -465,7 +460,7 @@ describe('backend marker', () => {
     const dir = tempDir('chats-marker-');
     createStoreFile(dir);
     sqliteMarker(dir);
-    await assert.rejects(openChatsRuntime(runtimeOptions(dir)), { code: 'chats_sqlite_not_enabled' });
+    await assert.rejects(openChatsRuntime({ ...runtimeOptions(dir), [CHATS_RUNTIME_TEST_HOOK]: { sqliteEnabled: false } }), { code: 'chats_sqlite_not_enabled' });
     // And it does not fall back: the legacy file stays untouched and is not consulted.
     assert.equal(fs.existsSync(path.join(dir, 'chats.json')), false);
   });
@@ -743,7 +738,7 @@ describe('static guarantees of the new modules', () => {
   it('reads no chats.json outside the legacy adapter, marker and migration tools', () => {
     const rootDir = fileURLToPath(new URL('../', import.meta.url));
     const allowed = new Set([
-      'lib/persist/chats-persist.js', 'lib/persist/chats-backend-legacy.js',
+      'lib/persist/chats-persist.js', 'lib/persist/chats-legacy-store.js', 'lib/persist/chats-backend-legacy.js',
       'lib/persist/chats-backend-marker.js', 'scripts/chat-workspace-ids-migrate.mjs',
       'lib/persist/chats-backend-domain.js',
       // Writes a synthetic legacy dataset into its own temp data dir.
@@ -763,9 +758,9 @@ describe('static guarantees of the new modules', () => {
     }
   });
 
-  it('keeps the gate a code constant that is off by default', () => {
-    assert.match(code('chats-runtime.js'), /export const CHATS_SQLITE_RUNTIME_ENABLED = false;/);
-    assert.equal(CHATS_SQLITE_RUNTIME_ENABLED, false);
+  it('keeps the gate a code constant that is on since B5.4 (the marker still selects the backend)', () => {
+    assert.match(code('chats-runtime.js'), /export const CHATS_SQLITE_RUNTIME_ENABLED = true;/);
+    assert.equal(CHATS_SQLITE_RUNTIME_ENABLED, true);
   });
 });
 

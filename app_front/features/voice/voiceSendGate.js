@@ -27,7 +27,7 @@ export function promptExcerpt(text) {
  *   windowMs?: number,
  *   maxHoldMs?: number,
  *   maxQueueHoldMs?: number,
- *   clock?: { now?: () => number, setTimer?: Function, clearTimer?: Function },
+ *   clock?: { now?: () => number, setTimer?: (fn: () => void, ms: number) => unknown, clearTimer?: (id: unknown) => void },
  *   onPending?: (pending: import('./sendUndoWindow.js').PendingSend|null) => void,
  * }} [deps]
  */
@@ -90,7 +90,7 @@ export function createVoiceSendGate(deps = {}) {
      * @param {string} text
      * @param {{ source?: 'speech'|'realtime', steer?: boolean }} [options] `steer`: inject into the running turn
      *   (the send bar's Steer action) instead of queueing behind it
-     * @returns {Promise<object>} car mode: `pending_undo` (nothing sent yet); otherwise the send result
+     * @returns {Promise<import('./voiceCommandTypes.js').VoiceCommandResult>} car mode: `pending_undo` (nothing sent yet); otherwise the send result
      */
     async submit(text, options = {}) {
       if (!isCarMode()) return options.steer === true ? handlers.sendPrompt(text, { steer: true }) : handlers.sendPrompt(text);
@@ -122,7 +122,7 @@ export function createVoiceSendGate(deps = {}) {
 
     /** @returns {boolean} whether a waiting prompt was dropped */
     undo: () => undoWindow.cancel() !== null,
-    /** @returns {Promise<object|null>} the send result, null when nothing waited */
+    /** @returns {Promise<import('./voiceCommandTypes.js').VoiceCommandResult|null>} the send result, null when nothing waited */
     sendNow: () => undoWindow.sendNow(),
     getPending: () => undoWindow.getPending(),
     hold: (options) => undoWindow.hold(options),

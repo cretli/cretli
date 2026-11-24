@@ -29,17 +29,10 @@ try {
   assert.equal(typeof status.codex.configured, 'boolean');
   assert.equal(typeof status.qwen.available, 'boolean');
   assert.equal(typeof status.qwen.configured, 'boolean');
-  assert.equal(
-    status.anyConfigured,
-    status.sdk.configured
-      || status.opencode.configured
-      || status.openrouter.configured
-      || status.codebuddy.configured
-      || status.deepseek.configured
-      || status.mistral.configured
-      || status.codex.configured
-      || status.qwen.configured,
-  );
+  // Every registered harness counts (optional plugins such as Antigravity too),
+  // so the expectation is derived from the status rather than a fixed list.
+  const harnessRows = Object.entries(status).filter(([key]) => key !== 'anyConfigured').map(([, row]) => row);
+  assert.equal(status.anyConfigured, harnessRows.some((row) => row?.configured === true));
 } finally {
   if (typeof previousCursor === 'string') process.env.CURSOR_API_KEY = previousCursor;
   else delete process.env.CURSOR_API_KEY;

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working surfaces</title>
+<meta name="description" content="Use chat, terminal, files, Docs, and the built-in Browser in your project.">
+<link rel="canonical" href="https://cretli.com/docs/en/chat-and-agents.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/chat-and-agents.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/chat-and-agents.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/chat-and-agents.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/en/chat-and-agents.html">
+<meta property="og:title" content="Working surfaces">
+<meta property="og:description" content="Use chat, terminal, files, Docs, and the built-in Browser in your project.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Documentation</a>
+  <a href="../pl/chat-and-agents.html" hreflang="pl">Polski</a>
+  <a href="/" class="home-link">Home</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Getting started</h2><ul><li><a href="index.html">Cretli documentation</a></li><li><a href="getting-started.html">Getting started</a></li><li><a href="install-docker.html">Install with Docker</a></li></ul></section>
+<section class="nav-section"><h2>Harnesses</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Workspaces</h2><ul><li><a href="workspaces.html">Workspaces</a></li><li><a href="settings.html">Settings</a></li></ul></section>
+<section class="nav-section"><h2>Working surfaces</h2><ul><li><a href="chat-and-agents.html" aria-current="page">Working surfaces</a></li></ul></section>
+<section class="nav-section"><h2>Todo and plans</h2><ul><li><a href="todos.html">Todo and plans</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Workspace Watcher</a></li></ul></section>
+<section class="nav-section"><h2>Delegation and review</h2><ul><li><a href="delegation-review.html">Delegation and independent review</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">MCP tools and external clients</a></li></ul></section>
+<section class="nav-section"><h2>Remote access</h2><ul><li><a href="remote-access.html">Remote access, PWA and notifications</a></li><li><a href="security-basics.html">Security basics</a></li></ul></section>
+<section class="nav-section"><h2>Backups and data</h2><ul><li><a href="backups-and-data.html">Backups and data</a></li></ul></section>
+<section class="nav-section"><h2>Troubleshooting and FAQ</h2><ul><li><a href="troubleshooting.html">Troubleshooting</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Working surfaces</h1>
+<p>Cretli brings several views of the same project into your browser. Select a <a href="workspaces.html">workspace</a>, then open the panel needed for your next step. Several devices can share a live session; commands still run on the server machine.</p>
+<h2 id="chat-and-terminal">Chat and terminal</h2>
+<p>In Chat, choose a harness and model configured in <strong>Settings → Harness</strong>. Plan mode asks for investigation and a proposed approach; Agent mode performs the assigned work. Exact restrictions depend on the harness. New prompts can wait in the queue while an agent works. Reconnecting restores the conversation view; closing a browser tab does not itself mean the server run stopped.</p>
+<p>Terminal gives you a shell on the host. Use it for commands, logs, and interactive programs. It works without an AI key. Check the current directory before running commands, especially after switching projects.</p>
+<h2 id="files-and-docs">Files and Docs</h2>
+<p>Files lets you browse the project and inspect or edit files. Use Git to inspect resulting changes. The Docs panel presents project notes as Markdown. Agents can propose note changes; you apply or reject those proposals in the panel. External notes require consent before access and a separate permission for agent reads.</p>
+<h2 id="built-in-browser">Built-in Browser</h2>
+<p>The Browser panel opens a web page for inspection and interaction, including previews of a running app. Agent browser tools and the visible panel can work with the same tab. Requested access may require a consent card or sign-in. The built-in Browser is unavailable on Termux; the shipped Docker image also needs additional browser setup. It does not replace starting the app you want to inspect.</p>
+<p><img src="../img/chat-desktop.png" alt="Desktop chat" width="1280" height="720" loading="lazy"></p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="settings.html">&larr; Settings</a>
+      <a rel="next" href="todos.html">Todo and plans &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>
+      <li><a href="#chat-and-terminal">Chat and terminal</a></li>
+      <li><a href="#files-and-docs">Files and Docs</a></li>
+      <li><a href="#built-in-browser">Built-in Browser</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Documentation</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

@@ -276,12 +276,14 @@ export function installViewApiTail(rv) {
     applyAgentMessagesHistory(rows) {
       if (!Array.isArray(rows) || rows.length === 0) return;
 
+      const viewport = rv.viewportController.snapshot();
       resetSdkStreamState(chat);
       rv.clearSegmentPointers();
       rv.resetRenderedActivity();
       rv.queuedUserBlocks.length = 0;
       rv.clearOpenCodeInteractiveMaps();
       rv.stream.replaceChildren();
+      rv.viewportController.write(0);
 
       rv.suppressHooksPlain = true;
       rv.suppressHistoryPersist = true;
@@ -321,7 +323,8 @@ export function installViewApiTail(rv) {
         rv.suppressHistoryPersist = false;
         rv.mdRenderImmediate = false;
         rv.finalizeAllTerminalRunPresentations();
-        rv.scrollToBottom({ force: true });
+        if (!viewport.following) rv.viewportController.restoreSnapshot(viewport);
+        rv.scrollToBottom();
       }
     },
 
@@ -335,6 +338,8 @@ export function installViewApiTail(rv) {
       if (!Array.isArray(records) || records.length === 0) {
         return Promise.resolve(emptyHistoryReplayResult());
       }
+      const viewportBeforeReplay = rv.viewportController.snapshot();
+      rv.viewportReplaySnapshot = viewportBeforeReplay.following ? null : viewportBeforeReplay;
       resetSdkStreamState(chat);
       const carried = selectLiveRoomEventsToCarry(records);
       // Cards rendered before this replay are about to be cleared, live ones included;
@@ -353,10 +358,7 @@ export function installViewApiTail(rv) {
       rv.lastHistoryErrorText = '';
       // A replay redefines the window, so any page fetched by scrolling up is gone with it.
       rv.bufferedOlderRecords = [];
-      // The rebuilt view opens at the live end; only a scroll up during the replay
-      // releases it (the final scroll of the replay respects that).
-      rv.stickToBottom = true;
-      rv.lastScrollTop = 0;
+      // A new view starts following; background replacement keeps the reader state.
       if (chat && typeof chat === 'object' && chat._sdkHistoryTurnSegment) {
         rv.setHistoryTurnSegment(chat._sdkHistoryTurnSegment);
       } else {
@@ -383,6 +385,7 @@ export function installViewApiTail(rv) {
         try {
           if (!rv.historyReplayGenerationGate.isActive(replayGeneration)) return;
           rv.stream.replaceChildren();
+          rv.viewportController.write(0);
           if (instant) {
             rv.beginViewportAnchorBatch();
             rv.beginHistoryReplayApplySlice(replayGeneration);
@@ -464,7 +467,13 @@ export function installViewApiTail(rv) {
         });
       });
       return replayPromise.then((outcome) => {
-        if (outcome?.reason === 'complete') pruneLiveRoomEventsCoveredBy(records);
+        if (outcome?.reason === 'complete' && rv.historyReplayGenerationGate.isActive(replayGeneration)) {
+          if (rv.viewportReplaySnapshot === viewportBeforeReplay) {
+            rv.viewportReplaySnapshot = null;
+            rv.viewportController.restoreSnapshot(viewportBeforeReplay);
+          }
+          pruneLiveRoomEventsCoveredBy(records);
+        }
         if (carried.length > 0 && outcome?.reason === 'complete' && !rv.viewDestroyed) {
           // These were already persisted, sent to the plain buffer and read aloud when
           // they first arrived: mute those side effects only. The render state (live

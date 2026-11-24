@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import fs, { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   createDelegationRecord,
   getDelegationById,

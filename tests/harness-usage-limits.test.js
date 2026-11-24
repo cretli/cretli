@@ -653,3 +653,34 @@ console.log('harness-usage-limits.test.js OK');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
 }
+
+// --- Antigravity: quota notice with a relative reset, account-wide ----------
+{
+  const notice = '⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 166h45m41s.';
+  assert.equal(isUsageLimitMessage(notice), true);
+  assert.equal(isModelUnavailableMessage(notice), false);
+  const dir = mkdtempSync(path.join(tmpdir(), 'cretli-antigravity-usage-limit-'));
+  try {
+    const before = Date.now();
+    assert.equal(noteHarnessUsageLimit({ harness: 'antigravity', model: 'gemini-3.8-flash-high', message: `Antigravity usage limit: ${notice}`, dataDir: dir }), true);
+    const locked = getHarnessUsageLimit({ harness: 'antigravity', model: 'claude-opus-4-6-thinking', dataDir: dir });
+    assert.equal(locked?.model, '', 'an Antigravity quota covers every model of the account');
+    assert.equal(locked?.resetSource, 'provider-message');
+    const expected = before + ((166 * 60 + 45) * 60 + 41) * 1000;
+    const resetMs = new Date(locked.resetAt).getTime();
+    assert.ok(resetMs >= expected && resetMs <= expected + 5000, `reset ${locked.resetAt} follows the stated 166h45m41s`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // Prose durations and absurd windows never become a reset.
+  assert.equal(selectUsageLimitMessage(['usage limit, try again in a few minutes']), 'usage limit, try again in a few minutes');
+  const proseDir = mkdtempSync(path.join(tmpdir(), 'cretli-relative-reset-'));
+  try {
+    assert.equal(noteHarnessUsageLimit({ harness: 'qwen', model: 'm', message: 'usage limit reached, resets in 5 minutes', dataDir: proseDir }), true);
+    assert.equal(getHarnessUsageLimit({ harness: 'qwen', model: 'm', dataDir: proseDir })?.resetSource, 'fallback-ttl');
+    assert.equal(noteHarnessUsageLimit({ harness: 'mistral', model: 'm', message: 'usage limit reached, resets in 9999h', dataDir: proseDir }), true);
+    assert.equal(getHarnessUsageLimit({ harness: 'mistral', model: 'm', dataDir: proseDir })?.resetSource, 'fallback-ttl');
+  } finally {
+    rmSync(proseDir, { recursive: true, force: true });
+  }
+}

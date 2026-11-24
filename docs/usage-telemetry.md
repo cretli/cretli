@@ -791,3 +791,23 @@ coverage percentage is claimed. The open question is whether the gap is a
 missing `delegationId` on child-chat usage or a run ending before any usage
 event; no per-call fallback exists for OpenCode (unlike the Codex fallback
 above).
+
+## 8. Roles, coverage, lifecycle outcomes and host verify (`b575b71d`)
+
+- **Roles**: `chat`, `plan`, `implement`, `review`, `fix`, `orchestrator`. New
+  events (schema 4) store plan/fix/orchestrator directly; older events are mapped
+  at read time through the delegation join (`resolveEffectiveUsageRole`). Cutover:
+  the `role` *filter* matches the stored role, so before schema 4 plan reads as
+  `review`, fix as `implement` and the orchestrator as `chat` under that filter.
+- **Coverage**: `GET /api/usage/coverage`, MCP `usage_coverage` - per harness x
+  role: attempts, noOutput, pending (24 h grace), eligible, measured, coverage
+  (target 0.8, min sample 20) and a `quality` flag. Definitions:
+  [usage-contract.md section 14.2](usage-contract.md).
+- **Lifecycle outcomes**: `byOutcome` in coverage rows and `groupBy=outcome` in
+  `usage_top` (section 14.3 of the contract).
+- **Host review-verify**: `hostVerify` block in the coverage response - host wall,
+  step and queue time only, never tokens (section 14.4).
+- **Capture**: tests/usage-capture-matrix.test.js pins sdk/opencode/qwen x roles;
+  opencode falls back to session message tokens at run end (idempotent by
+  message id), sdk to `run.usage` also on the error path, runs that end with
+  output but no usage carry `usageMissingReason`.

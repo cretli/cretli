@@ -12,7 +12,7 @@ import { shouldReuseDeepSeekHarness } from '../harnesses/deepseek/deepseek-harne
 import { openCodeBridgeFingerprint } from '../harnesses/opencode/mcp-opencode-sync.js';
 import { liveSessionKey, liveSessionKeyParts } from '../harnesses/codebuddy/codebuddy-agent-ws.js';
 import { buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import { sendDelegationReply } from '../lib/delegation-mailbox.js';

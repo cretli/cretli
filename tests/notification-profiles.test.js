@@ -153,7 +153,7 @@ const originalSend = webPush.sendNotification;
 const pushes = [];
 webPush.sendNotification = async (_subscription, payload) => { pushes.push(JSON.parse(payload)); };
 try {
-  const { saveChats } = await import('../lib/persist/chats-persist.js');
+  const { saveChats } = await import('../lib/persist/chats-legacy-store.js');
   saveChats([{ id: 'child', delegationParentChatId: 'parent' }, { id: 'fork', forkParentChatId: 'parent' }, { id: 'parent' }]);
   const { addSubscription, broadcastPush } = await import('../lib/push.js');
   addSubscription({ endpoint: 'https://push.example/device', keys: { p256dh: 'key', auth: 'auth' } }, preferences);

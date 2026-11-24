@@ -167,7 +167,7 @@ prefer `preview` unless a scan is intended.
 | Area | Tools |
 |---|---|
 | Orchestrator chats | `operator_delegation_show {delegation_id|todo_id,cursor?}` (reviewer verdict, report, findings; read only), `operator_chat_status`, `operator_chat_send {chat,text,idempotency_key,deliver?}`, `operator_chat_wait`, `operator_chat_stop`, `chat_history`, `chat_event` |
-| Watcher | `operator_watcher_policy`, `operator_watcher_status` (cycles, failures, backoff, `doing_attention`, `host_resources`), `operator_watcher_pause {paused,confirm}`, `operator_watcher_clear_stop {confirm}` (Settings "Clear stop": a loop-guard stop also resets failures, backoff and parked todos; any other `stopReason`, e.g. `integration_materialization_mismatch`, is only cleared, so fix its cause first), `operator_watcher_reset {confirm, todo_ids? | all_blocked?}` (without flags only failures and the backoff timer are reset and per-todo `blocked_backoff` is kept; `all_blocked: true` clears every blocked-backoff entry; `todo_ids` clears only those; the two are mutually exclusive; the result shows `before`/`after` `blocked_backoff`), `operator_watcher_limits {limits?, confirm}` (read or change the numeric limits; `maxParallel` through 12 requires raising `maxParallelCeiling` from its default 5, and starts above 5 are gated on host resources; policy fields go through `operator_watcher_policy`; needs the operator lease), `operator_watcher_release_unknown`, `operator_scope_accept {todo_id, files?}` (accept a `needs_rescope` scope proposal), `watcher_show` |
+| Watcher | `operator_watcher_policy`, `operator_watcher_status` (cycles, failures, backoff, `doing_attention`, `host_resources`), `operator_watcher_pause {paused,confirm}`, `operator_watcher_clear_stop {confirm}` (Settings "Clear stop": a loop-guard stop also resets failures, backoff and parked todos; any other `stopReason`, e.g. `integration_materialization_mismatch`, is only cleared, so fix its cause first), `operator_watcher_reset {confirm, todo_ids? | all_blocked?}` (without flags only failures and the backoff timer are reset and per-todo `blocked_backoff` is kept; `all_blocked: true` clears every blocked-backoff entry; `todo_ids` clears only those; the two are mutually exclusive; the result shows `before`/`after` `blocked_backoff`), `operator_watcher_limits {limits?, confirm}` (read or change the numeric limits; `maxParallel` through 12 requires raising `maxParallelCeiling` from its default 5, and starts above 5 are gated on host resources; policy fields go through `operator_watcher_policy`; needs the operator lease), `operator_watcher_release_unknown`, `operator_scope_accept {todo_id, files?}` (accept a `needs_rescope` scope proposal), `operator_propose {todo_id, action, params?}` (card for the owner: `extend_scope`, `defer_todo`, `mark_ready_for_integration`; you only create it), `watcher_show` |
 | Scout | `scout_profiles`, `scout_findings`, `operator_scout_enable`; mutating actions require the operator lease |
 | Todos | `todo_list` (paginate with `cursor`), `todo_show` (children, plan gate, integration, review), `todo_create`, `todo_update {todo_id, patch, expected_updated_at}`, `todo_integration {action: confirm/reject/...}` |
 | Starting work | `operator_plan_review_start` (plan review coordinator), `todo_start` (implementation orchestrator), `todo_update status: ready` (Watcher) |
@@ -185,7 +185,7 @@ prefer `preview` unless a scan is intended.
 | Reservation expiry notice | Done: on the first Watcher tick after the lease ends the reservation is cleared, a changelog entry is written and one push is sent |
 | Watcher policy | Done: `operator_watcher_policy {patch, confirm:true, reason}` with a field whitelist (`executionMode`, `requirePlanApproval`, `planApprovalScope`, `requireReviewForDone`, `requireIndependentReview`, `reviewGateMaxAttempts`, `phases`, `autoIntegrate`, `autoRestart`, `allowedHarnesses`, `pickRoles`, `proactivePlanning`, `feedbackTriage`, `worktree.dirtyPolicy`, `worktree.prepareCommand`), Settings validators, a mandatory reason for sensitive fields, and a before/after diff. Mode, stop reason, worktree root/namespace/prefixes, `scoutTestCommand` and secrets stay Settings-only |
 | Server readiness | Partial: read-only `operator_server_status` (pid, uptime). No server-side gate that delays MCP traffic until startup finishes |
-| Server restart | Not implemented (supervised restart stays a script/Settings action) |
+| Server restart | Done: `operator_restart {mode: drain|fast, confirm:true, reason}`. `drain` refuses while delegations are active; `fast` pauses the Watchers, steers running agents, waits `restartGraceMs`, restarts and continues unfinished agents from their note (see §3 Drain vs fast) |
 | Multi-workspace operator | Not implemented: the operator token is bound to one workspace; needs an allowlist in Settings and a `workspace` parameter with a per-workspace lease |
 | Manual todo start | Not implemented: needs a server-side orchestrator chat plus pick (`operator_todo_start`); use `priority: urgent` or `todo_update status: ready` meanwhile |
 | Operator message queue (`recipient_busy`) | Done: `operator_chat_send` `deliver`: `auto` (default; starts now, queues when the chat is busy), `queue` (always via the chat mailbox) or `start` (refuse with `recipient_busy`). A queued send returns `status: queued` + `message_id`, shows as an operator message, and is surfaced at the chat's next `delegation_wait` (or started by the idle drain when the run ends). Replaying the `idempotency_key` never delivers twice |
@@ -309,6 +309,21 @@ before treating the service as stuck.
   restart path (not MCP clients or relays). Rebuild the front
   first (`npm run build:front`) when front code changed. Confirm a **new** pid
   answers `/login` and no `unhandledRejection` appeared at shutdown.
+- **Drain vs fast.** Use drain when the queue can finish in a reasonable time.
+  Use **fast restart** (`mode: "fast"` on `POST /api/dev-actions`, "Fast
+  restart" in the UI) when waiting is too costly: the Watcher is paused, running
+  agents get a steer notice ("finish the current step, leave a note"), the
+  server waits a grace window (`restartGraceMs`, default 75 s, clamped 20-300 s;
+  runs that cannot be steered are not waited on), writes the
+  `fastRestartParticipants` record (own `recovery_meta` key, TTL 15 min) and
+  only then triggers the supervised restart. Runs still busy at the limit are
+  interrupted. After boot, unfinished participants continue from their note in
+  the same model session where the harness supports resume; the confirmed fast
+  restart authorizes this even for `chatRestartRecoveryMode=manual`, while
+  `off` always wins. Unsupported harnesses fall back to the normal
+  `restart_interrupted_worktree` requeue. In-flight work stays in the worktree
+  on disk; leaf checkpoints exist only for done leaves with a code-review PASS.
+  Implementation: `lib/restart-fast.js`.
 - Under supervision, record `childPid` in `supervisor-state.json` in the configured
   data directory before restarting; wait for `state=running` with a different
   `childPid`, verify that PID is alive and serving `/login`. A successful

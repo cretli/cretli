@@ -16,6 +16,7 @@ import { listNotifications } from '../lib/notifications/notification-store.ts';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-autostart-api-'));
 const statePath = path.join(dir, 'supervisor-state.json');
 const storePath = path.join(dir, 'notifications.json');
+const WSL_STOP = "'/usr/bin/node' '/srv/my app/scripts/cretli-supervisor.mjs' request-stop";
 let installed = false, fail = false, supported = true, platform = 'systemd';
 const calls = [];
 let releaseOperation, operationEntered;
@@ -23,7 +24,7 @@ let heldOperation;
 const adapter = {
   status: async () => ({ supported, installed, platform, env: { SECRET: 'private-value' } }),
   install: async (options) => { calls.push(['install', options]); if (heldOperation) { operationEntered(); await heldOperation; } if (fail) throw new Error('SECRET=private-value'); installed = true; return { activation: 'Next login', warnings: [] }; },
-  uninstall: async (options) => { calls.push(['uninstall', options]); installed = false; return { activation: platform === 'launchd' ? 'Running server and supervisor are not stopped. Stop it now with: launchctl bootout gui/501/com.cretli.supervisor' : 'Running server and supervisor are not stopped. systemctl --user stop cretli.service', warnings: [] }; },
+  uninstall: async (options) => { calls.push(['uninstall', options]); installed = false; return { activation: platform === 'launchd' ? 'Running server and supervisor are not stopped. Stop it now with: launchctl bootout gui/501/com.cretli.supervisor' : 'Running server and supervisor are not stopped. systemctl --user stop cretli.service', ...(platform === 'wsl' || platform === 'termux' ? { stopCommand: WSL_STOP } : {}), warnings: [] }; },
 };
 const app = express(); app.use(express.json());
 app.use((req, res, next) => {
@@ -90,7 +91,12 @@ try {
     platform = kind;
     const removed = await request('session', { enabled: false, confirm: true });
     assert.equal(removed.data.activationCode, `removed_${kind}`);
-    assert.equal(removed.data.stopCommand, kind === 'launchd' ? 'launchctl bootout gui/501/com.cretli.supervisor' : null);
+    if (kind === 'launchd') assert.equal(removed.data.stopCommand, 'launchctl bootout gui/501/com.cretli.supervisor');
+    else assert.equal(removed.data.stopCommand, WSL_STOP);
+    for (const dictionary of [pl, en]) {
+      const translate = (key) => key.split('.').reduce((value, part) => value?.[part], dictionary);
+      assert.ok(autostartActivationMessage(removed.data, translate).endsWith(removed.data.stopCommand));
+    }
   }
   supported = false; assert.equal((await request('session')).data.supported, false);
   assert.equal(readSupervisorStatus({ statePath }).hasData, false);

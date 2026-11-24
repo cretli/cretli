@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationService, finishDelegation, releaseDelegationRunSlot } from '../lib/delegation-service.js';
 import { findDelegationByChildChatId, getDelegationById } from '../lib/persist/delegations-persist.js';
 import {

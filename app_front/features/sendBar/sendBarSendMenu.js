@@ -1,3 +1,4 @@
+import { haptic } from '../../lib/haptics.js';
 import { initDropdown } from '../../lib/dropdown.js';
 
 const LONG_PRESS_MS = 520;
@@ -81,7 +82,7 @@ export function createSendBarSendMenu(options) {
         suppressClick = false;
       }, 1000);
       menuApi.open();
-      navigator.vibrate?.(15);
+      haptic('select');
     }, LONG_PRESS_MS);
   };
   const onPointerMove = (event) => {

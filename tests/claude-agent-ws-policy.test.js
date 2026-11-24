@@ -12,6 +12,7 @@ import {
   resolveRoomClaudeChrome,
   syncClaudeRoomModelFromChat,
 } from '../lib/claude/claude-agent-ws.ts';
+import { buildClaudeHistoryDigest } from '../lib/claude/claude-history-digest.ts';
 
 // Hermetic: never read the operator's real approval broker settings.
 const offDeps = { loadSettings: () => ({}) };
@@ -26,6 +27,13 @@ assert.notEqual(resolveClaudePermissionMode('agent'), 'bypassPermissions');
 assert.equal(isResumableClaudeSessionId('current'), false);
 assert.equal(isResumableClaudeSessionId(''), false);
 assert.equal(isResumableClaudeSessionId('claude-sess-1'), true);
+const historyDigest = buildClaudeHistoryDigest([
+  { rec: { kind: 'localUser', text: 'Earlier request' } },
+  { rec: { kind: 'sdk', event: { type: 'assistant', message: { content: [{ type: 'text', text: 'Earlier answer' }] } } } },
+]);
+assert.match(historyDigest.text, /Earlier answer/);
+assert.equal(historyDigest.turns, 1);
+assert.equal(buildClaudeHistoryDigest([]), null);
 
 /**
  * @param {string} mode

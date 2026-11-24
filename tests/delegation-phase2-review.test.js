@@ -52,7 +52,7 @@ import {
   resetDelegationRuntimeHealth,
   stopDelegationRuntimeWorker,
 } from '../lib/delegation-runtime-worker.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 import { budgetMs } from './helpers/time-budget.js';
 

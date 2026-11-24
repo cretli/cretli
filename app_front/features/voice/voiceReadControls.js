@@ -78,8 +78,8 @@ export function createVoiceReadOptions() {
   const engineSelect = root.querySelector('.voice-engine-select');
   const nameSelect = root.querySelector('.voice-name-select');
   const speedSelect = root.querySelector('.voice-speed-select');
-  const testBtn = root.querySelector('.voice-test-btn');
-  const listenShortBtn = root.querySelector('.voice-listen-short-btn');
+  const testBtn = /** @type {import('../../components/ui/cr-bar-button.js').CrBarButton} */ (root.querySelector('.voice-test-btn'));
+  const listenShortBtn = /** @type {import('../../components/ui/cr-bar-button.js').CrBarButton} */ (root.querySelector('.voice-listen-short-btn'));
   const messageEl = root.querySelector('.voice-options-message');
   let testing = false;
 

@@ -19,8 +19,8 @@ function paint() {
         ${data.managedExternally ? html`<p class="cr-hint">${t('settings.autostartSystemHint')}</p>` : nothing}
         ${data.foreign ? html`<p class="cr-hint">${t('settings.autostartForeignHint')}</p>` : nothing}
         ${data.supported && !data.managedExternally && !data.foreign ? html`
-          <cr-checkbox .checked=${data.installed} ?disabled=${busy}
-            @change=${(event) => { pending = !data.installed; event.target.checked = data.installed; paint(); }}>${t('settings.autostartEnable')}</cr-checkbox>
+          <cr-checkbox .checked=${pending ?? data.installed} ?disabled=${busy}
+            @change=${() => { pending = !data.installed; paint(); }}>${t('settings.autostartEnable')}</cr-checkbox>
         ` : nothing}
       ` : nothing}
       <p class="cr-status" role="status">${message}</p>

@@ -77,6 +77,9 @@ import { OPERATOR_DENIED_MESSAGE } from '../operator/operator-tool-policy.js';
 import { isReviewReadOnlyAssignment } from '../delegation-review-policy.js';
 import { trackSdkRoomRunOutcome } from '../sdk/sdk-run-outcome.ts';
 import { decorateHarnessPrompt } from '../sdk/harness-plan-prompt.ts';
+import { buildClaudeHistoryDigest } from './claude-history-digest.ts';
+import { appendChatNotice, getChatHistoryPage } from '../persist/chat-history-service.js';
+import { parseInheritedPrompt } from '../conversation-fork.js';
 import { bindHarnessPlanSync } from '../sdk/harness-plan-sync.ts';
 import { bindRoomToDelegation, noteDelegationRoomEvent, syncRoomDelegationAssignment } from '../delegation-run-bridge.js';
 import { confirmDelegationReportsFromRoom } from '../delegation-report-context.js';
@@ -92,7 +95,9 @@ import {
   buildSdkSteerAckPayload,
 } from '../sdk/sdk-run-steer.ts';
 import { getClaudeAuthMode } from './claude-auth-mode.ts';
+import { clearClaudePromptSuggestions, shouldAcceptClaudePromptSuggestion } from './prompt-suggestion-state.ts';
 import { buildClaudeProcessEnv, isClaudeHarnessConfigured } from './claude-api-key.ts';
+import { applyClaudeChatCompactionEnv, buildClaudeCompactionSignature } from './claude-cache-settings.ts';
 import { ensureClaudeWorkspaceTrust, withClaudeTrustHint } from './claude-workspace-trust.ts';
 import { loadClaudeSdk, type ClaudeSdkModule } from './claude-sdk.ts';
 import { readClaudeContextBreakdown } from './claude-context-breakdown.ts';
@@ -231,6 +236,9 @@ interface ClaudePromptRunnerHooks {
   sendRoomState?: () => void;
   persistRoomEvent?: (entry: Record<string, unknown>, immediate?: boolean) => void;
   flushPersist?: () => void;
+  getChatHistoryPage?: typeof getChatHistoryPage;
+  getChatRow?: () => Promise<any>;
+  appendContextNotice?: typeof appendChatNotice;
   recordPeerMessage?: (peer: { id: string, fromName: string, body: string }) => void;
   loadSdk?: () => Promise<ClaudeSdkModule>;
   buildEnv?: () => Record<string, string | undefined>;
@@ -242,6 +250,7 @@ interface ClaudePromptRunnerHooks {
   persistModel?: (model: string) => void;
   streamingEnabled?: () => boolean;
   sessionIdleMs?: () => number;
+  enforceOneShotMcpGate?: typeof enforceWatcherOrchestratorMcpGate;
 }
 interface ClaudePromptRunner {
   startPrompt: (
@@ -284,6 +293,7 @@ interface ClaudePromptItem {
   selection?: unknown;
   origin?: Record<string, unknown>;
   requestId?: string;
+  contextMessageId?: string;
 }
 type ErrorLike = { message?: unknown; code?: unknown };
 
@@ -342,11 +352,15 @@ export function resolveClaudePermissionMode(
   return 'acceptEdits';
 }
 
+function closeClaudeRoomSession(room: ClaudeRoom, session?: ClaudeSession | null): void {
+  closeClaudeSession(room, session, (payload) => broadcastRoom(room, payload));
+}
+
 function abortClaudeRoom(room: ClaudeRoom): void {
   if (!room) return;
   room.cancelled = true;
   void interruptActiveQuery(room);
-  closeClaudeSession(room, undefined);
+  closeClaudeRoomSession(room, undefined);
   settleActiveClaudeTurn(room, { reason: 'session_closed' });
 }
 
@@ -379,6 +393,14 @@ const {
   detachClient,
   scheduleEventLogReplay,
 } = kernel;
+
+export function setClaudePromptSuggestionsEnabled(enabled: boolean): void {
+  if (enabled) return;
+  clearClaudePromptSuggestions(claudeRooms.values(), (room, payload) => {
+    broadcastRoom(room as ClaudeRoom, payload);
+    sendRoomState(room as ClaudeRoom);
+  });
+}
 
 export function disposeClaudeRoom(sessionKey: string): void {
   kernel.disposeRoom(sessionKey);
@@ -784,6 +806,13 @@ export function buildClaudeQueryOptions(
       PreToolUse: [{ hooks: [createRoomClaudePreToolUseHook(room)] }],
     },
   };
+  const promptSuggestionsEnabled = loadSettings().claudePromptSuggestionEnabled !== false
+    && String((extras.env || process.env).CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION ?? '').toLowerCase() !== 'false';
+  if (promptSuggestionsEnabled && !room?.delegationId && !assignment
+      && !isOperatorIsolatedChatId(room?.chatId) && !isScoutReadOnlyChatId(room?.chatId)
+      && !isWatcherOrchestratorChat(null, room) && !isClaudeReadOnlyRunMode(mode, assignment)) {
+    options.promptSuggestions = true;
+  }
   const scoutReadOnly = isScoutReadOnlyChatId(room?.chatId);
   if (isOperatorIsolatedChatId(room?.chatId)) {
     // Repository settings and CLAUDE.md are data, not instructions, for an operator run.
@@ -1240,6 +1269,9 @@ export function createClaudePromptRunner({
   const flushHook = typeof hooks.flushPersist === 'function'
     ? hooks.flushPersist
     : () => flushPersistBuffer(room);
+  const historyPageHook = typeof hooks.getChatHistoryPage === 'function' ? hooks.getChatHistoryPage : getChatHistoryPage;
+  const contextNoticeHook = typeof hooks.appendContextNotice === 'function' ? hooks.appendContextNotice : appendChatNotice;
+  const enforceOneShotMcpGate = typeof hooks.enforceOneShotMcpGate === 'function' ? hooks.enforceOneShotMcpGate : enforceWatcherOrchestratorMcpGate;
   const loadSdk = typeof hooks.loadSdk === 'function' ? hooks.loadSdk : () => loadClaudeSdk();
   const buildEnv = typeof hooks.buildEnv === 'function' ? hooks.buildEnv : () => buildClaudeProcessEnv();
   const allowsChrome = typeof hooks.allowsChrome === 'function'
@@ -1381,7 +1413,7 @@ export function createClaudePromptRunner({
     for (const [uuid, entry] of [...outstanding]) {
       if (only && !only.has(uuid)) continue;
       outstanding.delete(uuid);
-      const item: ClaudePromptItem = { text: entry.text, mode: entry.mode, alreadyPersisted: true, origin: entry.origin, requestId: entry.requestId };
+      const item: ClaudePromptItem = { text: entry.text, mode: entry.mode, alreadyPersisted: true, contextMessageId: entry.contextMessageId, origin: entry.origin, requestId: entry.requestId };
       if (entry.displayText) item.displayText = entry.displayText;
       room.pendingPrompts.push(item);
       broadcast({ type: 'sdkQueued', text: entry.displayText || entry.text }, { log: false });
@@ -1419,15 +1451,22 @@ export function createClaudePromptRunner({
   /**
    * A per-message echo carrying one of our steer uuids means it was consumed.
    */
-  function noteSteerEcho(message: unknown): void {
+  function noteSteerEcho(message: unknown): string {
     const outstanding = room._steerOutstanding;
-    if (!(outstanding instanceof Map) || outstanding.size === 0) return;
+    if (!(outstanding instanceof Map) || outstanding.size === 0) return '';
     const rec = message && typeof message === 'object' ? (message as Record<string, unknown>) : null;
-    if (!rec) return;
-    if (typeof rec.user_message_uuid === 'string') outstanding.delete(rec.user_message_uuid);
-    if (rec.type === 'user' && rec.isReplay === true && typeof rec.uuid === 'string') {
-      outstanding.delete(rec.uuid);
+    if (!rec) return '';
+    if (typeof rec.user_message_uuid === 'string') {
+      const uuid = rec.user_message_uuid;
+      outstanding.delete(uuid);
+      return uuid;
     }
+    if (rec.type === 'user' && rec.isReplay === true && typeof rec.uuid === 'string') {
+      const uuid = rec.uuid;
+      outstanding.delete(uuid);
+      return uuid;
+    }
+    return '';
   }
 
   /** A follow-up run owns task-notification results; a user turn does not. */
@@ -1444,10 +1483,11 @@ export function createClaudePromptRunner({
     if (!room._claudeNormalizer || typeof room._claudeNormalizer.normalize !== 'function') {
       room._claudeNormalizer = createClaudeEventNormalizer();
     }
-    noteSteerEcho(message);
+    const steerEchoId = noteSteerEcho(message);
     const items = room._claudeNormalizer.normalize(externalizeToolResultImages(message, chatMediaSaver(room.chatId)));
     for (const item of items) {
       if (!item || typeof item !== 'object') continue;
+      if (steerEchoId) (item as any).contextMessageId = steerEchoId;
       if (item.kind === 'session') {
         persistSessionId(item.sessionId);
         continue;
@@ -1530,6 +1570,39 @@ export function createClaudePromptRunner({
    */
   function handleSessionMessage(session: ClaudeSession, message: unknown): void {
     if (room._claudeSession !== session) return;
+    const raw = message as { type?: string; suggestion?: unknown; session_id?: unknown };
+    if (raw?.type === 'prompt_suggestion') {
+      const text = typeof raw.suggestion === 'string' ? raw.suggestion.trim().slice(0, 500) : '';
+      const expectedSession = String(room._lastResult?.sessionId || '');
+      const receivedSession = String(raw.session_id || '');
+      const result = room._lastResult;
+      setTimeout(() => {
+        if (room._claudeSession !== session || session.alive !== true) return;
+        const enabled = session.promptSuggestionsEnabled === true
+          && loadSettings().claudePromptSuggestionEnabled !== false
+          && String(process.env.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION || '').toLowerCase() !== 'false';
+        if (text && room._lastResult === result && shouldAcceptClaudePromptSuggestion({
+          enabled,
+          busy: room.busy === true,
+          pendingPromptCount: room.pendingPrompts?.length || 0,
+          sessionId: receivedSession,
+          expectedSessionId: expectedSession,
+          resultStatus: String(result?.status || ''),
+          apiError: !!room._lastApiError || !!room._claudeLastApiErrorMessage,
+          runMode: normalizeSdkMode(room.sdkMode),
+        })) {
+          const value = { text, turnRunId: String(room.lastRunId || ''), createdAt: Date.now() };
+          room.promptSuggestion = value;
+          broadcast({ type: 'promptSuggestion', chatId: room.chatId, text, turnRunId: value.turnRunId });
+          sendRoomStateHook();
+        }
+      }, 0);
+      return;
+    }
+    if (room.promptSuggestion && (raw?.type === 'result' || raw?.type === 'assistant')) {
+      room.promptSuggestion = null;
+      broadcast({ type: 'promptSuggestion', chatId: room.chatId, text: '', turnRunId: '' });
+    }
     const previousCount = countClaudeBackgroundTasks(session);
     noteClaudeBackgroundTasks(session, message);
     const signal = message as { type?: string; subtype?: string };
@@ -1568,6 +1641,10 @@ export function createClaudePromptRunner({
     if (room._claudeSession === session) room._claudeSession = null;
     if (session && room._activeQuery === session.query) room._activeQuery = null;
     if (session && room._abortController === session.abortController) room._abortController = null;
+    if ((!room._claudeSession || room._claudeSession === session) && room.promptSuggestion) {
+      room.promptSuggestion = null;
+      broadcast({ type: 'promptSuggestion', chatId: room.chatId, text: '', turnRunId: '' });
+    }
     const turn = room._activeTurn;
     if (!turn || turn.session !== session) {
       sendRoomStateHook();
@@ -1590,7 +1667,8 @@ export function createClaudePromptRunner({
   async function ensureSession(input: ClaudeTurnInput): Promise<ClaudeSession> {
     const readOnly = isClaudeReadOnlyRunMode(input.mode, room.delegationAssignment);
     const permissionMode = resolveClaudePermissionMode(input.mode, room.delegationAssignment);
-    const env = buildEnv();
+    // The chat's auto-compression opt-in drives Claude's native compaction.
+    const env = applyClaudeChatCompactionEnv(buildEnv(), room._lastChatRow);
     const authSignature = buildClaudeAuthSignature(getAuthMode(), env);
     // The bridge token pins the delegation attempt, so a new round must not reuse the session.
     const mcpSignature = `${buildClaudeMcpSignature(input.prepared.claudeMcp)}|attempt:${String(room.delegationAttemptId || '')}`;
@@ -1600,7 +1678,7 @@ export function createClaudePromptRunner({
     tuning.effort = parseClaudeEffortLevel(input.effort) || tuning.effort;
     const chrome = await resolveChrome(input.mode);
     // Only a new process can gain or lose the Chrome tools.
-    const tuningSignature = `${buildClaudeTuningSignature(tuning)}|chrome:${chrome ? 1 : 0}`;
+    const tuningSignature = `${buildClaudeTuningSignature(tuning)}|chrome:${chrome ? 1 : 0}|${buildClaudeCompactionSignature(env)}`;
     const nextStartKey = buildClaudeSessionStartKey({
       cwd: room.cwd,
       readOnly,
@@ -1637,7 +1715,7 @@ export function createClaudePromptRunner({
             ? CONTEXT_RESTART_REASON.MODE_CHANGE
             : CONTEXT_RESTART_REASON.PROCESS_RECREATED,
         );
-        closeClaudeSession(room, session);
+        closeClaudeRoomSession(room, session);
         session = null;
       } else {
         if (input.model && session.model !== input.model) {
@@ -1645,14 +1723,17 @@ export function createClaudePromptRunner({
             try {
               await session.query.setModel(input.model);
               session.model = input.model;
+              // The transcript survives, but the new model starts with a cold
+              // cache (and maybe another window): earlier readings are stale.
+              noteRestart(CONTEXT_RESTART_REASON.MODEL_CHANGE);
             } catch {
               noteRestart(CONTEXT_RESTART_REASON.MODEL_CHANGE);
-              closeClaudeSession(room, session);
+              closeClaudeRoomSession(room, session);
               session = null;
             }
           } else {
             noteRestart(CONTEXT_RESTART_REASON.MODEL_CHANGE);
-            closeClaudeSession(room, session);
+            closeClaudeRoomSession(room, session);
             session = null;
           }
         }
@@ -1663,12 +1744,12 @@ export function createClaudePromptRunner({
               session.permissionMode = permissionMode;
             } catch {
               noteRestart(CONTEXT_RESTART_REASON.MODE_CHANGE);
-              closeClaudeSession(room, session);
+              closeClaudeRoomSession(room, session);
               session = null;
             }
           } else {
             noteRestart(CONTEXT_RESTART_REASON.MODE_CHANGE);
-            closeClaudeSession(room, session);
+            closeClaudeRoomSession(room, session);
             session = null;
           }
         }
@@ -1683,12 +1764,12 @@ export function createClaudePromptRunner({
               };
             } catch {
               noteRestart(CONTEXT_RESTART_REASON.MCP_REVISION);
-              closeClaudeSession(room, session);
+              closeClaudeRoomSession(room, session);
               session = null;
             }
           } else {
             noteRestart(CONTEXT_RESTART_REASON.MCP_REVISION);
-            closeClaudeSession(room, session);
+            closeClaudeRoomSession(room, session);
             session = null;
           }
         }
@@ -1704,7 +1785,7 @@ export function createClaudePromptRunner({
           if (health.failed.length > 0) {
             console.warn('[claude] MCP server(s) still failed, restarting session:', health.failed.join(', '));
             noteRestart(CONTEXT_RESTART_REASON.PROCESS_RECREATED);
-            closeClaudeSession(room, session);
+            closeClaudeRoomSession(room, session);
             session = null;
           }
         }
@@ -1830,7 +1911,7 @@ export function createClaudePromptRunner({
     const options = buildClaudeQueryOptions(room, input.mode, {
       model: input.model,
       effort: input.effort,
-      env: buildEnv(),
+      env: applyClaudeChatCompactionEnv(buildEnv(), room._lastChatRow),
       abortController,
       mcpServers: input.prepared.claudeMcp,
       resumeSessionId: input.useResume ? room.claudeSessionId : '',
@@ -1973,10 +2054,10 @@ export function createClaudePromptRunner({
     }
     if (delivered) {
       if (!(room._steerOutstanding instanceof Map)) room._steerOutstanding = new Map();
-      const entry: { text: string; mode: string; displayText?: string } = { text: trimmed, mode: normalizeSdkMode(modeOverride || room.sdkMode) };
+      const entry: { text: string; mode: string; displayText?: string; contextMessageId?: string } = { text: trimmed, mode: normalizeSdkMode(modeOverride || room.sdkMode), contextMessageId: uuid };
       if (uiText && uiText !== trimmed) entry.displayText = uiText;
       room._steerOutstanding.set(uuid, entry);
-      persistEventHook({ kind: 'localUser', text: uiText || trimmed }, true);
+      persistEventHook({ kind: 'localUser', text: uiText || trimmed, contextMessageId: uuid }, true);
       broadcast({ type: 'sdkEvent', event: buildUserEvent(uiText || trimmed) });
       broadcast(buildSdkSteerAckPayload({ runId, outcome: STEER_ACK_DELIVERED, text: uiText || trimmed }));
       recordSteerManifest({ chatId: room.chatId, transport: 'claude', text: trimmed, status: 'delivered' });
@@ -1991,7 +2072,7 @@ export function createClaudePromptRunner({
   function drainQueue(): void {
     drainOnePendingPrompt(room, (item: object) => {
       const next = item as ClaudePromptItem;
-      void runPrompt(next.text, next.mode, true, next.displayText, next.alreadyPersisted === true, next.selection, next.origin, next.requestId);
+      void runPrompt(next.text, next.mode, true, next.displayText, next.alreadyPersisted === true, next.selection, next.origin, next.requestId, next.contextMessageId);
     });
   }
 
@@ -2075,6 +2156,10 @@ export function createClaudePromptRunner({
     if (isWatcherOrchestratorChat(chatRow, room)) return null;
     clearClaudeSessionIdleTimer(session);
     room.busy = true;
+    if (room.promptSuggestion) {
+      room.promptSuggestion = null;
+      broadcast({ type: 'promptSuggestion', chatId: room.chatId, text: '', turnRunId: '' });
+    }
     room._planGuardTriggered = false;
     room._lastResult = null;
     room._lastApiError = '';
@@ -2127,13 +2212,15 @@ export function createClaudePromptRunner({
     selection: unknown = null,
     origin?: Record<string, unknown>,
     requestId = '',
+    contextMessageId = '',
   ): Promise<void> {
     const trimmed = String(text || '').trim();
     if (!trimmed) return;
+    const currentMessageId = contextMessageId || randomUUID();
     const uiText = resolvePromptUiText(trimmed, displayText);
     if (room.busy) {
       if (alreadyPersisted) {
-        room.pendingPrompts.push(withSkillSelection({ text: trimmed, mode: normalizeSdkMode(modeOverride || room.sdkMode), displayText: uiText, alreadyPersisted: true, ...(origin ? { origin } : {}), ...(requestId ? { requestId } : {}) }, selection));
+        room.pendingPrompts.push(withSkillSelection({ text: trimmed, mode: normalizeSdkMode(modeOverride || room.sdkMode), displayText: uiText, alreadyPersisted: true, contextMessageId: currentMessageId, ...(origin ? { origin } : {}), ...(requestId ? { requestId } : {}) }, selection));
         broadcast({ type: 'sdkQueued', text: uiText }, { log: false });
         sendRoomStateHook();
       } else enqueuePrompt(trimmed, modeOverride, displayText, selection, origin, requestId);
@@ -2146,6 +2233,7 @@ export function createClaudePromptRunner({
           mode: normalizeSdkMode(modeOverride || room.sdkMode),
           ...(uiText && uiText !== trimmed ? { displayText: uiText } : {}),
           ...(alreadyPersisted ? { alreadyPersisted: true } : {}),
+          ...(alreadyPersisted ? { contextMessageId: currentMessageId } : {}),
           ...(origin ? { origin } : {}),
           ...(requestId ? { requestId } : {}),
         }, selection));
@@ -2161,6 +2249,10 @@ export function createClaudePromptRunner({
     // Claim the room and mint the run id synchronously (acceptRoomPrompt reads
     // currentRun right after this call); only then await the archived-room read.
     room.busy = true;
+    if (room.promptSuggestion) {
+      room.promptSuggestion = null;
+      broadcast({ type: 'promptSuggestion', chatId: room.chatId, text: '', turnRunId: '' });
+    }
     setActiveSelection(room, selection);
     room.cancelled = false;
     room._planGuardTriggered = false;
@@ -2177,11 +2269,25 @@ export function createClaudePromptRunner({
     room.sdkMode = mode;
     beginEnforcedSdkMode(room, mode);
     syncRoomDelegationAssignment(room);
-    if (await rejectArchivedRoomPromptAsync(room, (_room, payload) => broadcast(payload as Record<string, unknown>))) {
+    // This await runs before the run's try/finally: release the claimed room on
+    // every exit, including a storage error, or the chat stays busy for good.
+    const releaseUnstartedRun = () => {
       room.busy = false;
       room.currentRun = null;
       room._activeTurnRunId = null;
+      clearEnforcedSdkMode(room);
       sendRoomStateHook();
+    };
+    let archived = false;
+    try {
+      archived = await rejectArchivedRoomPromptAsync(room, (_room, payload) => broadcast(payload as Record<string, unknown>));
+    } catch (error) {
+      releaseUnstartedRun();
+      broadcast({ type: 'sdkError', code: 'chat_lookup_failed', message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    if (archived) {
+      releaseUnstartedRun();
       return;
     }
     broadcast({
@@ -2195,10 +2301,6 @@ export function createClaudePromptRunner({
     });
     broadcast({ type: 'sdkBusy', busy: true }, { log: false });
     sendRoomStateHook();
-    if (!alreadyPersisted) {
-      persistEventHook({ kind: 'localUser', text: uiText, ...(origin ? { origin } : {}), ...(requestId ? { requestId } : {}), createdAt: new Date().toISOString() }, true);
-      broadcast({ type: 'sdkEvent', event: buildUserEvent(uiText) });
-    }
     broadcast({
       type: 'sdkRunProgress',
       runId,
@@ -2211,6 +2313,16 @@ export function createClaudePromptRunner({
     let mcpGateErrorCode = '';
     const streaming = streamingEnabled();
     let useResume = isResumableClaudeSessionId(room.claudeSessionId);
+    let contextPrompt = trimmed;
+    let contextDecisionMade = false;
+    let userMessageRecorded = alreadyPersisted;
+    const recordUserMessage = () => {
+      if (userMessageRecorded) return;
+      userMessageRecorded = true;
+      persistEventHook({ kind: 'localUser', text: uiText, contextMessageId: currentMessageId, ...(origin ? { origin } : {}), ...(requestId ? { requestId } : {}), createdAt: new Date().toISOString() }, true);
+      broadcast({ type: 'sdkEvent', event: { ...buildUserEvent(uiText), contextMessageId: currentMessageId } });
+    };
+    if (useResume) recordUserMessage();
     clearClaudeSessionIdleTimer(room._claudeSession);
     try {
       // No pre-flight token refresh: the Claude Code CLI refreshes the plan
@@ -2225,7 +2337,7 @@ export function createClaudePromptRunner({
       const effort = resolveClaudeRunEffort(room.modelId);
       if (model && model !== room.modelId && !effort) persistModel(model);
       const prepared = await prepareMcp();
-      const chatRow = await getChatByCursorSessionIdAsync(room.sessionKey) || { id: room.chatId, workspaceFolder: room.cwd, agentTransport: 'claude' };
+      const chatRow = (hooks.getChatRow ? await hooks.getChatRow() : await getChatByCursorSessionIdAsync(room.sessionKey)) || { id: room.chatId, workspaceFolder: room.cwd, agentTransport: 'claude' };
       room._lastChatRow = chatRow;
       const orchestrator = isWatcherOrchestratorChat(chatRow, room);
       // Streaming mode starts the Query process in `ensureSession`, so its gate
@@ -2234,7 +2346,7 @@ export function createClaudePromptRunner({
       // verifies the managed bridge catalog up front instead.
       let oneShotBlock: Awaited<ReturnType<typeof enforceWatcherOrchestratorMcpGate>> | null = null;
       if (orchestrator && !streaming) {
-        oneShotBlock = await enforceWatcherOrchestratorMcpGate({
+        oneShotBlock = await enforceOneShotMcpGate({
           chat: chatRow,
           room,
           mcpPrep: prepared.mcpPrep,
@@ -2244,6 +2356,7 @@ export function createClaudePromptRunner({
         });
       }
       if (oneShotBlock) {
+        recordUserMessage();
         mcpGateErrorCode = oneShotBlock.code;
         status = 'error';
         errorMessage = oneShotBlock.message;
@@ -2262,6 +2375,45 @@ export function createClaudePromptRunner({
         errorMessage = '';
         errorMessages = [];
         try {
+          if (!useResume && !contextDecisionMade && !parseInheritedPrompt(trimmed).wrapped && !room._claudeSession?.input) {
+            contextDecisionMade = true;
+            let digest: ReturnType<typeof buildClaudeHistoryDigest> = null;
+            let historyExisted = false;
+            let complete = true;
+            try {
+              const flush = await Promise.race([
+                flushHook(),
+                new Promise<{ ok: false, pending: number, deadLettered: number }>((resolve) => setTimeout(() => resolve({ ok: false, pending: 1, deadLettered: 0 }), 2000)),
+              ]) as { ok: boolean, pending: number, deadLettered: number };
+              complete = flush?.ok === true && Number(flush.pending || 0) === 0 && Number(flush.deadLettered || 0) === 0;
+              const page = await historyPageHook(room.chatId, { limit: 160 });
+              let events = Array.isArray(page?.events) ? page.events : [];
+              historyExisted = events.length > 0 || Number(page?.total || 0) > 0;
+              const pending = Array.isArray(room._persistBuf) ? room._persistBuf : [];
+              events = events.filter((row: any) => row?.rec?.contextMessageId !== currentMessageId);
+              const buffered = pending.filter((row: any) => row?.rec?.contextMessageId !== currentMessageId);
+              if (buffered.length) events = [...events, ...buffered.map((row: any) => ({ rec: row.rec }))];
+              const planSummary = Array.isArray(chatRow?.summaries) ? chatRow.summaries.map((item: any) => item?.summary || '').filter(Boolean).join('\n') : '';
+              digest = buildClaudeHistoryDigest(events, planSummary, currentMessageId);
+            } catch {
+              complete = false;
+            }
+            // Inject whenever the digest carries user/assistant text; the notice mirrors what actually happened.
+            const injected = Boolean(digest?.text);
+            if (injected && digest) contextPrompt = `${digest.text}\n\nCurrent request:\n${trimmed}`;
+            if (injected || !complete || historyExisted) {
+              const restored = injected && complete;
+              try {
+                await contextNoticeHook(room.chatId, restored ? 'Previous chat context restored.' : 'Previous chat context could not be restored.', {
+                  variant: 'contextNotice', code: restored ? 'context_restored' : 'context_lost',
+                  turns: restored ? (digest?.turns || 0) : 0, level: restored ? 'info' : 'warning',
+                });
+              } catch {
+                // A notice write failure never prevents the requested turn.
+              }
+            }
+          }
+          if (!useResume) recordUserMessage();
           if (streaming) {
             const outcome = await runStreamingTurn({
               sdk,
@@ -2271,7 +2423,7 @@ export function createClaudePromptRunner({
               prepared,
               useResume,
               runId,
-              text: trimmed,
+              text: contextPrompt,
               chatRow,
               mcpGate: orchestrator,
             });
@@ -2292,7 +2444,7 @@ export function createClaudePromptRunner({
               prepared,
               useResume,
               runId,
-              text: trimmed,
+              text: contextPrompt,
             });
             ({ status, errorMessage, errorMessages = [] } = resolveTurnStatus(mode, null));
           }
@@ -2316,10 +2468,17 @@ export function createClaudePromptRunner({
           cancelled: room.cancelled,
           errorMessage,
         });
-        if (!staleResume) break;
+        if (!staleResume) {
+          recordUserMessage();
+          break;
+        }
         // Drop the dead session id (and session) and retry once without resume.
-        if (streaming) closeClaudeSession(room, undefined);
+        if (streaming) closeClaudeRoomSession(room, undefined);
         clearClaudeRoomSession(room);
+        // The old transcript and its cache are gone: move the context epoch and
+        // drop the last reading so the meter and cache tracker start cold.
+        room._claudeContextObservation = null;
+        recordContextRestart({ chatId: room.chatId, harness: 'claude', reason: CONTEXT_RESTART_REASON.SESSION_DROP, room });
         useResume = false;
         notify({
           noticeType: 'session_reset',
@@ -2334,6 +2493,11 @@ export function createClaudePromptRunner({
       }
       }
     } catch (err) {
+      try {
+        recordUserMessage();
+      } catch {
+        // Preserve the setup error while still attempting one user-message write.
+      }
       const errCode = String((err as ErrorLike)?.code || '');
       if (isMcpOrchestratorErrorCode(errCode)) mcpGateErrorCode = errCode;
       if (room.cancelled || room._planGuardTriggered) {
@@ -2457,6 +2621,7 @@ export async function ensureClaudeRoom(
       _interruptFallbackTimer: null,
       _interruptFallbackRunId: '',
       _lastResult: null,
+      promptSuggestion: null,
       _lastApiError: '',
       _lastSessionError: '',
       _planGuardTriggered: false,

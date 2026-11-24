@@ -36,9 +36,9 @@ function enumLabel(prefix, code, t) {
 }
 
 /**
- * @param {object|null} payload GET /api/harness-benchmark-sources
+ * @param {Record<string, any>|null} payload GET /api/harness-benchmark-sources
  * @param {(key: string, values?: object) => string} t
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 export function buildHarnessBenchmarkSourcesViewModel(payload, t) {
   const sources = Array.isArray(payload?.sources) ? payload.sources : [];
@@ -72,7 +72,7 @@ export function buildHarnessBenchmarkSourcesViewModel(payload, t) {
 }
 
 /**
- * @param {object} model
+ * @param {Record<string, any>} model
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */
@@ -140,7 +140,7 @@ export function renderHarnessBenchmarkSourcesHtml(model, t) {
 /**
  * Default fixture payload for the local-fixture source (no network).
  *
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 export function buildLocalFixtureImportBody() {
   return {

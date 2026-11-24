@@ -6,6 +6,7 @@
  */
 
 import { cretliApiFetch, onCretliApiWrite } from '../../lib/cretliApiRequest.js';
+import { getWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from './watcherWorkspaceScope.js';
 import { getCurrentLang } from '../../i18n/index.js';
 
 /** @type {Map<string, Promise<{ status: number, json: object | null }>>} */
@@ -37,7 +38,10 @@ export function isWorkspaceWatcherRead(path, options = {}) {
  * @returns {Promise<{ status: number, json: object | null }>}
  */
 export function getWorkspaceWatcherView(path) {
-  const key = String(path || '/api/workspace-watcher');
+  const target = String(path || '/api/workspace-watcher');
+  const key = isWorkspaceWatcherRead(target)
+    ? scopeWatcherRequestToWorkspace(target, {}, getWatcherWorkspaceFolder()).path
+    : target;
   const existing = inflight.get(key);
   if (existing) return existing;
   const fresh = recent.get(key);

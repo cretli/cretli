@@ -139,9 +139,9 @@ export function normalizeUtilization(value) {
 }
 
 /**
- * @param {object} raw
+ * @param {Record<string, any>} raw
  * @param {{ now: number, lang: string }} ctx
- * @returns {object|null}
+ * @returns {Record<string, any>|null}
  */
 function normalizeActiveLimit(raw, ctx) {
   if (!raw || typeof raw !== 'object') return null;
@@ -163,9 +163,9 @@ function normalizeActiveLimit(raw, ctx) {
 }
 
 /**
- * @param {object} raw
+ * @param {Record<string, any>} raw
  * @param {{ now: number, lang: string }} ctx
- * @returns {object|null}
+ * @returns {Record<string, any>|null}
  */
 function normalizePlanLimit(raw, ctx) {
   if (!raw || typeof raw !== 'object') return null;
@@ -198,7 +198,7 @@ function normalizePlanLimit(raw, ctx) {
  *
  * @param {object|null|undefined} entry one `harnesses[id]` value from /api/harnesses/health
  * @param {{ now?: number, lang?: string }} [options]
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 export function buildHealthCardModel(entry, options = {}) {
   const now = finiteNumber(options.now, Date.now()) ?? Date.now();
@@ -363,7 +363,7 @@ function durationText(ms, lang) {
 }
 
 /**
- * @param {object} limit normalized plan-limit row
+ * @param {Record<string, any>} limit normalized plan-limit row
  * @param {(key: string, vars?: object) => string} t
  * @returns {string}
  */

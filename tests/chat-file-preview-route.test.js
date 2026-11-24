@@ -5,7 +5,7 @@ import express from 'express';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { saveChats } from '../lib/persist/chats-persist.js';
+import { saveChats } from '../lib/persist/chats-legacy-store.js';
 import { registerFilesRoutes } from '../lib/routes/files-routes.js';
 
 const root = mkdtempSync(path.join(os.tmpdir(), 'cretli-file-route-'));

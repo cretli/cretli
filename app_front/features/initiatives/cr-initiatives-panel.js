@@ -54,7 +54,7 @@ class CrInitiativesPanel extends LitElement {
     button.link { border:0; background:none; padding:0; text-align:left; color:var(--cr-accent); }
     button:disabled { opacity:.55; cursor:default; }
     select, input, textarea { background:var(--cr-field-bg); border:1px solid var(--cr-field-border); border-radius:var(--cr-radius-sm); padding:var(--cr-space-1) var(--cr-space-2); min-height:var(--cr-control-height); }
-    textarea { width:100%; min-height:4.5rem; resize:vertical; }
+    cr-bar-input, cr-bar-textarea { display:block; }
     input[type='text'], input[type='date'], input:not([type]) { width:100%; }
     select:hover, input:hover, textarea:hover { border-color:var(--cr-field-border-hover); }
     select:focus, input:focus, textarea:focus { border-color:var(--cr-field-focus-border); }
@@ -509,7 +509,7 @@ class CrInitiativesPanel extends LitElement {
     const f = this.mapFilter;
     return html`
       <div class="grid" role="search" aria-label=${t('plans.map.filter')}>
-        <label><span>${t('plans.map.search')}</span><input type="text" .value=${f.query} @input=${(e) => this.setMapFilter('query', e.target.value)}></label>
+        <label><span>${t('plans.map.search')}</span><cr-bar-input aria-label=${t('plans.map.search')} .value=${f.query} @input=${(e) => this.setMapFilter('query', e.target.value)}></cr-bar-input></label>
         <label><span>${t('plans.horizonLabel')}</span><select @change=${(e) => this.setMapFilter('horizon', e.target.value)}>
           <option value="" ?selected=${!f.horizon}>${t('plans.map.any')}</option>
           ${HORIZONS.map((h) => html`<option value=${h} ?selected=${f.horizon === h}>${this.fieldLabel('horizon', h)}</option>`)}</select></label>
@@ -543,12 +543,12 @@ class CrInitiativesPanel extends LitElement {
 
   textField(key, rows = 3) {
     return html`<label><span>${t(`plans.field.${key}`)}</span>
-      <textarea rows=${rows} .value=${this.draft[key]} @input=${(e) => this.setField(key, e.target.value)}></textarea></label>`;
+      <cr-bar-textarea rows=${rows} aria-label=${t(`plans.field.${key}`)} .value=${this.draft[key]} @input=${(e) => this.setField(key, e.target.value)}></cr-bar-textarea></label>`;
   }
 
   listField(key) {
     return html`<label><span>${t(`plans.field.${key}`)} <span class="hint">(${t('plans.onePerLine')})</span></span>
-      <textarea rows="3" .value=${this.draft[key].join('\n')} @input=${(e) => this.setField(key, lines(e.target.value))}></textarea></label>`;
+      <cr-bar-textarea rows="3" aria-label=${t(`plans.field.${key}`)} .value=${this.draft[key].join('\n')} @input=${(e) => this.setField(key, lines(e.target.value))}></cr-bar-textarea></label>`;
   }
 
   renderConflict() {
@@ -566,12 +566,12 @@ class CrInitiativesPanel extends LitElement {
       ${this.remoteChanged && !this.conflict ? html`<div class="banner" role="status">${t('plans.remoteChanged')}
         <div class="actions"><button @click=${() => this.discardDraft()}>${t('plans.takeLatest')}</button></div></div>` : nothing}
       ${this.dirty ? html`<p class="hint" role="status">${t('plans.draftKept')}</p>` : nothing}
-      <label><span>${t('plans.field.title')}</span><input type="text" .value=${this.draft.title} @input=${(e) => this.setField('title', e.target.value)}></label>
+      <label><span>${t('plans.field.title')}</span><cr-bar-input aria-label=${t('plans.field.title')} .value=${this.draft.title} @input=${(e) => this.setField('title', e.target.value)}></cr-bar-input></label>
       ${this.textField('desiredOutcome')}
       <div class="grid">
         ${this.select('status', STATUSES, 'status')}${this.select('horizon', HORIZONS, 'horizon')}${this.select('priority', PRIORITIES, 'priority')}
         ${this.select('scopeSize', SCOPE_SIZES, '')}
-        <label><span>${t('plans.field.targetDate')}</span><input type="date" .value=${(this.draft.targetDate || '').slice(0, 10)} @input=${(e) => this.setField('targetDate', e.target.value)}></label>
+        <label><span>${t('plans.field.targetDate')}</span><cr-bar-input type="date" aria-label=${t('plans.field.targetDate')} .value=${(this.draft.targetDate || '').slice(0, 10)} @input=${(e) => this.setField('targetDate', e.target.value)}></cr-bar-input></label>
       </div>
       ${this.textField('rationale')}${this.textField('baseline')}${this.listField('successCriteria')}${this.listField('openQuestions')}
       <div class="actions">
@@ -601,9 +601,9 @@ class CrInitiativesPanel extends LitElement {
         <label><span>${t('plans.research.kind')}</span><select @change=${(e) => { this.researchDraft = { ...d, kind: e.target.value }; }}>
           ${RESEARCH_KINDS.map((k) => html`<option value=${k} ?selected=${k === d.kind}>${t(`plans.research.${k}`)}</option>`)}</select></label>
         <p class="hint">${t(`plans.research.${d.kind}Hint`)}</p>
-        <label><span>${t('plans.research.claim')}</span><textarea .value=${d.claim} @input=${(e) => { this.researchDraft = { ...d, claim: e.target.value }; }}></textarea></label>
-        <label><span>${t('plans.research.sources')} <span class="hint">(${t('plans.onePerLine')})</span></span><textarea .value=${d.sources} @input=${(e) => { this.researchDraft = { ...d, sources: e.target.value }; }}></textarea></label>
-        <label><span>${t('plans.limitations')}</span><textarea .value=${d.limitations} @input=${(e) => { this.researchDraft = { ...d, limitations: e.target.value }; }}></textarea></label>
+        <label><span>${t('plans.research.claim')}</span><cr-bar-textarea aria-label=${t('plans.research.claim')} .value=${d.claim} @input=${(e) => { this.researchDraft = { ...d, claim: e.target.value }; }}></cr-bar-textarea></label>
+        <label><span>${t('plans.research.sources')} <span class="hint">(${t('plans.onePerLine')})</span></span><cr-bar-textarea aria-label=${t('plans.research.sources')} .value=${d.sources} @input=${(e) => { this.researchDraft = { ...d, sources: e.target.value }; }}></cr-bar-textarea></label>
+        <label><span>${t('plans.limitations')}</span><cr-bar-textarea aria-label=${t('plans.limitations')} .value=${d.limitations} @input=${(e) => { this.researchDraft = { ...d, limitations: e.target.value }; }}></cr-bar-textarea></label>
         <div class="actions"><button class="primary" @click=${() => this.saveResearch()}>${t('plans.save')}</button><button @click=${() => { this.researchDraft = null; }}>${t('plans.cancel')}</button></div></div>` : nothing}
       ${RESEARCH_KINDS.map((k) => html`<section><h4>${t(`plans.research.${k}Group`)} (${parts[k].length})</h4>
         ${parts[k].length ? parts[k].map((e) => this.renderEntry(e)) : html`<p class="empty">${t('plans.research.none')}</p>`}</section>`)}`;
@@ -629,7 +629,7 @@ class CrInitiativesPanel extends LitElement {
     : html`<p class="empty">${t('plans.noLinks')}</p>`}
       <p class="hint">${t('plans.doneHint')}</p>
       <h4>${t('plans.linkTodo')}</h4>
-      <label><span>${t('plans.filterTodos')}</span><input type="text" .value=${this.todoFilter} @input=${(e) => { this.todoFilter = e.target.value; }}></label>
+      <label><span>${t('plans.filterTodos')}</span><cr-bar-input aria-label=${t('plans.filterTodos')} .value=${this.todoFilter} @input=${(e) => { this.todoFilter = e.target.value; }}></cr-bar-input></label>
       ${candidates.length ? html`<ul>${candidates.map((todo) => html`<li>${todo.title} <span class="chip">${todo.status}</span>
         <button @click=${() => this.linkTodo(todo)} aria-label=${`${t('plans.link')}: ${todo.title}`}>${t('plans.link')}</button></li>`)}</ul>` : html`<p class="empty">${t('plans.noTodos')}</p>`}
       <h4>${t('plans.createTodo')}</h4>
@@ -641,7 +641,8 @@ class CrInitiativesPanel extends LitElement {
     const isNew = this.selectedId === 'new';
     const panes = { edit: () => this.renderEdit(), research: () => this.renderResearch(), history: () => this.renderHistory(), links: () => this.renderLinks() };
     return html`
-      <div class="bar"><button @click=${() => this.closeDetail()} aria-label=${t('plans.back')}>← ${t('plans.back')}</button></div>
+      <div class="bar"><button @click=${() => this.closeDetail()} aria-label=${t('plans.back')}>
+        <svg viewBox="0 0 24 24" width="1em" height="1em" style="vertical-align:-0.15em;margin-right:0.35em" focusable="false" aria-hidden="true"><path fill="currentColor" d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12z"/></svg>${t('plans.back')}</button></div>
       <h2 id="detail-heading" tabindex="-1">${isNew ? t('plans.new') : (this.record?.title || '')}</h2>
       ${this.record ? this.chips(this.record) : nothing}
       ${this.renderBanner()}
@@ -659,8 +660,8 @@ class CrInitiativesPanel extends LitElement {
       </cr-dialog>
       <cr-dialog ?open=${Boolean(this.todoDialog)} heading=${t('plans.createTodo')} @cr-dialog-close=${() => { this.todoDialog = null; }}>
         ${this.todoDialog ? html`<p class="hint">${t('plans.createTodoHint')}</p>
-          <label><span>${t('plans.field.title')}</span><input type="text" .value=${this.todoDialog.title} @input=${(e) => { this.todoDialog = { ...this.todoDialog, title: e.target.value }; }}></label>
-          <label><span>${t('plans.todoBody')}</span><textarea .value=${this.todoDialog.body} @input=${(e) => { this.todoDialog = { ...this.todoDialog, body: e.target.value }; }}></textarea></label>` : nothing}
+          <label><span>${t('plans.field.title')}</span><cr-bar-input aria-label=${t('plans.field.title')} .value=${this.todoDialog.title} @input=${(e) => { this.todoDialog = { ...this.todoDialog, title: e.target.value }; }}></cr-bar-input></label>
+          <label><span>${t('plans.todoBody')}</span><cr-bar-textarea aria-label=${t('plans.todoBody')} .value=${this.todoDialog.body} @input=${(e) => { this.todoDialog = { ...this.todoDialog, body: e.target.value }; }}></cr-bar-textarea></label>` : nothing}
         <div slot="actions"><cr-bar-button @click=${() => { this.todoDialog = null; }}>${t('plans.cancel')}</cr-bar-button>
           <cr-bar-button variant="primary" @click=${() => this.createTodo()}>${t('plans.createTodoIdea')}</cr-bar-button></div>
       </cr-dialog>`;

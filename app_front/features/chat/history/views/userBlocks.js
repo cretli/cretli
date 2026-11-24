@@ -136,9 +136,12 @@ export function installUserBlocks(rv) {
    * Renumbers the labels of all pending queue blocks.
    */
   function relabelQueuedBlocks() {
+    const last = queuedUserBlocks.length - 1;
     queuedUserBlocks.forEach((item, idx) => {
       if (!item.block) return;
       item.block.label = t('sdkView.youQueuedNumbered', { n: idx + 1 });
+      item.block.queueCanMoveUp = idx > 0;
+      item.block.queueCanMoveDown = idx < last;
     });
   }
 
@@ -181,6 +184,11 @@ export function installUserBlocks(rv) {
     });
     block.addEventListener('cr-sdk-block-remove', () => {
       if (typeof hooks.onRemoveQueueItem === 'function') hooks.onRemoveQueueItem(text);
+    });
+    block.addEventListener('cr-sdk-block-move', (event) => {
+      const direction = event?.detail?.direction;
+      if (direction !== 'up' && direction !== 'down') return;
+      if (typeof hooks.onMoveQueueItem === 'function') hooks.onMoveQueueItem(text, direction);
     });
     applyMessageSourceActions(block);
   }

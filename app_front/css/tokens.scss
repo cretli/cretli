@@ -82,6 +82,16 @@
   --cr-code-addition: #73c991;
 
   // --- Semantic states ---
+  // Workspace accent palette (sidebar markers)
+  --cr-ws-red: #e5636d;
+  --cr-ws-orange: #e8954a;
+  --cr-ws-yellow: #d9b84a;
+  --cr-ws-green: #5fb878;
+  --cr-ws-teal: #3fb5ad;
+  --cr-ws-blue: #4a9de8;
+  --cr-ws-purple: #a67ae0;
+  --cr-ws-pink: #e57cb3;
+  --cr-ws-gray: #8a8f98;
   --cr-success: #4ec9b0;
   --cr-success-bg: #1e3a1e;
   --cr-success-border: #315b43;
@@ -195,6 +205,22 @@
   --cr-font-size-legacy-12-5px: 12.5px;
   --cr-font-size-legacy-13px: 13px;
   --cr-font-size-legacy-16px: 16px;
+  /* Settings partials (added when they were migrated off literals). */
+  --cr-font-size-legacy-088: 0.88rem;
+  --cr-font-size-legacy-175: 1.75rem;
+  --cr-font-size-legacy-082em: 0.82em;
+  --cr-font-size-legacy-7px: 7px;
+  /* Todo partials. */
+  --cr-font-size-legacy-2: 2rem;
+  --cr-font-size-legacy-18px: 18px;
+  --cr-font-size-legacy-085em: 0.85em;
+  --cr-font-size-legacy-09em: 0.9em;
+  --cr-font-size-legacy-1em: 1em;
+  /* Git, files, browser, base and layout partials. */
+  --cr-font-size-legacy-05: 0.5rem;
+  --cr-font-size-legacy-086: 0.86rem;
+  --cr-font-size-legacy-135: 1.35rem;
+  --cr-font-size-legacy-8px: 8px;
 
   // --- Motion ---
   --cr-transition: 120ms ease;
@@ -402,6 +428,16 @@
   --cr-code-addition: #116329;
 
   // --- Semantic states ---
+  // Workspace accent palette (sidebar markers)
+  --cr-ws-red: #c8323d;
+  --cr-ws-orange: #c76a12;
+  --cr-ws-yellow: #a8860a;
+  --cr-ws-green: #2e8a4e;
+  --cr-ws-teal: #14827b;
+  --cr-ws-blue: #1d6fc4;
+  --cr-ws-purple: #7a45c2;
+  --cr-ws-pink: #c23d84;
+  --cr-ws-gray: #6b7078;
   --cr-success: #2e7d32;
   --cr-success-bg: #dff3ea;
   --cr-success-border: #72b78a;

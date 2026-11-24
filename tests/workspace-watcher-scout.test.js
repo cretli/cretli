@@ -750,7 +750,7 @@ runCase('REST /api/workspace-watcher/scout lists, submits and resolves', async (
       status(code) { this.statusCode = code; return this; },
       json(body) { resolve({ status: this.statusCode, body }); },
     };
-    fn({ params: {}, query: {}, body: {}, ...req }, res);
+    fn({ params: {}, body: {}, ...req, query: { workspaceFolder: cwd, ...(req.query || {}) } }, res);
   });
 
   const submitted = await invoke('POST', '/api/workspace-watcher/scout', {
@@ -942,7 +942,7 @@ function makeWatcherApp(dataDir, cwd) {
       status(code) { this.statusCode = code; return this; },
       json(body) { resolve({ status: this.statusCode, body }); },
     };
-    fn({ params: {}, query: {}, body: {}, ...req }, res);
+    fn({ params: {}, body: {}, ...req, query: { workspaceFolder: cwd, ...(req.query || {}) } }, res);
   });
   return { invoke };
 }

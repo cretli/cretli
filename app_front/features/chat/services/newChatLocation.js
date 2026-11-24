@@ -7,6 +7,7 @@ import {
   readNewChatLocationFavorites,
   encodeNewChatLocation,
 } from '../newChatLocationOptions.js';
+import { buildNewChatRecency, sortLocationOptionsByRecency } from '../newChatRecency.js';
 import { newChatModalState } from '../state/newChatModalState.js';
 import { chatRuntime, chats } from '../state/chatRuntimeState.js';
 import { chatHost } from './chatHost.js';
@@ -53,8 +54,10 @@ export function syncNewChatLocationPicker() {
     if (worktreeSelect) worktreeSelect.value = '';
   }
   const folders = Array.from(folderSelect.options, (option) => ({ value: option.value, label: option.textContent }));
-  picker.options = buildNewChatLocationOptions(folders, newChatLocationWorktrees, readNewChatLocationFavorites(), t,
-    document.documentElement.lang || undefined);
+  picker.options = sortLocationOptionsByRecency(
+    buildNewChatLocationOptions(folders, newChatLocationWorktrees, readNewChatLocationFavorites(), t,
+      document.documentElement.lang || undefined),
+    buildNewChatRecency(chats));
   const todoId = resolveNewChatWorktreeTodoId();
   picker.value = encodeNewChatLocation(folderSelect.value, todoId);
   const selected = picker.options.find((row) => row.value === picker.value);

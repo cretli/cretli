@@ -8,7 +8,7 @@ import './fixtures/fake-transport.js';
 import { confirmDurableFinish } from './helpers/delegation-durable-finish.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { getDelegationById } from '../lib/persist/delegations-persist.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';

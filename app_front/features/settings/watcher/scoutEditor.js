@@ -2,6 +2,7 @@
  * Scout profile editor: draft edits, actions and delegated input handling.
  */
 
+import '../../../components/ui/cr-bar-textarea.js';
 import { ws } from './store.js';
 import { t } from '../../../i18n/index.js';
 import { applyDraftEdit, draftFromProfile, draftFromTemplate, scoutEditorFieldErrors, scoutEditorTabForField } from '../../watcher/scoutProfileEditorView.js';

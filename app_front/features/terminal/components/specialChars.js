@@ -7,10 +7,10 @@ const SPECIAL_KEYS = [
   { id: 'esc', label: 'ESC', titleKey: 'specialChars.escape', sequence: '\x1b' },
   { id: 'enter', label: 'Enter', titleKey: 'specialChars.enter', sequence: '\r' },
   { id: 'tab', label: 'Tab', titleKey: 'specialChars.tab', sequence: '\t' },
-  { id: 'up', label: '↑', titleKey: 'specialChars.arrowUp', sequence: '\x1b[A' },
-  { id: 'down', label: '↓', titleKey: 'specialChars.arrowDown', sequence: '\x1b[B' },
-  { id: 'left', label: '←', titleKey: 'specialChars.arrowLeft', sequence: '\x1b[D' },
-  { id: 'right', label: '→', titleKey: 'specialChars.arrowRight', sequence: '\x1b[C' },
+  { id: 'up', icon: 'mdi-arrow-up', titleKey: 'specialChars.arrowUp', sequence: '\x1b[A' },
+  { id: 'down', icon: 'mdi-arrow-down', titleKey: 'specialChars.arrowDown', sequence: '\x1b[B' },
+  { id: 'left', icon: 'mdi-arrow-left', titleKey: 'specialChars.arrowLeft', sequence: '\x1b[D' },
+  { id: 'right', icon: 'mdi-arrow-right', titleKey: 'specialChars.arrowRight', sequence: '\x1b[C' },
 ];
 
 let onSpecialCharSelect = null;
@@ -46,7 +46,14 @@ export function initSpecialChars() {
     btn.dataset.key = key.id;
     btn.title = title;
     btn.setAttribute('aria-label', title);
-    btn.textContent = key.label;
+    if (key.icon) {
+      const icon = document.createElement('span');
+      icon.className = `mdi ${key.icon}`;
+      icon.setAttribute('aria-hidden', 'true');
+      btn.appendChild(icon);
+    } else {
+      btn.textContent = key.label;
+    }
     btn.addEventListener('click', () => {
       if (!onSpecialCharSelect) return;
       onSpecialCharSelect(key.sequence);

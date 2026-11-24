@@ -1,3 +1,4 @@
+import { checkChatCompletion } from '../services/chatCompletionCheck.js';
 /**
  * Chat toolbar action buttons and settings copy-id buttons.
  */
@@ -13,6 +14,7 @@ import {
   startNewAgent,
 } from '../services/chatContextCompression.js';
 import {
+  finishArchivedChat,
   requestArchiveChatConfirmed,
   requestDeleteChat,
   requestRestoreChat,
@@ -158,6 +160,14 @@ export function bindChatPanelToolbar({ toggleChatFullscreen }) {
       sendKeySequenceToActiveChat('\x03');
     });
   }
+
+  const checkArchiveBtn = document.getElementById('chat-check-archive-menu-btn');
+  if (checkArchiveBtn) bindChatToolbarActionItem(checkArchiveBtn, () => {
+    const chat = chats.find((entry) => entry.id === chatRuntime.activeChatId);
+    if (!chat || chat.archivedAt || checkArchiveBtn.hidden || isForkSubtreeBusy(chats, chat.id, hasLiveHarnessWork)) return;
+    closeChatActionsModal();
+    void checkChatCompletion(chat.id, finishArchivedChat);
+  });
 
   const archiveMenuBtn = document.getElementById('chat-archive-menu-btn');
   if (archiveMenuBtn) {

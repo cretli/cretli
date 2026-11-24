@@ -1,0 +1,499 @@
+[
+  {
+    "slug": "index",
+    "title": "Dokumentacja Cretli",
+    "description": "Dokumentacja Cretli — krótki przewodnik po bezpiecznej pracy z Cretli.",
+    "headings": [
+      {
+        "id": "przed-rozpoczęciem",
+        "text": "Przed rozpoczęciem"
+      },
+      {
+        "id": "bezpieczna-praca",
+        "text": "Bezpieczna praca"
+      },
+      {
+        "id": "następny-krok",
+        "text": "Następny krok"
+      }
+    ]
+  },
+  {
+    "slug": "getting-started",
+    "title": "Pierwsze kroki",
+    "description": "Zainstaluj Cretli, skonfiguruj pierwszą sesję i zaktualizuj istniejącą instalację.",
+    "headings": [
+      {
+        "id": "wymagania-i-instalacja",
+        "text": "Wymagania i instalacja"
+      },
+      {
+        "id": "pierwsza-sesja",
+        "text": "Pierwsza sesja"
+      },
+      {
+        "id": "aktualizacja",
+        "text": "Aktualizacja"
+      }
+    ]
+  },
+  {
+    "slug": "install-docker",
+    "title": "Instalacja przez Docker",
+    "description": "Instalacja przez Docker — krótki przewodnik po bezpiecznej pracy z Cretli.",
+    "headings": [
+      {
+        "id": "przed-rozpoczęciem",
+        "text": "Przed rozpoczęciem"
+      },
+      {
+        "id": "bezpieczna-praca",
+        "text": "Bezpieczna praca"
+      },
+      {
+        "id": "następny-krok",
+        "text": "Następny krok"
+      }
+    ]
+  },
+  {
+    "slug": "harness-opencode",
+    "title": "OpenCode",
+    "description": "Skonfiguruj dostęp do OpenCode, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-openrouter",
+    "title": "OpenRouter",
+    "description": "Skonfiguruj dostęp do OpenRouter, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-deepseek",
+    "title": "DeepSeek",
+    "description": "Skonfiguruj dostęp do DeepSeek, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-qwen",
+    "title": "Qwen Code",
+    "description": "Skonfiguruj dostęp do Qwen Code, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-mistral",
+    "title": "Mistral",
+    "description": "Skonfiguruj dostęp do Mistral, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-mimo",
+    "title": "Xiaomi MiMo",
+    "description": "Skonfiguruj dostęp do Xiaomi MiMo, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-zai",
+    "title": "Z.AI",
+    "description": "Skonfiguruj dostęp do Z.AI, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-codebuddy",
+    "title": "CodeBuddy",
+    "description": "Skonfiguruj dostęp do CodeBuddy, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-antigravity",
+    "title": "Antigravity",
+    "description": "Skonfiguruj dostęp do Antigravity, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-claude",
+    "title": "Claude Code",
+    "description": "Skonfiguruj dostęp do Claude Code, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-codex",
+    "title": "Codex",
+    "description": "Skonfiguruj dostęp do Codex, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "harness-cursor-sdk",
+    "title": "Cursor SDK",
+    "description": "Skonfiguruj dostęp do Cursor SDK, wybierz modele i poznaj ograniczenia.",
+    "headings": [
+      {
+        "id": "logowanie-i-modele",
+        "text": "Logowanie i modele"
+      },
+      {
+        "id": "znane-ograniczenia",
+        "text": "Znane ograniczenia"
+      }
+    ]
+  },
+  {
+    "slug": "workspaces",
+    "title": "Obszary robocze",
+    "description": "Zapisz foldery projektu, zaimportuj obszar i wybierz właściwy katalog pracy.",
+    "headings": [
+      {
+        "id": "zapisane-obszary-i-import",
+        "text": "Zapisane obszary i import"
+      },
+      {
+        "id": "przed-rozpoczęciem-pracy",
+        "text": "Przed rozpoczęciem pracy"
+      }
+    ]
+  },
+  {
+    "slug": "settings",
+    "title": "Ustawienia",
+    "description": "Ustawienia — krótki przewodnik po bezpiecznej pracy z Cretli.",
+    "headings": [
+      {
+        "id": "przed-rozpoczęciem",
+        "text": "Przed rozpoczęciem"
+      },
+      {
+        "id": "bezpieczna-praca",
+        "text": "Bezpieczna praca"
+      },
+      {
+        "id": "następny-krok",
+        "text": "Następny krok"
+      }
+    ]
+  },
+  {
+    "slug": "chat-and-agents",
+    "title": "Panele pracy",
+    "description": "Korzystaj z czatu, terminala, plików, Dokumentów i wbudowanej przeglądarki.",
+    "headings": [
+      {
+        "id": "czat-i-terminal",
+        "text": "Czat i terminal"
+      },
+      {
+        "id": "pliki-i-dokumenty",
+        "text": "Pliki i Dokumenty"
+      },
+      {
+        "id": "wbudowana-przeglądarka",
+        "text": "Wbudowana przeglądarka"
+      }
+    ]
+  },
+  {
+    "slug": "todos",
+    "title": "Zadania i plany",
+    "description": "Twórz zadania, zatwierdzaj plany, ustalaj kolejność i sprawdzaj wyniki przeglądu.",
+    "headings": [
+      {
+        "id": "status-i-zatwierdzenie",
+        "text": "Status i zatwierdzenie"
+      },
+      {
+        "id": "kolejność-i-przegląd",
+        "text": "Kolejność i przegląd"
+      }
+    ]
+  },
+  {
+    "slug": "workspace-watcher",
+    "title": "Watcher obszaru roboczego",
+    "description": "Wybierz tryb Watchera i poznaj wykonanie, integrację oraz restart.",
+    "headings": [
+      {
+        "id": "wybierz-tryb",
+        "text": "Wybierz tryb"
+      },
+      {
+        "id": "przebieg-cyklu",
+        "text": "Przebieg cyklu"
+      },
+      {
+        "id": "integracja-i-restart",
+        "text": "Integracja i restart"
+      }
+    ]
+  },
+  {
+    "slug": "delegation-review",
+    "title": "Delegowanie i niezależny przegląd",
+    "description": "Jak Cretli dzieli pracę między silniki i dlaczego wynik sprawdza inny model.",
+    "headings": [
+      {
+        "id": "pętla-pracy",
+        "text": "Pętla pracy"
+      },
+      {
+        "id": "jak-wybierany-jest-recenzent",
+        "text": "Jak wybierany jest recenzent"
+      },
+      {
+        "id": "limity-pod-twoją-kontrolą",
+        "text": "Limity pod Twoją kontrolą"
+      }
+    ]
+  },
+  {
+    "slug": "mcp",
+    "title": "Narzędzia MCP i klienci zewnętrzni",
+    "description": "Użyj wbudowanych narzędzi Cretli, dodaj serwery MCP i podłącz klientów zewnętrznych, np. Claude Code.",
+    "headings": [
+      {
+        "id": "wbudowane-narzędzia",
+        "text": "Wbudowane narzędzia"
+      },
+      {
+        "id": "dodaj-serwery-mcp",
+        "text": "Dodaj serwery MCP"
+      },
+      {
+        "id": "podłącz-klienta-zewnętrznego",
+        "text": "Podłącz klienta zewnętrznego"
+      }
+    ]
+  },
+  {
+    "slug": "remote-access",
+    "title": "Dostęp zdalny, PWA i powiadomienia",
+    "description": "Otwórz Cretli z telefonu lub innego komputera bezpiecznie i poznaj ustawienia domyślne.",
+    "headings": [
+      {
+        "id": "włącz-dostęp-w-sieci-lan",
+        "text": "Włącz dostęp w sieci LAN"
+      },
+      {
+        "id": "https-i-pwa",
+        "text": "HTTPS i PWA"
+      },
+      {
+        "id": "powiadomienia",
+        "text": "Powiadomienia"
+      },
+      {
+        "id": "udostępnianie-portu",
+        "text": "Udostępnianie portu"
+      },
+      {
+        "id": "uwagi-o-bezpieczeństwie",
+        "text": "Uwagi o bezpieczeństwie"
+      }
+    ]
+  },
+  {
+    "slug": "security-basics",
+    "title": "Podstawy bezpieczeństwa",
+    "description": "Podstawy bezpieczeństwa — krótki przewodnik po bezpiecznej pracy z Cretli.",
+    "headings": [
+      {
+        "id": "przed-rozpoczęciem",
+        "text": "Przed rozpoczęciem"
+      },
+      {
+        "id": "bezpieczna-praca",
+        "text": "Bezpieczna praca"
+      },
+      {
+        "id": "następny-krok",
+        "text": "Następny krok"
+      }
+    ]
+  },
+  {
+    "slug": "backups-and-data",
+    "title": "Kopie zapasowe i dane",
+    "description": "Gdzie Cretli trzyma dane, jakie są narzędzia kopii i jak bezpiecznie przywracać.",
+    "headings": [
+      {
+        "id": "wybierz-narzędzie",
+        "text": "Wybierz narzędzie"
+      },
+      {
+        "id": "automatyczne-kopie-lokalne",
+        "text": "Automatyczne kopie lokalne"
+      },
+      {
+        "id": "pełna-kopia-offline",
+        "text": "Pełna kopia offline"
+      },
+      {
+        "id": "dobre-nawyki",
+        "text": "Dobre nawyki"
+      }
+    ]
+  },
+  {
+    "slug": "troubleshooting",
+    "title": "Rozwiązywanie problemów",
+    "description": "Rozwiązywanie problemów — krótki przewodnik po bezpiecznej pracy z Cretli.",
+    "headings": [
+      {
+        "id": "przed-rozpoczęciem",
+        "text": "Przed rozpoczęciem"
+      },
+      {
+        "id": "bezpieczna-praca",
+        "text": "Bezpieczna praca"
+      },
+      {
+        "id": "następny-krok",
+        "text": "Następny krok"
+      },
+      {
+        "id": "szybki-przewodnik-po-objawach",
+        "text": "Szybki przewodnik po objawach"
+      }
+    ]
+  },
+  {
+    "slug": "faq",
+    "title": "FAQ",
+    "description": "Krótkie odpowiedzi na częste pytania o Cretli, agentów, dostęp i dane.",
+    "headings": [
+      {
+        "id": "czy-cretli-to-usługa-w-chmurze",
+        "text": "Czy Cretli to usługa w chmurze?"
+      },
+      {
+        "id": "czy-potrzebuję-konta-lub-kluczy-api",
+        "text": "Czy potrzebuję konta lub kluczy API?"
+      },
+      {
+        "id": "jakiego-agenta-wybrać",
+        "text": "Jakiego agenta wybrać?"
+      },
+      {
+        "id": "czy-mogę-używać-go-z-telefonu",
+        "text": "Czy mogę używać go z telefonu?"
+      },
+      {
+        "id": "czy-bezpiecznie-wystawić-go-do-internetu",
+        "text": "Czy bezpiecznie wystawić go do internetu?"
+      },
+      {
+        "id": "czy-watcher-sam-zmienia-moje-repozytorium",
+        "text": "Czy Watcher sam zmienia moje repozytorium?"
+      },
+      {
+        "id": "gdzie-są-moje-dane-i-czy-mogę-je-przenieść",
+        "text": "Gdzie są moje dane i czy mogę je przenieść?"
+      },
+      {
+        "id": "dlaczego-agent-nie-widzi-mojego-serwera-mcp",
+        "text": "Dlaczego agent nie widzi mojego serwera MCP?"
+      },
+      {
+        "id": "gdzie-szukać-pomocy",
+        "text": "Gdzie szukać pomocy?"
+      }
+    ]
+  }
+]

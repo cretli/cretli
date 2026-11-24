@@ -33,7 +33,7 @@ import {
   BROWSER_NAVIGATION_WAIT_UNTIL,
 } from '../lib/browser/session-manager.js';
 import { BROWSER_LIMITS } from '../lib/browser/constants.js';
-import { saveChats } from '../lib/persist/chats-persist.js';
+import { saveChats } from '../lib/persist/chats-legacy-store.js';
 import { configureChatMedia } from '../lib/chat-media.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 

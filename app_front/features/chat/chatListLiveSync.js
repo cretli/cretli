@@ -19,10 +19,10 @@ const LIVE_SYNC_MAX_WAIT_MS = 600;
  *   onTitlePatched?: (chatId: string, title: string, titleSource: string) => boolean,
  *   onReadPatched?: (chatId: string, lastFinishedAt: string, lastSeenAt: string, autoArchivePostponedAt?: string) => boolean,
  *   onWatcherChanged?: () => unknown,
- *   onChatsChangedFrame?: (info: { reason?: string, chatId?: string | null }) => unknown,
- *   shouldSuppressChatsChanged?: (frame: { reason?: string, chatId?: string | null }) => boolean,
+ *   onChatsChangedFrame?: (info: { reason?: string, chatId?: string | null, title?: string, titleSource?: string, lastFinishedAt?: string, lastSeenAt?: string, autoArchivePostponedAt?: string }) => unknown,
+ *   shouldSuppressChatsChanged?: (frame: { reason?: string, chatId?: string | null, title?: string, titleSource?: string, lastFinishedAt?: string, lastSeenAt?: string, autoArchivePostponedAt?: string }) => boolean,
  *   onBeforeListReload?: () => void,
- *   requestListDelta?: () => Promise<boolean> | boolean,
+ *   requestListDelta?: (() => Promise<boolean> | boolean) | null,
  *   setTimeoutFn?: typeof setTimeout,
  *   clearTimeoutFn?: typeof clearTimeout,
  *   nowFn?: () => number,
@@ -91,6 +91,9 @@ export function createChatListLiveSync({
      *   chatId?: string | null,
      *   title?: string,
      *   titleSource?: string,
+     *   lastFinishedAt?: string,
+     *   lastSeenAt?: string,
+     *   autoArchivePostponedAt?: string,
      * }} [msg] server `chatsChanged` frame
      */
     onChatsChanged(msg) {

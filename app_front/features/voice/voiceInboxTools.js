@@ -118,7 +118,7 @@ export function createInboxToolHandlers(deps) {
   const STALE = { ok: false, code: 'stale_session', error: 'The voice session changed. Nothing was done.' };
 
   async function readContext() {
-    const raw = (await deps.getContext()) || {};
+    const raw = /** @type {Partial<InboxContext>} */ ((await deps.getContext()) || {});
     return { workspaceFolder: String(raw.workspaceFolder || ''), chatId: String(raw.chatId || '') };
   }
 
@@ -224,7 +224,7 @@ export function createInboxToolHandlers(deps) {
   /**
    * Re-reads the pending list and checks the proposal is still pending and still reads as it did.
    *
-   * @returns {Promise<{ ok: true, finding: Record<string, any>, revision: string } | { ok: false, result: object }>}
+   * @returns {Promise<{ ok: true, finding: Record<string, any>, revision: string, result?: never } | { ok: false, result: object, finding?: never, revision?: never }>}
    */
   async function currentProposal(id, expectedRevision) {
     const response = await fetchPending();

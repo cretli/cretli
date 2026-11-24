@@ -10,7 +10,12 @@ import {
 
 const routes = new Map();
 const reg = (method) => (p, fn) => routes.set(`${method} ${p}`, fn);
-registerReviewLessonsRoutes({ get: reg('GET'), post: reg('POST'), patch: reg('PATCH'), delete: reg('DELETE') }, { getCurrentWorkspace: () => ISOLATED_DATA_DIR });
+registerReviewLessonsRoutes({ get: reg('GET'), post: reg('POST'), patch: reg('PATCH'), delete: reg('DELETE') }, {
+  getCurrentWorkspace: () => ISOLATED_DATA_DIR,
+  // The isolated test directory represents a registered workspace; the foreign
+  // folder below remains outside that registry.
+  isKnownFolder: (folder) => folder === ISOLATED_DATA_DIR,
+});
 async function invoke(method, route, req) {
   let status = 200;
   let body;

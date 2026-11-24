@@ -167,3 +167,139 @@ test('concurrent archive requests serialize and only one changes the store', asy
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   assert.equal(w.updates.length, 1);
 });
+
+const openItems = [{ title: 'Finish review', detail: 'Review the remaining change.' }, { title: 'Document', detail: 'Write the missing docs.' }];
+function followupWorld(extra = {}) {
+  return world({ dataDir: path.join(ISOLATED_DATA_DIR, `todos-${counter++}`), listTodos: realListTodos,
+    generate: async () => ({ text: JSON.stringify({ verdict: 'needs_action', reason: 'Work remains', openItems }) }), ...extra });
+}
+import { addTodo as realAddTodo, listTodos as realListTodos } from '../lib/persist/todos-store.js';
+import { CHAT_ARCHIVE_GRACE_MS } from '../lib/chat-archive-policy.js';
+const selection = [{ index: 0, title: 'Edited review' }, { index: 1, title: 'Document' }];
+
+test('manual grace is retained for both archive operations; idle and old records retain day thresholds', async () => {
+  for (const followups of [false, true]) {
+    const w = followups ? followupWorld() : world();
+    w.chats[0].updatedAt = new Date(NOW - 3600000).toISOString();
+    await assert.rejects(() => w.service.assess('root'), { code: 'family_blocked' });
+    const a = await w.service.assess('root', { mode: 'manual' });
+    assert.equal(a.graceMs, CHAT_ARCHIVE_GRACE_MS);
+    assert.equal(a.refSeq, 2);
+    assert.equal((await (followups ? w.service.archiveWithFollowups(a.id, selection) : w.service.archive(a.id))).status, 'archived');
+  }
+  const recent = world();
+  recent.chats[0].updatedAt = new Date(NOW - 300000).toISOString();
+  await assert.rejects(() => recent.service.assess('root', { mode: 'manual' }), { code: 'family_blocked' });
+  const old = world();
+  const a = await old.service.assess('root');
+  const doc = JSON.parse(fs.readFileSync(old.deps.storePath));
+  delete doc.items[0].graceMs;
+  fs.writeFileSync(old.deps.storePath, JSON.stringify(doc));
+  assert.equal((await old.service.archive(a.id)).status, 'archived');
+});
+
+test('open items are bounded and filtered without changing verdict; refSeq falls back to head', async () => {
+  for (const input of [null, {}, [null, {}, { title: 1, detail: 'x' }, ...Array(8).fill({ title: 'x'.repeat(150), detail: 'y'.repeat(700) })]]) {
+    const parsed = parseArchivistVerdict(JSON.stringify({ verdict: 'needs_action', reason: 'pending', openItems: input }), []);
+    assert.equal(parsed.verdict, 'needs_action');
+    assert.ok(parsed.openItems.length <= 5);
+    for (const item of parsed.openItems) { assert.equal(item.title.length, 120); assert.equal(item.detail.length, 600); }
+  }
+  assert.deepEqual(parseArchivistVerdict(JSON.stringify({ verdict: 'uncertain', reason: 'unknown', openItems }), []).openItems, []);
+  const w = followupWorld({ history: async () => ({ headSeq: 7, events: [{ seq: 1, rec: { kind: 'localUser', text: 'Do work' } }] }) });
+  assert.equal((await w.service.assess('root')).refSeq, 7);
+});
+
+test('followups create unlinked ideas in the root workspace, archive family, replay and restore', async () => {
+  const w = followupWorld();
+  w.chats.push({ id: 'child', forkParentChatId: 'root', updatedAt: OLD, workspaceFolder: '/workspace' });
+  const a = await w.service.assess('root');
+  const action = await w.service.archiveWithFollowups(a.id, selection);
+  assert.equal(action.status, 'archived');
+  assert.equal(action.members.length, 2);
+  assert.ok(action.archivedAt);
+  const todos = (await realListTodos(w.deps.dataDir, '/workspace')).items;
+  assert.equal(todos.length, 2);
+  for (const todo of todos) {
+    assert.equal(todo.status, 'idea');
+    assert.ok(!todo.createdByChatId);
+    assert.deepEqual(todo.linkedChatIds || [], []);
+    assert.match(todo.body, /cretli-ref chat=root seq=2/);
+  }
+  assert.deepEqual(await w.service.archiveWithFollowups(a.id, selection), action);
+  await w.service.restore(action.id);
+  assert.ok(w.chats.every((chat) => !chat.archivedAt));
+  assert.equal((await realListTodos(w.deps.dataDir, '/workspace')).items.length, 2);
+});
+
+test('changed stamp creates no todo; completed and uncertain cannot create followups', async () => {
+  const w = followupWorld();
+  const a = await w.service.assess('root');
+  w.pages.set('root', { ...w.page(), headSeq: 3 });
+  await assert.rejects(() => w.service.archiveWithFollowups(a.id, selection), { code: 'chat_changed' });
+  assert.equal((await realListTodos(w.deps.dataDir, '/workspace')).items.length, 0);
+  for (const verdict of ['completed', 'uncertain']) {
+    const other = world({ generate: async () => ({ text: JSON.stringify({ verdict, reason: 'reason', evidence: [{ chatId: 'root', seq: 2 }] }) }) });
+    const assessment = await other.service.assess('root');
+    await assert.rejects(() => other.service.archiveWithFollowups(assessment.id, selection), { code: 'assessment_required' });
+  }
+});
+
+test('failed archive resumes after expiry, skips recorded ids, rejects changed payload and returns ids on changed chat', async () => {
+  let clock = NOW;
+  const w = followupWorld({ now: () => clock, updateChat: async () => { throw new Error('write failure'); } });
+  const a = await w.service.assess('root');
+  await assert.rejects(() => w.service.archiveWithFollowups(a.id, selection));
+  assert.equal((await w.service.report()).items[0].status, 'failed');
+  await assert.rejects(() => w.service.archiveWithFollowups(a.id, [{ index: 0, title: 'Different' }]), { code: 'followups_payload_mismatch' });
+  w.pages.set('root', { ...w.page(), headSeq: 3 });
+  await assert.rejects(() => w.service.archiveWithFollowups(a.id, selection), (error) => error.code === 'chat_changed' && Object.keys(error.action.todoIds).length === 2);
+  w.pages.clear();
+  clock += 2 * 86400000;
+  w.deps.addTodo = async () => { throw new Error('recorded ids must be skipped'); };
+  w.deps.updateChat = async () => { w.chats[0].archivedAt = new Date(clock).toISOString(); return w.chats[0]; };
+  // updateChat is captured when the service is constructed.
+  const resumed = createChatArchivist(w.deps);
+  assert.equal((await resumed.archiveWithFollowups(a.id, selection)).status, 'archived');
+  assert.equal((await realListTodos(w.deps.dataDir, '/workspace')).items.length, 2);
+});
+
+test('crash window after addTodo replays its key; already archived recovery precedes snapshot', async () => {
+  let crash = true;
+  const w = followupWorld({ addTodo: async (...args) => {
+    const result = await realAddTodo(...args);
+    if (crash) { crash = false; throw new Error('crash before id persistence'); }
+    return result;
+  } });
+  const a = await w.service.assess('root');
+  await assert.rejects(() => w.service.archiveWithFollowups(a.id, selection));
+  assert.equal((await realListTodos(w.deps.dataDir, '/workspace')).items.length, 1);
+  const action = await w.service.archiveWithFollowups(a.id, selection);
+  assert.equal((await realListTodos(w.deps.dataDir, '/workspace')).items.length, 2);
+  const doc = JSON.parse(fs.readFileSync(w.deps.storePath));
+  doc.items.find((row) => row.id === action.id).status = 'pending';
+  fs.writeFileSync(w.deps.storePath, JSON.stringify(doc));
+  const recovered = await w.service.archiveWithFollowups(a.id, selection);
+  assert.equal(recovered.status, 'archived');
+  assert.equal(recovered.archivedAt, w.chats[0].archivedAt);
+  assert.deepEqual(recovered.members, action.members);
+  w.chats.push({ id: 'new', forkParentChatId: 'root', archivedAt: 'different' });
+  await assert.rejects(() => w.service.restore(action.id), { code: 'chat_changed' });
+});
+
+test('followup validation and expiry happen before any write, with old assessment grace fallback', async () => {
+  let clock = NOW;
+  const w = followupWorld({ now: () => clock });
+  const a = await w.service.assess('root');
+  for (const selected of [[], [{ index: 9, title: 'Task' }], [{ index: 0, title: '' }], [{ index: 0, title: 'x'.repeat(121) }], [selection[0], selection[0]]]) {
+    await assert.rejects(() => w.service.archiveWithFollowups(a.id, selected), { code: 'invalid_request' });
+  }
+  assert.equal((await w.service.report()).items.length, 1);
+  clock += 86400001;
+  await assert.rejects(() => w.service.archiveWithFollowups(a.id, selection), { code: 'assessment_expired' });
+  clock = NOW;
+  const doc = JSON.parse(fs.readFileSync(w.deps.storePath));
+  delete doc.items[0].graceMs;
+  fs.writeFileSync(w.deps.storePath, JSON.stringify(doc));
+  assert.equal((await w.service.archiveWithFollowups(a.id, selection)).status, 'archived');
+});

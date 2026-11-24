@@ -20,7 +20,7 @@ import {
 } from '../lib/context/context-settings-runtime.ts';
 import { registerContextSettingsRoutes } from '../lib/routes/context-settings-routes.js';
 import { loadSettings, saveSettings } from '../lib/persist/settings.js';
-import { loadChats, saveChats } from '../lib/persist/chats-persist.js';
+import { loadChats, saveChats } from '../lib/persist/chats-legacy-store.js';
 
 test.after(() => removeIsolatedDataDir());
 

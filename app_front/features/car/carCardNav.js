@@ -196,7 +196,7 @@ function evidenceText(item) {
  * Text shown and read for the "Summary" button.
  *
  * @param {Record<string, any>} card
- * @param {{ planMarkdown?: string }} [extra] plan fetched from the todo API
+ * @param {{ planMarkdown?: string }|undefined} extra plan fetched from the todo API
  * @param {(key: string, params?: object) => string} translate
  * @returns {string} '' when there is nothing to summarize
  */
@@ -263,7 +263,7 @@ function folderName(folder) {
  * Structured "what is this and what happens" view of a decision card.
  *
  * @param {Record<string, any>} card
- * @param {{ planMarkdown?: string }} [extra] plan fetched from the todo API
+ * @param {{ planMarkdown?: string }|undefined} extra plan fetched from the todo API
  * @param {(key: string, params?: object) => string} translate
  * @returns {{
  *   about: string,

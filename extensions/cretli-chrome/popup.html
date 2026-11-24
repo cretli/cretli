@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cretli</title>
+  <style>
+    body { font: 13px system-ui, sans-serif; width: 300px; margin: 12px; }
+    h1 { font-size: 15px; margin: 0 0 8px; }
+    .row { display: flex; justify-content: space-between; margin: 4px 0; }
+    ul { padding-left: 16px; margin: 4px 0; }
+    button { margin-top: 6px; }
+    #kill { background: #b3261e; color: #fff; border: 0; padding: 6px 10px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Cretli</h1>
+  <div class="row"><span>Paired</span><b id="paired">-</b></div>
+  <div class="row"><span>Connected</span><b id="connected">-</b></div>
+  <div class="row"><span>Kill switch</span><b id="killed">-</b></div>
+  <h2 style="font-size:13px">Approved domains</h2>
+  <ul id="domains"></ul>
+  <button id="kill">Kill switch: disconnect and forget token</button>
+  <button id="resume" hidden>Re-enable (then pair again in Options)</button>
+  <button id="options">Options</button>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

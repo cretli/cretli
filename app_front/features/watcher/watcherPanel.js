@@ -17,6 +17,7 @@ import { patchTodo } from '../../core/api/index.js';
 import { sharedState } from '../../state/index.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
+import { whenViewContextRuntimeReady } from '../../app/appShell/viewContextBridge.js';
 import { probeSync } from '../../lib/perfProbe.js';
 import { getWorkspaceWatcherView, isWorkspaceWatcherRead } from './watcherGetCoalesce.js';
 import {
@@ -33,6 +34,7 @@ import {
   escapeWatcherAttr,
 } from './watcherStatus.js';
 import { paintWatcherAutomation } from './watcherAutomationView.js';
+import { paintWatcherRestartActions } from './watcherRestartActions.js';
 import './watcher-panel.scss';
 
 /** @type {object | null} */
@@ -54,6 +56,7 @@ let automationError = '';
  * @returns {Promise<{ status: number, json: object | null }>}
  */
 async function watcherApi(path, options = {}) {
+  await whenViewContextRuntimeReady();
   // The bar belongs to one workspace. Scope every call like the settings panel
   // so it neither reads nor writes another workspace's watcher row.
   const scoped = scopeWatcherRequestToWorkspace(path, options, getWatcherWorkspaceFolder());
@@ -238,6 +241,7 @@ function paint(view) {
   const cycles = Array.isArray(view?.watcher?.activeCycles) ? view.watcher.activeCycles.length : 0;
   /** @type {any} */ (document.getElementById('todo-tabs'))?.setCount?.('watcher', cycles, t('todo.tabWatcher'), false);
   paintWatcherAutomation(document.getElementById('todo-watcher-automation'), view, { busy: automationBusy, error: automationError });
+  paintWatcherRestartActions();
   paintDuplicateProposals();
   paintWhy(view);
   paintBlocked();
@@ -247,6 +251,7 @@ function paint(view) {
  * @returns {Promise<object | null>}
  */
 export async function refreshWatcherPanel() {
+  await whenViewContextRuntimeReady();
   const bar = document.getElementById('todo-watcher-bar');
   if (!bar) return null;
   const generation = ++refreshGeneration;

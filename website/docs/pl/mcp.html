@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Narzędzia MCP i klienci zewnętrzni</title>
+<meta name="description" content="Użyj wbudowanych narzędzi Cretli, dodaj serwery MCP i podłącz klientów zewnętrznych, np. Claude Code.">
+<link rel="canonical" href="https://cretli.com/docs/pl/mcp.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/mcp.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/mcp.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/mcp.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/mcp.html">
+<meta property="og:title" content="Narzędzia MCP i klienci zewnętrzni">
+<meta property="og:description" content="Użyj wbudowanych narzędzi Cretli, dodaj serwery MCP i podłącz klientów zewnętrznych, np. Claude Code.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/mcp.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html" aria-current="page">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Narzędzia MCP i klienci zewnętrzni</h1>
+<p>MCP (Model Context Protocol) pozwala agentom wywoływać narzędzia. Cretli używa go w dwie strony: agenci w Cretli korzystają z jego własnych narzędzi i serwerów, które dodasz, a klienci spoza Cretli mogą wywoływać Cretli.</p>
+<h2 id="wbudowane-narzędzia">Wbudowane narzędzia</h2>
+<p>Każdy czat na obsługiwanym silniku dostaje wbudowane narzędzia Cretli. Obejmują zadania (<code>todo_list</code>, <code>todo_update</code>), historię czatów (<code>chat_show</code>, <code>chat_history</code>), delegowanie (<code>delegation_start</code>), wbudowaną przeglądarkę (<code>browser_*</code>), porty i dokumenty obszaru roboczego. W trybie Plan odczyty działają, a zapisy wymagają trybu Agent. Przeglądarka, zadania i delegacje działają w obszarze roboczym czatu, który je wywołuje.</p>
+<h2 id="dodaj-serwery-mcp">Dodaj serwery MCP</h2>
+<p>W <strong>Ustawienia → MCP</strong> dodajesz serwer raz, zamiast edytować konfigurację każdego silnika. Obsługiwane transporty to <strong>stdio</strong> (polecenie i lista argumentów) oraz <strong>Streamable HTTP</strong> (adres URL i nagłówki). Wybierasz, które obszary robocze i silniki go widzą. Sekrety są przechowywane osobno i po zapisaniu nie są ponownie pokazywane.</p>
+<p>Role automatyczne, takie jak czaty potomne delegacji, recenzenci i orkiestratory Watchera, dostają serwery zewnętrzne tylko po włączeniu opcji <strong>Dostępny dla agentów automatycznych</strong> dla danego serwera. Domyślnie jest wyłączona. Każde wywołanie narzędzia zewnętrznego trafia do <strong>Logu dostępu</strong> bez argumentów i wyników. Gdy serwer doda narzędzia, użyj <strong>Odśwież narzędzia</strong>.</p>
+<h2 id="podłącz-klienta-zewnętrznego">Podłącz klienta zewnętrznego</h2>
+<p>Klient zewnętrzny, np. Claude Code, Cursor lub Codex, łączy się z Cretli przez punkt <code>/mcp</code>. W <strong>Ustawienia → MCP</strong> zainstaluj połączenie dla folderu. Cretli zapisze wpis <code>cretli</code> w pliku <code>.mcp.json</code> tego folderu (lub odpowiednim pliku Cursor albo Codex), a token trzyma w prywatnym pliku zamiast w konfiguracji. Każdy klient ma tryb:</p>
+<ul>
+<li><strong>plan</strong>: narzędzia tylko do odczytu.</li>
+<li><strong>agent</strong>: pełny wbudowany katalog.</li>
+<li><strong>operator</strong>: agent oraz narzędzia działające w Twoim imieniu, np. odczyt raportów delegacji, sprawdzenie lub wstrzymanie Watchera i wysłanie wiadomości do czatu.</li>
+</ul>
+<p>Wybierz najniższy tryb, który wystarcza, a klienta, którego już nie potrzebujesz, odwołaj w ustawieniach. Nigdy nie wklejaj jego tokenu do czatów ani zadań.</p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="delegation-review.html">&larr; Delegowanie i niezależny przegląd</a>
+      <a rel="next" href="remote-access.html">Dostęp zdalny, PWA i powiadomienia &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#wbudowane-narzędzia">Wbudowane narzędzia</a></li>
+      <li><a href="#dodaj-serwery-mcp">Dodaj serwery MCP</a></li>
+      <li><a href="#podłącz-klienta-zewnętrznego">Podłącz klienta zewnętrznego</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

@@ -52,8 +52,9 @@ Two font-size layers exist in `tokens.scss`; full table and naming rules in
 
 - **New scale (Settings and new screens):** `--cr-font-size-xs 0.72rem`,
   `-sm 0.8rem`, `-md 0.85rem`, `-lg 1rem`, `-xl 1.125rem`.
-  `cr-bar-input` / `cr-bar-select` / `cr-bar-textarea` / `cr-checkbox` are
-  `0.8rem` = `sm`. `cr-bar-button` is `0.82rem` — the one known off-scale
+  `cr-bar-input` / `cr-bar-select` / `cr-bar-textarea` are `0.8rem` = `sm` on
+  desktop and `16px` under 768px (same on native `.cr-form` fields; avoids iOS
+  focus zoom); `cr-checkbox` stays `sm` (not a text field). `cr-bar-button` is `0.82rem` — the one known off-scale
   primitive; do not snap it silently, a visual review is required.
 - **Legacy layer (chat, sidebar, `cr-recipes.scss` only):**
   `--cr-font-size-legacy-<value>` aliases today's literal values

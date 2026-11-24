@@ -50,9 +50,10 @@ import { GEMINI_LIVE_RELAY_PATH } from '../voice/gemini-live-config.ts';
 import { msg } from '../messages.js';
 import { attachWsKeepalive } from './ws-keepalive.ts';
 import { evaluateWidgetHandshake, requiresSessionAuth } from './ws-auth-boundary.ts';
-import { isBrowserPath, isPageBridgePath } from './ws-path.ts';
+import { isBrowserPath, isChromeExtPath, isPageBridgePath } from './ws-path.ts';
 import { createBrowserWsHandler } from '../browser/ws-handler.js';
 import { isWsOriginAllowed } from './ws-origin.ts';
+import { cretliExtensionBridge } from '../browser/cretli-extension-bridge.js';
 import { resolveChatWorkspaceScope, resolveWorkspaceScope } from '../workspace-scope.js';
 import { loadSettings } from '../persist/settings.js';
 
@@ -122,6 +123,8 @@ export type WebSocketRouterContext = {
   browserManager?: Parameters<typeof createBrowserWsHandler>[0]['browserManager'],
   useHttps?: boolean,
   publicOrigin?: string | null,
+  /** Override for tests; defaults to the process-wide Cretli Chrome extension bridge. */
+  chromeExtBridge?: { handleConnection: (ws: WebSocket, req: unknown) => void },
 };
 
 /**
@@ -143,6 +146,10 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
     };
     if (!isWsOriginAllowed(req, urlPath, originOptions)) {
       ws.close(4403, 'origin not allowed');
+      return;
+    }
+    if (isChromeExtPath(urlPath)) {
+      (ctx.chromeExtBridge || cretliExtensionBridge).handleConnection(ws, req);
       return;
     }
     attachWsKeepalive(ws);
@@ -233,14 +240,11 @@ export function attachWebSocketHandlers(wss: WebSocketServer, ctx: WebSocketRout
       const browserParams = new URLSearchParams((req.url || '').split('?')[1] || '');
       const explicitFile = browserParams.get('workspaceFile') || '';
       const explicitFolder = browserParams.get('workspaceFolder') || '';
-      const hasBrowserScope = Boolean(explicitFile || explicitFolder);
       const handleBrowserConnection = createBrowserWsHandler({
         browserManager: ctx.browserManager,
         ownerSessionId: sessionId,
-        getScope: () => ({
-          workspaceFile: hasBrowserScope ? explicitFile : (ctx.getCurrentWorkspaceFile?.() || ''),
-          cwd: hasBrowserScope ? explicitFolder : ctx.getCurrentCwd(),
-        }),
+        // The connection's own scope (query), never the globally selected workspace.
+        getScope: () => ({ workspaceFile: explicitFile, cwd: explicitFolder, workspaceFolder: explicitFolder }),
       });
       handleBrowserConnection(ws, req);
       return;

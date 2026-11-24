@@ -26,7 +26,7 @@ import { decorateHarnessPrompt } from '../lib/sdk/harness-plan-prompt.ts';
 import { resetPromptDecorationStatesForTests } from '../lib/sdk/prompt-decoration.ts';
 import { advanceRoomContextEpoch, recordContextRestart, resetContextRestartsForTests } from '../lib/usage/context-restarts.ts';
 import { clearClaudeRoomSession } from '../lib/claude/claude-agent-ws.ts';
-import { saveChats } from '../lib/persist/chats-persist.js';
+import { saveChats } from '../lib/persist/chats-legacy-store.js';
 import { appendChatHistoryEvents } from '../lib/persist/chat-history-service.js';
 import { disposeOpenRouterRoom, ensureOpenRouterRoom } from '../harnesses/openrouter/openrouter-agent-ws.js';
 import { runOpenRouterAgentLoop } from '../harnesses/openrouter/openrouter-agent-loop.js';

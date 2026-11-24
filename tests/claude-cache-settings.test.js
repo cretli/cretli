@@ -23,7 +23,10 @@ try {
   const {
     CLAUDE_CACHE_ENV,
     applyClaudeCacheEnv,
+    applyClaudeChatCompactionEnv,
     buildClaudeCacheEnvOverlay,
+    buildClaudeCompactionSignature,
+    resolveClaudeChatAutocompactPct,
     normalizeClaudeAutocompactPct,
     resolveClaudeCacheSettings,
   } = await import('../lib/claude/claude-cache-settings.ts');
@@ -79,6 +82,33 @@ try {
   assert.equal(cleanEnv.ENABLE_PROMPT_CACHING_1H, undefined);
   assert.equal(cleanEnv.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, undefined);
   assert.equal(cleanEnv.DISABLE_AUTO_COMPACT, undefined);
+
+  // Per-chat auto-compression opt-in maps to Claude's native compaction.
+  assert.equal(resolveClaudeChatAutocompactPct(null), null);
+  assert.equal(resolveClaudeChatAutocompactPct({ autoContextCompressionThreshold: 50 }), null);
+  assert.equal(resolveClaudeChatAutocompactPct({ autoContextCompressionEnabled: true, autoContextCompressionThreshold: 50 }), 50);
+  // Same clamp as the Cretli setting (50..95, default 80).
+  assert.equal(resolveClaudeChatAutocompactPct({ autoContextCompressionEnabled: true, autoContextCompressionThreshold: 20 }), 50);
+  assert.equal(resolveClaudeChatAutocompactPct({ autoContextCompressionEnabled: true }), 80);
+
+  // No opt-in: the global env passes through untouched.
+  const globalEnv = { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '90', DISABLE_AUTO_COMPACT: '1' };
+  applyClaudeChatCompactionEnv(globalEnv, { autoContextCompressionEnabled: false, autoContextCompressionThreshold: 50 });
+  assert.deepEqual(globalEnv, { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '90', DISABLE_AUTO_COMPACT: '1' });
+
+  // Opt-in wins over the global percentage and the global disable switch.
+  const chatEnv = applyClaudeChatCompactionEnv(
+    { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '90', DISABLE_AUTO_COMPACT: '1' },
+    { autoContextCompressionEnabled: true, autoContextCompressionThreshold: 50 },
+  );
+  assert.deepEqual(chatEnv, { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '50' });
+
+  // The signature changes with the threshold so the session restarts (resumed).
+  assert.notEqual(
+    buildClaudeCompactionSignature({ CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '50' }),
+    buildClaudeCompactionSignature({ CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '60' }),
+  );
+  assert.equal(buildClaudeCompactionSignature({}), buildClaudeCompactionSignature(null));
 } finally {
   for (const key of cacheEnvKeys) {
     if (typeof previousEnv[key] === 'string') process.env[key] = previousEnv[key];

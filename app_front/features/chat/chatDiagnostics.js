@@ -7,7 +7,7 @@ import {
   readReportedTokenCount,
   resolveLiveContextUsageInputTokens,
 } from '../../../lib/sdk/sdk-context-advisory.ts';
-import { applyCodexMeasuredContextUsage, stampContextUsageEpoch, shouldRefreshContextUsageStamp, applyClaudeHistoryContextUsage, isClaudeContextMeterChat } from './chatContextMeter.js';
+import { applyCodexMeasuredContextUsage, stampContextUsageEpoch, shouldRefreshContextUsageStamp, applyClaudeHistoryContextUsage, isClaudeContextMeterChat, isMeasuredContextTransportChat } from './chatContextMeter.js';
 import { isChatDiagEnabled } from './chatSettingsPrefs.js';
 import { getCurrentLang, t } from '../../i18n/index.js';
 
@@ -187,7 +187,7 @@ export function createChatDiagnostics(deps) {
       if (chat._contextHistoryHydrated !== true) void hydrateClaudeContextUsage(chat);
       return;
     }
-    if (chat.agentTransport !== 'sdk' && chat.agentTransport !== 'codex') return;
+    if (chat.agentTransport !== 'sdk' && !isMeasuredContextTransportChat(chat)) return;
     if (chat._contextUsageSyncTimer) return;
     stopChatContextUsageSync(chat);
     const tick = async () => {
@@ -206,12 +206,13 @@ export function createChatDiagnostics(deps) {
 
   /**
    * @param {object|null|undefined} chat
-   * @param {{ ok?: boolean, room?: object, model?: string, contextStats?: { history?: object, pressure?: object, codex?: object } } | null | undefined} res
+   * @param {{ ok?: boolean, room?: object, model?: string, contextStats?: { history?: object, pressure?: object, codex?: object, antigravity?: object } } | null | undefined} res
    */
   function applyServerContextUsageFromDiag(chat, res) {
     if (!chat || !res?.ok) return;
-    if (chat.agentTransport === 'codex') {
-      if (applyCodexMeasuredContextUsage(chat, res.contextStats?.codex)) {
+    if (isMeasuredContextTransportChat(chat)) {
+      const measured = chat.agentTransport === 'codex' ? res.contextStats?.codex : res.contextStats?.antigravity;
+      if (applyCodexMeasuredContextUsage(chat, measured)) {
         updateChatContextMeter(chat, resolveContextMeterModelId(chat, res));
       }
       return;

@@ -346,18 +346,20 @@ test('an in-flight check cannot reopen advice after it was closed', async () => 
   assert.equal(host.hidden, true);
 });
 
-test('inline advice follows the bottom but preserves reading older messages', async () => {
+test('inline advice delegates follow without writing the conversation scroll position', async () => {
   const { host, controller } = setup();
-  const chat = { id: 'c1' };
-  const scrollContainer = { clientHeight: 500, scrollTop: 500 };
-  Object.defineProperty(scrollContainer, 'scrollHeight', { get: () => host.hidden ? 1000 : 1200 });
+  const calls = [];
+  const chat = { id: 'c1', _sdkRichView: { scrollToBottom: (...args) => calls.push(args) } };
+  const scrollContainer = { clientHeight: 500, scrollTop: 500, scrollHeight: 1000 };
   host.parentElement = scrollContainer;
   await controller.check(chat);
-  assert.equal(scrollContainer.scrollTop, 1200);
+  assert.equal(scrollContainer.scrollTop, 500);
+  assert.deepEqual(calls, [[]], 'the controller decides whether to follow');
   controller.hide(chat);
   scrollContainer.scrollTop = 100;
   await controller.check(chat);
   assert.equal(scrollContainer.scrollTop, 100);
+  assert.deepEqual(calls, [[], []]);
 });
 
 test('summary action shows its estimated cost and calls the model path only on click', async () => {

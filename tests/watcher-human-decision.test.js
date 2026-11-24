@@ -52,3 +52,27 @@ test('both MCP report entry points forward options and return the soft warning',
     assert.equal(result.structuredContent.recommended, 'x');
   }
 });
+
+test('two cycles reporting the same blockerKey on one todo reuse one pending card', async () => {
+  const workspaceFolder = `/tmp/human-${randomUUID()}`;
+  const todo = (await addTodo(dataDir, workspaceFolder, { title: 'Task', status: 'doing' })).item;
+  upsertWorkspaceWatcher(workspaceFolder, { mode: 'autopilot', policy: { requirePlanApproval: false } }, { dataDir });
+  const ids = [];
+  for (let i = 0; i < 2; i += 1) {
+    const chatId = randomUUID();
+    const cycleId = randomUUID();
+    mutateWorkspaceWatcherRow(workspaceFolder, () => ({ activeCycle: { cycleId, chatId, todoIds: [todo.id], startedAt: new Date().toISOString(), phase: 'running' } }), { dataDir });
+    const result = await reportWorkspaceWatcherCycle({ dataDir, workspaceFolder, sourceChatId: chatId, outcome: 'blocked', reasonCode: 'needs_human', cycleId,
+      blockerKey: 'api-choice', question: 'Which API version?',
+      options: [{ id: 'v2', label: 'Use v2', effect: 'Resume with v2', continuation: 'resume' }, { id: 'park', label: 'Park', effect: 'Defer', continuation: 'defer' }],
+      recommended: 'v2', why: 'v2 is current.', deps: { loadDelegations: () => [] } });
+    assert.ok(result.decision, result.warning);
+    ids.push(result.decision.id);
+  }
+  assert.equal(ids[0], ids[1]);
+  const pending = (await listPendingDecisions(dataDir, workspaceFolder)).items;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].title, 'Which API version?');
+  assert.equal(pending[0].options[0].continuation, 'resume');
+  assert.equal(pending[0].origin.kind, 'watcher_report');
+});

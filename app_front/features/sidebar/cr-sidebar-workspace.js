@@ -11,6 +11,8 @@ import './cr-sidebar-subchat-group.ts';
 import './cr-sidebar-archive-group.js';
 import './cr-sidebar-chat-row.js';
 
+const WORKSPACE_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'gray']);
+
 class CrSidebarWorkspace extends LitElement {
   static properties = {
     sidebarKey: { type: String, attribute: 'sidebar-key' },
@@ -70,8 +72,11 @@ class CrSidebarWorkspace extends LitElement {
           role="button"
           tabindex="0"
           data-sidebar-key=${entry.sidebarKey}
+          aria-label=${t('sidebar.showMoreChats', { count: String(hidden) })}
         >
-          ${t('sidebar.showMoreChats', { count: String(hidden) })}
+          <span class="sidebar-chat-more-chevron mdi mdi-chevron-down" aria-hidden="true"></span>
+          <span class="sidebar-chat-more-title">${t('sidebar.showMore')}</span>
+          <span class="sidebar-chat-more-count">${hidden}</span>
         </li>
       `;
     }
@@ -90,14 +95,17 @@ class CrSidebarWorkspace extends LitElement {
     if (!reg) return nothing;
     stashSidebarWorkspacePayloadOnHost(this);
     const translate = reg.deps?.t || t;
-    const workspace = reg.workspace || {};
-    const isCollapsed = reg.isCollapsed === true;
+    const workspace = /** @type {any} */ (reg.workspace || {});
+    // The flat view's header is a label, never folded.
+    const isCollapsed = reg.isCollapsed === true && workspace.isAllChats !== true;
     const listEntries = Array.isArray(reg.listEntries) ? reg.listEntries : [];
     const wsFile = String(workspace.workspaceFile || '');
     const wsName = String(workspace.name || workspace.workspaceFile || '(workspace)');
+    const wsColor = WORKSPACE_COLORS.has(String(workspace.color || '')) ? String(workspace.color) : '';
+    const wsIcon = String(workspace.icon || '').trim();
     return html`
       <li
-        class="sidebar-workspace${reg.isActive ? ' is-active' : ''}${workspace.isClone ? ' is-clone' : ''}${isCollapsed ? ' is-collapsed' : ''}"
+        class="sidebar-workspace${workspace.isAllChats ? ' is-all-chats' : ''}${reg.isActive ? ' is-active' : ''}${workspace.isClone ? ' is-clone' : ''}${isCollapsed ? ' is-collapsed' : ''}"
         data-sidebar-key=${sidebarKey}
         data-workspace-file=${wsFile}
       >
@@ -107,10 +115,14 @@ class CrSidebarWorkspace extends LitElement {
           tabindex="0"
           aria-expanded="${isCollapsed ? 'false' : 'true'}"
         >
-          <span
+          ${workspace.isAllChats ? nothing : html`<span
             class="sidebar-workspace-chevron mdi mdi-chevron-${isCollapsed ? 'right' : 'down'}"
             aria-hidden="true"
-          ></span>
+          ></span>`}
+          ${wsColor || wsIcon ? html`<span
+            class="sidebar-ws-marker${wsColor ? ` ws-color-${wsColor}` : ''}${wsIcon ? ' has-icon' : ''}"
+            aria-hidden="true"
+          >${wsIcon}</span>` : nothing}
           <span class="sidebar-workspace-title">${wsName}</span>
           <span class="sidebar-workspace-count">${reg.count ? String(reg.count) : ''}</span>
           ${reg.autopilotBadge ? html`

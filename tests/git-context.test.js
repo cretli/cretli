@@ -33,13 +33,10 @@ async function resolve(req, deps, getCurrentCwd = () => '/global/cwd') {
   return resolveGitRequestContext(req, { dataDir: '/data', getCurrentCwd, deps });
 }
 
-test('no scope falls back to the global cwd', async () => {
+test('no scope is rejected instead of falling back to the global cwd', async () => {
   const result = await resolve({ query: {}, body: {} }, makeDeps(), () => '/global/cwd');
-  assert.equal(result.ok, true);
-  assert.equal(result.source, 'global');
-  assert.equal(result.executionFolder, '/global/cwd');
-  assert.equal(result.workspaceFolder, '/global/cwd');
-  assert.equal(result.isWorktree, false);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'workspace-scope-required');
 });
 
 test('chat scope uses its stored execution folder', async () => {
@@ -73,10 +70,8 @@ test('a client workspace cannot override the stored chat workspace', async () =>
 test('a chat without stored folders never uses the client workspace as execution folder', async () => {
   const deps = makeDeps({ chats: [{ id: 'chat-1' }] });
   const result = await resolve({ query: { chatId: 'chat-1', workspaceFolder: '/project-b' } }, deps, () => '/global/cwd');
-  assert.equal(result.ok, true);
-  assert.equal(result.source, 'chat');
-  assert.notEqual(result.executionFolder, path.resolve('/project-b'));
-  assert.equal(result.executionFolder, '/global/cwd');
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'workspace-scope-required');
 });
 
 test('todo scope with a live worktree resolves the worktree path', async () => {

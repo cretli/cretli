@@ -20,7 +20,7 @@ test('offline demo seed is isolated, complete and idempotent', { timeout: budget
   }
   function read() {
     const code = `
-      const { loadChats } = await import('./lib/persist/chats-persist.js');
+      const { loadChats } = await import('./lib/persist/chats-legacy-store.js');
       const { loadChatHistory } = await import('./lib/persist/chat-history-persist.js');
       const { loadDelegationsReadonly } = await import('./lib/persist/delegations-persist.js');
       const { readUsageEvents } = await import('./lib/persist/usage-persist.js');

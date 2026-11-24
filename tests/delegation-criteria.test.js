@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { appendChatHistoryEvents, loadChatHistory } from '../lib/persist/chat-history-persist.js';
 import { buildChatPlanRelativePath } from '../lib/chat-plan-path.js';
 import {

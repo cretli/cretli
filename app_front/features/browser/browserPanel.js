@@ -46,7 +46,7 @@ const state = {
   mobileViewport: true,
   busy: false,
   initDone: false,
-  /** @type {{ id: number, dx: number, dy: number, raf: any } | null} */
+  /** @type {{ button: string, id: number, startX: number, startY: number, lastX: number, lastY: number, moved: boolean, dx: number, dy: number, raf: any } | null} */
   gesture: null,
   /** @type {any} */
   frameRefreshTimer: null,
@@ -330,7 +330,7 @@ function renderPull(channel, entries) {
  * @param {string} url
  */
 function setUrlBar(url) {
-  const input = document.getElementById('browser-url-input');
+  const input = /** @type {HTMLInputElement|null} */ (document.getElementById("browser-url-input"));
   if (input && document.activeElement !== input) input.value = url || '';
 }
 
@@ -390,7 +390,7 @@ function clearFrameRetry() {
  * @returns {HTMLDivElement|null}
  */
 function pullListEl(channel) {
-  return document.getElementById(channel === 'network' ? 'browser-network-list' : 'browser-console-list');
+  return /** @type {any} */ (document.getElementById(channel === 'network' ? 'browser-network-list' : 'browser-console-list'));
 }
 
 /**
@@ -472,8 +472,8 @@ function pullBoth() {
  * @param {Record<string, any>|null|undefined} tabState
  */
 function applyHistoryState(tabState) {
-  const back = document.getElementById('browser-back-btn');
-  const forward = document.getElementById('browser-forward-btn');
+  const back = /** @type {HTMLButtonElement|null} */ (document.getElementById('browser-back-btn'));
+  const forward = /** @type {HTMLButtonElement|null} */ (document.getElementById('browser-forward-btn'));
   if (back) back.disabled = tabState?.canGoBack !== true;
   if (forward) forward.disabled = tabState?.canGoForward !== true;
 }
@@ -928,7 +928,7 @@ function onFramePointerDown(event) {
   if (!point) return;
   const button = event.pointerType === 'mouse' && event.button === 2 ? 'right' : 'left';
   state.gesture = { button, id: event.pointerId, startX: point.x, startY: point.y, lastX: point.x, lastY: point.y, moved: false, dx: 0, dy: 0, raf: null };
-  try { event.target.setPointerCapture(event.pointerId); } catch { /* capture is best-effort */ }
+  try { /** @type {any} */ (event.target).setPointerCapture(event.pointerId); } catch { /* capture is best-effort */ }
   event.preventDefault();
 }
 
@@ -980,7 +980,7 @@ function onFramePointerUp(event) {
   const g = state.gesture;
   if (!g || event.pointerId !== g.id) return;
   state.gesture = null;
-  try { event.target.releasePointerCapture?.(event.pointerId); } catch { /* best-effort */ }
+  try { /** @type {any} */ (event.target).releasePointerCapture?.(event.pointerId); } catch { /* best-effort */ }
   event.preventDefault();
   if (g.raf != null) {
     cancelAnimationFrame(g.raf);
@@ -1308,7 +1308,7 @@ export function initBrowserPanel(deps = {}) {
   });
 
   const goBtn = document.getElementById('browser-go-btn');
-  const urlInput = document.getElementById('browser-url-input');
+  const urlInput = /** @type {HTMLInputElement|null} */ (document.getElementById('browser-url-input'));
   const submitUrl = () => void navigate(urlInput?.value || '');
   goBtn?.addEventListener('click', submitUrl);
   urlInput?.addEventListener('keydown', (event) => {
@@ -1334,7 +1334,7 @@ export function initBrowserPanel(deps = {}) {
   document.getElementById('browser-mobile-btn')?.addEventListener('click', () => void toggleViewport());
   updateViewportButton();
 
-  const typeInput = document.getElementById('browser-key-input');
+  const typeInput = /** @type {HTMLInputElement|null} */ (document.getElementById('browser-key-input'));
   document.getElementById('browser-type-btn')?.addEventListener('click', () => {
     void sendKeyInput({ kind: 'type', text: typeInput?.value || '' });
     if (typeInput) typeInput.value = '';

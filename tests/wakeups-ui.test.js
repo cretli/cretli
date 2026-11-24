@@ -108,7 +108,7 @@ test('i18n: pl and en carry the same wakeups keys; tab and section are wired', (
   assert.ok(pl.settings.tabsWakeups && en.settings.tabsWakeups);
   assert.ok(pl.usageLimitResume.openWakeups && en.usageLimitResume.openWakeups);
   const html = read('public/index.html');
-  assert.match(html, /data-settings-tab="wakeups" role="tab"/);
+  assert.match(html, /data-settings-tab="wakeups"[^>]*><span data-i18n="settings.category.wakeups"/);
   assert.match(html, /id="settings-wakeups-section" data-settings-tab="wakeups"/);
   assert.match(read('lib/spa-routes.js'), /'wakeups'/);
   assert.match(read('public/sw-routes.js'), /'wakeups'/);

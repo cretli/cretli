@@ -170,4 +170,17 @@ assert.equal(isOwnCretliBrowserOrigin(proxyIframeReq, publicOrigin, {
 assert.equal(readCretliPublicOrigin('not-an-origin'), null);
 assert.equal(readCretliPublicOrigin('https://cretli.example/path'), null);
 
+const extId = 'a'.repeat(32);
+const extReq = (origin, extra = {}) => ({ headers: { host: 'cretli.local:3011', ...(origin === undefined ? {} : { origin }), ...extra } });
+assert.equal(isWsOriginAllowed(extReq(`chrome-extension://${extId}`), '/ws-chrome-ext'), true);
+for (const bad of [undefined, 'null', 'https://cretli.local:3011', 'http://127.0.0.1:3011', `chrome-extension://${extId}x`,
+  'chrome-extension://short', `chrome-extension://${'q'.repeat(32)}`, `chrome-extension://${extId}/path`]) {
+  assert.equal(isWsOriginAllowed(extReq(bad), '/ws-chrome-ext'), false, String(bad));
+}
+assert.equal(isWsOriginAllowed(extReq('https://extra.example'), '/ws-chrome-ext', { extraOrigins: ['https://extra.example'] }), false);
+for (const other of ['/ws', '/ws-agent-sdk', '/ws-page-bridge', '/ws-browser']) {
+  assert.equal(isWsOriginAllowed(extReq(`chrome-extension://${extId}`), other, { extraOrigins: [`chrome-extension://${extId}`] }), false, other);
+}
+assert.equal(isWsOriginAllowed(extReq(`chrome-extension://${extId}`, { 'sec-websocket-protocol': 'cretli-widget, tok' }), '/ws-chrome-ext'), false);
+
 console.log('All ws-origin tests passed.');

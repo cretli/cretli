@@ -32,7 +32,7 @@ export function describeContextLimit(chat, windowTokens) {
     && ['provider', 'catalog', 'manual'].includes(serverSource)) {
     return { type: 'context_window', source: /** @type {ContextLimitSource} */ (serverSource) };
   }
-  const provider = (transport === 'claude' || transport === 'codex')
+  const provider = (transport === 'claude' || transport === 'codex' || transport === 'antigravity')
     && Number(chat?._contextMeasuredWindowTokens) === windowTokens;
   return { type: 'context_window', source: provider ? 'provider' : 'catalog' };
 }

@@ -24,6 +24,8 @@ import { isCarViewOpen } from '../car/carViewProbe.js';
 import { t } from '../../i18n/index.js';
 import { getCurrentLang } from '../../i18n/index.js';
 
+/** @typedef {import('./browserVoiceState.js').BrowserVoiceState} BrowserVoiceState */
+
 /**
  * @param {{
  *   createInput?: typeof createBrowserSpeechInput,
@@ -120,7 +122,7 @@ export function createBrowserVoiceMode(deps = {}) {
   let speakingListenerAttached = false;
   let sessionUnsubscribe = null;
 
-  /** @param {Partial<BrowserVoiceState>} patch */
+  /** @param {Partial<BrowserVoiceState>} next */
   function patch(next) {
     state.set({ ...state.get(), ...next });
   }

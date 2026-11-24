@@ -2,7 +2,7 @@ import './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   createDelegationService,
   DELEGATION_CHILD_STOP_GRACE_MS,
@@ -290,6 +290,27 @@ function invokeRoute(routes, url, req) {
   const confirmAt = clickFn.indexOf('if (!confirmImpl(confirmMessage(act, row))) return;');
   const postAt = clickFn.indexOf('postDelegationRetryDelivery');
   assert.equal(confirmAt >= 0 && postAt > confirmAt, true);
+}
+
+{
+  const p = parent('Diagnostics parent');
+  const failed = (await start(p)).delegation;
+  finishDelegation(failed, { status: 'failed', error: 'diagnostic failure' });
+  const active = (await start(p)).delegation;
+  const routes = new Map();
+  registerDelegationsRoutes({
+    get: (url, fn) => routes.set(`GET ${url}`, fn),
+    post: (url, fn) => routes.set(`POST ${url}`, fn),
+  }, { workspaceDirForAgent: () => ISOLATED_DATA_DIR });
+  const result = await invokeRoute(routes, 'GET /api/delegations', {
+    query: { workspaceFolder: ISOLATED_DATA_DIR, attention: 'needs_attention', limit: 100 },
+  });
+  const row = result.body.delegations.find((item) => item.id === failed.id);
+  assert.ok(row, 'failed job needs attention');
+  assert.ok(row.title.trim(), 'list includes the chat title');
+  assert.equal(row.chatId, failed.childChatId);
+  assert.ok(!result.body.delegations.some((item) => item.id === active.id), 'healthy active job needs no attention');
+  releaseJob(active);
 }
 
 console.log('delegation-phase3b.test.js OK');

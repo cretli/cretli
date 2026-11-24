@@ -17,7 +17,7 @@ import { createExposeConsentRegistry } from '../lib/port-exposure/expose-consent
 import { createExposureLedger } from '../lib/port-exposure/ledger.js';
 import { normalizePortExposurePolicy } from '../lib/port-exposure/policy.js';
 import { configurePortExposureRuntime, getExposeConsentRegistry, setExposeConsentRegistry } from '../lib/port-exposure/runtime.js';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 
 // The registry timers are unref'd (the server has other handles); keep the loop alive for the test run.
 const keepAlive = setInterval(() => {}, 1000);

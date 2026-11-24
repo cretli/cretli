@@ -31,6 +31,7 @@ export const DEFAULT_MAX_QUEUE_HOLD_MS = 60000;
  */
 
 /**
+ * @template T
  * @param {{
  *   windowMs?: number,
  *   maxHoldMs?: number,
@@ -38,7 +39,7 @@ export const DEFAULT_MAX_QUEUE_HOLD_MS = 60000;
  *   now?: () => number,
  *   setTimer?: (fn: () => void, ms: number) => unknown,
  *   clearTimer?: (id: unknown) => void,
- *   onSend: (pending: PendingSend) => unknown,
+ *   onSend: (pending: PendingSend) => T | Promise<T>,
  *   onChange?: (pending: PendingSend|null, reason: 'begin'|'merge'|'hold'|'release'|'send'|'cancel'|'replace', previous?: PendingSend|null) => void,
  * }} deps
  */
@@ -142,7 +143,6 @@ export function createSendUndoWindow(deps) {
     },
 
     /**
-     * @param {'cancel'} [_reason]
      * @returns {PendingSend|null} the dropped send
      */
     cancel() {
@@ -154,7 +154,10 @@ export function createSendUndoWindow(deps) {
       return dropped;
     },
 
-    /** Sends right away (the "send" command, the button or the timer). */
+    /**
+     * Sends right away (the "send" command, the button or the timer).
+     * @returns {Promise<T|null>}
+     */
     async sendNow() {
       if (!pending) return null;
       const taken = pending;

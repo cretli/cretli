@@ -8,7 +8,7 @@ import {
 import { executeConversationFork } from '../lib/conversation-fork-execute.js';
 import { isValidSdkHistoryRecord } from '../lib/persist/chat-history-validate.js';
 import { appendChatHistoryEvents, loadChatHistory } from '../lib/persist/chat-history-persist.js';
-import { addChat, saveChats, updateChat, loadChats } from '../lib/persist/chats-persist.js';
+import { addChat, saveChats, updateChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 
 function relatedEvents(chatId, role) {
   return (loadChatHistory(chatId)?.events || []).filter((row) => {

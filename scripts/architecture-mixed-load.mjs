@@ -407,7 +407,7 @@ async function main() {
     const { loadChatsAsync } = await import('../lib/persist/chats-persist.js');
     const chats = await loadChatsAsync();
     const hotFolder = chats[0].workspaceFolder;
-    registerWorkspaceWatcherRoutes(app, { dataDir: fixtureDir, getCurrentCwd: () => hotFolder });
+    registerWorkspaceWatcherRoutes(app, { dataDir: fixtureDir });
     // C8 is about the Watcher, not about generic HTTP bursts: a workspace
     // without a watcher row answers `no_watcher` (a no-op), so configure a real
     // observe-mode row first and reject `no_watcher`/`off` ticks below.

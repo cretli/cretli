@@ -2,6 +2,7 @@ import { antigravityLogin, registerAntigravityLoginRoutes } from './antigravity-
 import { handleAntigravityAgentWebSocket, disposeAntigravityRoom, getAntigravityRoomDiag, syncAntigravityRoomModelFromChat } from './antigravity-agent-ws.js';
 import { isAntigravityCliFound, fallbackCatalog, listAntigravityModels } from './antigravity-config.js';
 import { loadSettings } from '../../lib/persist/settings.js';
+import { registerAntigravityInstallRoute } from './antigravity-install.js';
 
 export default {
   provider: {
@@ -12,6 +13,7 @@ export default {
     processLifecycle: { id: 'antigravity', label: 'Antigravity login', beginStop: () => antigravityLogin.cancel(antigravityLogin.state().attemptId) },
     registerRoutes(app) {
       registerAntigravityLoginRoutes(app);
+      registerAntigravityInstallRoute(app);
       app.get('/api/antigravity/status', (_req, res) => {
         const cliFound = isAntigravityCliFound();
         res.json({ ok: true, ready: cliFound, cliFound, authentication: 'checked_on_session_start' });

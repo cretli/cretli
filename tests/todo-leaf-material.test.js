@@ -29,7 +29,7 @@ import {
 } from '../lib/todo-leaf-material.js';
 import { createWorktreeLeafCheckpoint, resolveHeadCommit } from '../lib/worktree/git-worktree.ts';
 import { commitFile, createTempRepo, git, tempDir, worktreeConfig } from './helpers/temp-git-repo.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { buildDelegationExecutorPrompt } from '../lib/delegation-prompt.js';

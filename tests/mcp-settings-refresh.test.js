@@ -26,7 +26,7 @@ globalThis.fetch = async (url) => {
   calls.push({ path, start: calls.length });
   await gate;
   const bodies = {
-    '/api/mcp/servers': { ok: true, revision: 3, servers: [{ id: 's1', name: 'alpha', transport: 'stdio' }] },
+    '/api/mcp/servers': { ok: true, revision: 3, servers: [{ id: 's1', name: 'alpha', transport: 'stdio', availableToAutomaticAgents: false }] },
     '/api/mcp/status': { statuses: [] },
     '/api/workspaces': { workspaces: [] },
   };
@@ -48,6 +48,7 @@ test('first entry sends each request once, all in flight together', async () => 
   await Promise.all([p1, p2]);
   assert.equal(calls.length, 3, 'no duplicate requests');
   assert.match(root.innerHTML, /alpha/);
+  assert.match(root.innerHTML, /For automatic agents/);
 });
 
 test('re-entry keeps the list visible (no Loading) while refreshing', async () => {

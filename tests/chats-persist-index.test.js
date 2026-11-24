@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.CRETLI_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'chats-index-'));
-const { saveChats, loadChats, peekChats, peekChatsByIds } = await import('../lib/persist/chats-persist.js');
+const { saveChats, loadChats, peekChats, peekChatsByIds } = await import('../lib/persist/chats-legacy-store.js');
 
 saveChats([{ id: 'a', title: 'A' }, { id: 'b', title: 'Chat 2' }, { id: 'c', title: 'C' }]);
 assert.deepEqual(peekChatsByIds(['c', 'zzz', 'a']).map((row) => row.id), ['c', 'a']);

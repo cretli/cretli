@@ -6,7 +6,7 @@ import { subscribeChatHistoryUpdates } from '../lib/sdk/sdk-history-updates.ts';
 import { mkdtempSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { addChat, loadChats } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import {
   createDelegationService,

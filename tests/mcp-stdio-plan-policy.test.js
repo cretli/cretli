@@ -13,7 +13,7 @@ import { registerChatsRoutes } from '../lib/routes/chats-routes.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 import { registerHarnessCatalogRoutes } from '../lib/routes/harness-catalog-routes.js';
 import { loadTodosData } from '../lib/persist/todos-legacy-adapter.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { writeChatPlanFile } from '../lib/chat-plan-persist.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';

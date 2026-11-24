@@ -170,7 +170,7 @@ for (const mode of ['off', 'final', 'stream']) {
 // socket handler, and the speaker reads it (no manual handleVoiceReply call).
 {
   setMode('agent');
-  const { addChat } = await import('../lib/persist/chats-persist.js');
+  const { addChat } = await import('../lib/persist/chats-legacy-store.js');
   const { subscribeChatHistoryUpdates } = await import('../lib/sdk/sdk-history-updates.ts');
   const { VOICE_MCP_TOOLS } = await import('../lib/mcp/builtin/voice-tools.js');
   const record = addChat({ title: 'voice e2e' });

@@ -78,18 +78,15 @@ try {
 
   // --- outbound prompt carries the hint (and only then) ---
   const c = await newChat(5);
-  // The prompt-decoration chain is still synchronous (SDK/context group, later leaf): its title hint reads the row
-  // through the sync compat read, which exists on the legacy runtime only.
-  if (backendKind === 'legacy') {
-    const withHint = applyHarnessOutboundPrompt('do the thing', { cwd: process.cwd(), chatId: c.id, mode: 'agent', reportContext: '' });
-    assert.match(withHint, /chat_set_title/);
-    assert.ok(withHint.endsWith('do the thing'));
-    setSource('server');
-    assert.doesNotMatch(applyHarnessOutboundPrompt('do the thing', { cwd: process.cwd(), chatId: c.id, mode: 'agent', reportContext: '' }), /chat_set_title/);
-  } else {
-    assert.equal(applyHarnessOutboundPrompt('do the thing', { cwd: process.cwd(), chatId: c.id, mode: 'agent', reportContext: '' }).includes('chat_set_title'), false, 'no sync read on sqlite: the hint is omitted, never a crash');
-    setSource('server');
-  }
+  // The prompt-decoration chain is synchronous: the title hint reads the row handed in as `chat` (every send path
+  // loads it first) and is omitted when no row is supplied - there is no synchronous chats read on any backend.
+  const inputOf = (extra = {}) => ({ cwd: process.cwd(), chatId: c.id, mode: 'agent', reportContext: '', ...extra });
+  const withHint = applyHarnessOutboundPrompt('do the thing', inputOf({ chat: c }));
+  assert.match(withHint, /chat_set_title/);
+  assert.ok(withHint.endsWith('do the thing'));
+  assert.equal(applyHarnessOutboundPrompt('do the thing', inputOf()).includes('chat_set_title'), false, 'no row supplied: the hint is omitted, never a crash');
+  setSource('server');
+  assert.doesNotMatch(applyHarnessOutboundPrompt('do the thing', inputOf({ chat: c })), /chat_set_title/);
 
   // --- dispatcher: source 'agent' schedules no server job, 'both' still does ---
   let scheduled = 0;

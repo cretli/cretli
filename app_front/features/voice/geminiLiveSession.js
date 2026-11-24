@@ -295,7 +295,7 @@ export function createGeminiLiveSession(callbacks = {}) {
   }
 
   /**
-   * @param {object} toolCall
+   * @param {any} toolCall
    */
   async function handleToolCall(toolCall) {
     const calls = Array.isArray(toolCall?.functionCalls) ? toolCall.functionCalls : [];
@@ -328,7 +328,7 @@ export function createGeminiLiveSession(callbacks = {}) {
   }
 
   /**
-   * @param {object} payload
+   * @param {any} payload
    */
   function handleMessage(payload) {
     const errorText = readGeminiError(payload);

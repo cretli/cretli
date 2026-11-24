@@ -15,6 +15,12 @@ export function isPageBridgePath(urlPath: string): boolean {
   return path === '/ws-page-bridge' || path.endsWith('/ws-page-bridge');
 }
 
+/** Cretli's own Chrome extension channel (first-message token auth, no session cookie). */
+export function isChromeExtPath(urlPath: string): boolean {
+  const path = normalizeWsPath(urlPath);
+  return path === '/ws-chrome-ext' || path.endsWith('/ws-chrome-ext');
+}
+
 /** Dedicated Browser channel, separate from the widget page bridge. */
 export function isBrowserPath(urlPath: string): boolean {
   const path = normalizeWsPath(urlPath);

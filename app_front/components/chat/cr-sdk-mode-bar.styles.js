@@ -134,9 +134,16 @@ export const modeBarStyles = css`
 
     .build-arrow {
       flex-shrink: 0;
-      font-size: 0.65rem;
-      line-height: 1;
+      display: inline-flex;
+      width: 0.65rem;
+      height: 0.65rem;
       opacity: 0.85;
+    }
+
+    .build-arrow svg {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
 
     .combined-picker {

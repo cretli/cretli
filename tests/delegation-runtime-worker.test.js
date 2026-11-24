@@ -2,7 +2,7 @@ import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from './helpers/chats-legacy-add.js';
 import {
   createDelegationService,
   finishDelegation,

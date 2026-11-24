@@ -324,7 +324,7 @@ export function renderScoutScanRow(entry, options = {}) {
       ? `<span class="watcher-scout-state" data-scout-scan-state="overflow">${escapeWatcherHtml(t('settings.watcherScoutScanOverflowBadge'))}</span>`
       : '')
     + `<span class="watcher-scout-scan-times"><span title="${escapeWatcherAttr(asText(entry?.startedAt))}">${escapeWatcherHtml(scoutScanTimeText(entry?.startedAt))}</span>`
-    + `<span class="watcher-scout-scan-arrow" aria-hidden="true">→</span>`
+    + `<span class="watcher-scout-scan-arrow mdi mdi-arrow-right" aria-hidden="true"></span>`
     + `<span title="${escapeWatcherAttr(asText(entry?.finishedAt))}">${escapeWatcherHtml(scoutScanTimeText(entry?.finishedAt))}</span></span>`
     + '</div>'
     + '<div class="watcher-scout-meta">'

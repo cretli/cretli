@@ -65,9 +65,16 @@ class CrBarSelect extends LitElement {
 
     .arrow {
       flex-shrink: 0;
-      font-size: 0.65rem;
+      display: inline-flex;
+      width: 0.65rem;
+      height: 0.65rem;
       opacity: 0.8;
       line-height: 1;
+    }
+    .arrow svg {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
 
     :host([size='sm']) .trigger {
@@ -91,6 +98,14 @@ class CrBarSelect extends LitElement {
       padding: 0 0.55rem;
     }
 
+    @media (max-width: 768px) {
+      .trigger,
+      :host([size='md']) .trigger,
+      :host(:not([size])) .trigger,
+      :host([size='lg']) .trigger {
+        font-size: 16px;
+      }
+    }
   `;
 
   constructor() {
@@ -289,7 +304,9 @@ class CrBarSelect extends LitElement {
         ?disabled=${this.disabled}
       >
         <span class="label">${this._labelForValue()}</span>
-        <span class="arrow" aria-hidden="true">▾</span>
+        <span class="arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false"><path fill="currentColor" d="M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z" /></svg>
+        </span>
       </button>
     `;
   }

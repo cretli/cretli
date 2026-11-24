@@ -5,8 +5,8 @@
  * tracker below are the single registry surface routers and header chrome use.
  */
 export const MAIN_PANELS = Object.freeze([
-  'chat', 'terminal', 'tasks', 'apps', 'todo', 'decisions', 'plans', 'docs', 'browser', 'files',
-  'git', 'github', 'logs', 'instances', 'tests',
+  'chat', 'terminal', 'tasks', 'apps', 'devices', 'todo', 'decisions', 'plans', 'docs', 'browser', 'files',
+  'git', 'github', 'logs', 'instances', 'fleet', 'tests',
 ]);
 
 export const RESTORABLE_PANELS = Object.freeze([...MAIN_PANELS, 'settings']);

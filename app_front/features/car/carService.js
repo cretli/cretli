@@ -159,7 +159,7 @@ async function announceAgentChanges() {
 /**
  * "What's new / repeat": speaks the newest announcement again.
  *
- * @returns {{ ok: true, message: string, chatId?: string }}
+ * @returns {{ ok: boolean, message: string, chatId?: string }}
  */
 export function repeatLastAnnouncement() {
   return getAnnouncer().repeat();

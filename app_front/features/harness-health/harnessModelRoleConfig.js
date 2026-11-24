@@ -29,7 +29,7 @@ import {
 
 let wired = false;
 let loadSeq = 0;
-/** @type {object|null} */
+/** @type {Record<string, any>|null} */
 let currentModel = null;
 /** @type {{ harness: string, model: string } | null} */
 let pendingPrefill = null;
@@ -179,6 +179,7 @@ async function preview() {
   const delta = computeModelRoleConfigDelta({ model: currentModel, desired: readDesiredState() });
   flash(t('harnessModelRole.previewing'));
   try {
+    /** @type {Record<string, any>} */
     const result = await previewHarnessModelRoleConfig(delta);
     if (!result?.ok) {
       flash(result?.error || t('harnessModelRole.previewFailed'), 'error');
@@ -199,6 +200,7 @@ async function save() {
   const delta = computeModelRoleConfigDelta({ model: currentModel, desired: readDesiredState() });
   flash(t('harnessModelRole.saving'));
   try {
+    /** @type {Record<string, any>} */
     const result = await putHarnessModelRoleConfig(delta, currentModel.etag);
     if (result?.ok) {
       setDiff(renderModelRoleConfigDiffHtml(result.diff, t));
@@ -229,6 +231,7 @@ async function reset() {
     && !window.confirm(t('harnessModelRole.resetConfirm'))) return;
   flash(t('harnessModelRole.resetting'));
   try {
+    /** @type {Record<string, any>} */
     const result = await resetHarnessModelRoleConfig(currentModel.etag);
     if (!result?.ok) {
       flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.resetFailed')), 'error');
@@ -271,6 +274,7 @@ async function createOverride() {
   };
   flash(t('harnessModelRole.saving'));
   try {
+    /** @type {Record<string, any>} */
     const result = await putModelPickOverride(body, currentModel.overridesEtag);
     if (!result?.ok) {
       flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.overridesSaveFailed')), 'error');
@@ -291,6 +295,7 @@ async function revokeOverride(id) {
   if (!currentModel || !id) return;
   flash(t('harnessModelRole.saving'));
   try {
+    /** @type {Record<string, any>} */
     const result = await revokeModelPickOverride(id, currentModel.overridesEtag, 'revoked from Settings');
     if (!result?.ok) {
       flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.saveFailed')), 'error');
@@ -312,6 +317,7 @@ async function resetOverrides() {
     && !window.confirm(t('harnessModelRole.resetConfirm'))) return;
   flash(t('harnessModelRole.overridesResetting'));
   try {
+    /** @type {Record<string, any>} */
     const result = await resetModelPickOverrides(currentModel.overridesEtag);
     if (!result?.ok) {
       flash(result?.conflict ? t('harnessModelRole.conflict') : (result?.error || t('harnessModelRole.resetFailed')), 'error');

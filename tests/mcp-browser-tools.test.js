@@ -25,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { configureChatMedia } from '../lib/chat-media.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import { CRETILI_MCP_TOOL_DEFS, createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
@@ -749,15 +749,15 @@ test('Browser authorization survives reconstructed bridge contexts but not login
   const opened = await runHandlersFor(chat, 'run-bridge').browser_open({ url: 'https://example.test/cart' });
   const target = { browserSessionId: opened.structuredContent.browserSessionId, browserTabId: opened.structuredContent.browserTabId };
   const snapshot = lookupMcpExecutionContext({ chatId: chat.id });
-  const fromBridge = () => createCretliMcpToolHandlers({}, resolveAuthorizedMcpContext({
+  const fromBridge = async () => await createCretliMcpToolHandlers({}, await resolveAuthorizedMcpContext({
     sessionId: snapshot.sessionId, chatId: chat.id, harness: 'codex', incarnation: snapshot.incarnation,
   }));
   forgetBrowserChatOwner(chat.id, OWNER);
-  const detached = await fromBridge().browser_elements(target);
+  const detached = await (await fromBridge()).browser_elements(target);
   assert.equal(detached.isError, false, detached.content[0].text);
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   t.mock.timers.tick(31 * 24 * 60 * 60 * 1000);
-  const expired = await fromBridge().browser_elements(target);
+  const expired = await (await fromBridge()).browser_elements(target);
   assert.equal(expired.isError, true);
   assert.match(expired.structuredContent.error, /^owner-session-ended:/);
   t.mock.timers.reset();
@@ -765,7 +765,7 @@ test('Browser authorization survives reconstructed bridge contexts but not login
     cookie: `cr_session=${ownerToken}`, [BROWSER_AGENT_PAGE_HEADER]: getBrowserAgentPageToken(),
   } });
   assert.equal(marked, true);
-  const preview = await fromBridge().browser_elements(target);
+  const preview = await (await fromBridge()).browser_elements(target);
   assert.equal(preview.isError, true);
   assert.match(preview.structuredContent.error, /^owner-session-ended:/);
 });

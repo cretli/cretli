@@ -1,4 +1,5 @@
 import { LitElement, css, html } from 'lit';
+import { choiceControlStyles } from './cr-choice-control.styles.js';
 
 class CrCheckbox extends LitElement {
   static properties = {
@@ -7,7 +8,7 @@ class CrCheckbox extends LitElement {
     ariaLabel: { type: String, attribute: 'aria-label' },
   };
 
-  static styles = css`
+  static styles = [choiceControlStyles, css`
     :host {
       display: inline-flex;
       align-items: center;
@@ -16,16 +17,6 @@ class CrCheckbox extends LitElement {
       font-size: var(--cr-font-size-sm, 0.8rem);
       color: var(--cr-text);
       vertical-align: middle;
-    }
-
-    .control {
-      width: 1rem;
-      height: 1rem;
-      min-width: 1rem;
-      min-height: 1rem;
-      margin: 0;
-      accent-color: var(--cr-accent);
-      cursor: pointer;
     }
 
     ::slotted(*) {
@@ -40,7 +31,7 @@ class CrCheckbox extends LitElement {
     :host([disabled]) ::slotted(*) {
       cursor: not-allowed;
     }
-  `;
+  `];
 
   constructor() {
     super();

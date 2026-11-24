@@ -75,3 +75,13 @@ Raw payload (sanitized, `tests/fixtures/usage/opencode/raw-message-updated-seque
 3. Compaction and session reset are not surfaced as usage epochs.
 4. The context window is a catalog value and is not attached to usage events.
 5. `cost` is available but unused.
+
+## 8. End-of-run usage fallback (`b575b71d`)
+
+Stream `message.updated` / `session.next.step.ended` events carry per-message
+`tokens`. When a run ends (including cancel and error) without any measured usage,
+`recoverOpenCodeUsageFromSession` reads `session.messages` (assistant `info.tokens`
+exists in `@opencode-ai/sdk`) and feeds each message through the same
+`noteOpenCodeMessageTokenDelta` path, which is idempotent by message id, so a
+message counted from the stream is never counted again. A run with output but
+no usage is flagged `usageMissingReason`. See `tests/usage-capture-matrix.test.js`.

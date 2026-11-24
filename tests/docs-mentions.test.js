@@ -43,7 +43,7 @@ test('actual send handler sends a pointer and doc_read hint without loading note
   const sent = [];
   const context = vm.createContext({
     appendTodoRef: () => { throw new Error('No todo selected'); }, withDocReadHint,
-    isChatArchived: () => false, isTerminalTextareaMode: () => false, isWatcherPinnedChat: () => false,
+    isChatArchived: () => false, isTerminalTextareaMode: () => false, isWatcherPinnedChat: () => false, isOperatorChat: () => false,
     parseDelegationCommand: () => null, AUTO_TITLE_PROMPT: 'Auto title', WebSocket: { OPEN: 1 },
     consumePendingInheritedPrompt: () => null, maybeAutoNameNewChat() {}, hideChatResumeAdvice() {},
     consumeSelectedSkillIds: () => [], usesHarnessWebSocket: () => false,

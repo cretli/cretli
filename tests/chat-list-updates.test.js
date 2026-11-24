@@ -9,7 +9,8 @@ import {
   sendChatListClientMessage,
   __clearChatListUpdateClientsForTest,
 } from '../lib/chat-list-updates.js';
-import { addChat, deleteChat, saveChats, updateChat } from '../lib/persist/chats-persist.js';
+import { deleteChat } from '../lib/persist/chats-persist.js';
+import { addChat, saveChats, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 
 function socket() {

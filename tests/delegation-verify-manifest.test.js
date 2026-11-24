@@ -18,7 +18,7 @@ import {
 } from '../lib/delegation-review-verify-plan.js';
 import { createTempRepo } from './helpers/temp-git-repo.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { applyInheritedVerifyEvidence, recordDelegationVerifyResult } from '../lib/delegation-service.js';
 import { renderEvidenceTable, validateEvidence } from '../scripts/validate-evidence.mjs';

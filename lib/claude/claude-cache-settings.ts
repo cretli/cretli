@@ -17,6 +17,7 @@
  */
 
 import { loadSettings } from '../persist/settings.js';
+import { normalizeAutoContextCompressionThresholdPercent } from '../context-compression.js';
 
 export interface ClaudeCacheSettings {
   promptCaching1h: boolean;
@@ -86,6 +87,51 @@ export function applyClaudeCacheEnv(env: ClaudeEnv, settings: ClaudeSettingsSour
   }
   if (resolved.disableAutoCompact) target[CLAUDE_CACHE_ENV.disableAutoCompact] = '1';
   return target;
+}
+
+/**
+ * Per-chat bridge between Cretli's auto context compression setting and
+ * Claude Code's native auto-compaction. A Claude chat cannot use Cretli's
+ * summarize + reset path (that one rotates a Cursor SDK agent), so when the
+ * chat opts into auto-compression its threshold is handed to the CLI instead:
+ * Claude compacts in place at that fill level and keeps the session.
+ *
+ * Returns the percentage to apply, or null when the chat did not opt in.
+ */
+export function resolveClaudeChatAutocompactPct(
+  chat: { autoContextCompressionEnabled?: unknown; autoContextCompressionThreshold?: unknown } | null | undefined,
+): number | null {
+  if (!chat || typeof chat !== 'object' || chat.autoContextCompressionEnabled !== true) return null;
+  return normalizeAutoContextCompressionThresholdPercent(chat.autoContextCompressionThreshold);
+}
+
+/**
+ * Overlay the per-chat compaction threshold on a Claude subprocess env built by
+ * `buildClaudeProcessEnv`. The chat's explicit opt-in wins over the global
+ * percentage and over a global `DISABLE_AUTO_COMPACT`. Without an opt-in the
+ * env is left untouched. Mutates and returns `env`.
+ */
+export function applyClaudeChatCompactionEnv(
+  env: ClaudeEnv,
+  chat: Parameters<typeof resolveClaudeChatAutocompactPct>[0],
+): ClaudeEnv {
+  const target: ClaudeEnv = env && typeof env === 'object' ? env : {};
+  const pct = resolveClaudeChatAutocompactPct(chat);
+  if (pct === null) return target;
+  target[CLAUDE_CACHE_ENV.autocompactPctOverride] = String(pct);
+  delete target[CLAUDE_CACHE_ENV.disableAutoCompact];
+  return target;
+}
+
+/**
+ * Secret-free signature of the compaction env. Part of the session start key:
+ * the CLI reads these variables only at spawn, so a changed threshold needs a
+ * new process (resumed, so the transcript survives).
+ */
+export function buildClaudeCompactionSignature(env: ClaudeEnv | null | undefined): string {
+  const source = env && typeof env === 'object' ? env : {};
+  return `autocompact=${String(source[CLAUDE_CACHE_ENV.autocompactPctOverride] || '')}`
+    + `|noAutocompact=${String(source[CLAUDE_CACHE_ENV.disableAutoCompact] || '')}`;
 }
 
 /** Build only the overlay map (useful for tests and diagnostics). */

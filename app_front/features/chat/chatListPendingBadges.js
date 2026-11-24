@@ -74,7 +74,7 @@ export function applyChatListPendingBadgePatch(listEl, meta, options = {}) {
   const documentRef = options.documentRef
     || (typeof document !== 'undefined' ? document : null);
   const label = typeof options.label === 'function' ? options.label() : String(options.label ?? '');
-  const badgeText = typeof options.badgeText === 'string' ? options.badgeText : '●';
+  const badgeText = typeof options.badgeText === 'string' ? options.badgeText : '';
 
   // Single pass over the rendered rows: no per-id lookup over the list subtree.
   for (const row of listEl.querySelectorAll(ROW_SELECTOR)) {

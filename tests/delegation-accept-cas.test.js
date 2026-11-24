@@ -22,7 +22,7 @@ import { createDelegationService, readDelegationAcceptContext } from '../lib/del
 import { snapshotDelegationAttempt } from '../lib/delegation-attempt.js';
 import { readDelegationMaterialRevision } from '../lib/delegation-material-revision.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createTempRepo, commitFile } from './helpers/temp-git-repo.js';
 
 const service = createDelegationService({

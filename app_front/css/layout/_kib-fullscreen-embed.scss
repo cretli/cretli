@@ -59,7 +59,7 @@ body.kib-radial-active {
 
 .kib-radial-center-arc-text {
   fill: var(--cr-color-rgba-255-255-255-0-88);
-  font-size: 8px;
+  font-size: var(--cr-font-size-legacy-8px);
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
@@ -73,14 +73,14 @@ body.kib-radial-active {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  font-size: 1.35rem;
+  font-size: var(--cr-font-size-legacy-135);
   line-height: 1;
   color: var(--cr-color-rgba-255-255-255-0-9);
   transition: color 0.12s ease;
 }
 
 .kib-radial-hint {
-  font-size: 0.65rem;
+  font-size: var(--cr-font-size-legacy-065);
   line-height: 1.25;
   color: var(--cr-color-ccc);
 }
@@ -111,12 +111,12 @@ body.kib-radial-active {
   transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
 
   .mdi {
-    font-size: 1rem;
+    font-size: var(--cr-font-size-lg);
     line-height: 1;
   }
 
   small {
-    font-size: 0.5rem;
+    font-size: var(--cr-font-size-legacy-05);
     line-height: 1;
     opacity: 0.9;
   }
@@ -291,7 +291,7 @@ body.chat-fullscreen-active {
   }
 
   .chat-fullscreen-btn[data-fullscreen='on'] {
-    font-size: 1.1rem;
+    font-size: var(--cr-font-size-legacy-11);
   }
 }
 
@@ -321,7 +321,7 @@ body.embed-mode {
     display: none !important;
   }
 
-  .header-right > #header-settings-btn {
+  #header-settings-btn {
     display: none;
   }
 

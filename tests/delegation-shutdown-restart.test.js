@@ -1,7 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { acquireDelegationOwnerLock } from '../lib/delegation-owner-lock.js';
 import {
   createDelegationRecord,

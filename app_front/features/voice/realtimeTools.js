@@ -121,7 +121,7 @@ function loadTasksModule() {
 }
 
 /**
- * @param {object} chatModule
+ * @param {any} chatModule
  * @returns {object|null}
  */
 function findActiveChat(chatModule) {
@@ -139,7 +139,7 @@ function isToolConfirm(value) {
 }
 
 /**
- * @param {object} chatModule
+ * @param {any} chatModule
  * @param {{ chat_id?: unknown, title?: unknown, current_title?: unknown }} args
  * @returns {{ ok: true, chat: object } | { ok: false, error: string, candidates?: string[] }}
  */
@@ -202,15 +202,8 @@ const appTools = createAppToolHandlers({
     return (await import('../notifications/notificationStore.js')).getNotificationStore()?.getState() || null;
   },
   async fetchScout() {
-    const scope = await import('../watcher/watcherWorkspaceScope.js');
-    const { cretliApiFetch } = await import('../../lib/cretliApiRequest.js');
-    const scoped = scope.scopeWatcherRequestToWorkspace(
-      `/api/workspace-watcher/scout?status=pending&max=${8}`,
-      {},
-      scope.getWatcherWorkspaceFolder()
-    );
-    const res = await cretliApiFetch(scoped.path, { headers: { Accept: 'application/json' }, credentials: 'include' });
-    return { status: res.status, json: await res.json().catch(() => null) };
+    const { watcherApi } = await import('../settings/watcher/api.js');
+    return watcherApi('/api/workspace-watcher/scout?status=pending&max=8');
   },
   async fetchHealth() {
     return (await import('../../core/api/index.js')).getHarnessHealth();
@@ -232,7 +225,7 @@ const appTools = createAppToolHandlers({
  * Rendered cards are scoped to the active chat's stream so a hidden chat's
  * cards can never be attributed to the active one.
  *
- * @param {object} chatModule
+ * @param {any} chatModule
  * @returns {{ requests: Array<object>, total: number }}
  */
 function collectApprovalSnapshot(chatModule) {
@@ -762,7 +755,7 @@ export const REALTIME_TOOL_NAMES = Object.keys(handlers);
 
 /**
  * @param {string} name
- * @param {object} args
+ * @param {any} args
  * @returns {Promise<object>} JSON-serialisable result sent back to the model
  */
 export async function executeRealtimeTool(name, args) {

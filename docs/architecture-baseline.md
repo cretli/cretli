@@ -180,6 +180,8 @@ Copied from the human-approved program plan (v6); the stricter storage gate appl
 | DOM, whole app | **frozen by human decision, 2026-10-17:** ≤ 5 000 nodes with sidebar open; ≤ 300 rendered list rows including overscan; exceptions only for focus, drag and active row | | human decision (change only by human decision) |
 | Statistics | ≥ 50 repetitions after warm-up; P99 from ≥ 1000 samples; report n/P50/P95/P99/max; mixed run ≥ 10 min; memory/listener/timer/subprocess check after 20 cycles | | plan |
 
+**Enforcement follow-up (2026-11-22).** Chat catalog, SQLite and legacy page reads now share a 100-row ceiling. `GET /api/chats/page` enforces the 128 KiB ceiling on the complete default/list body, using cursor-safe prefixes and explicitly truncated oversized rows; invalid identity/metadata yields a bounded error. This does not establish enforcement for other list/history endpoints or the 1 MiB ordinary-response target. See [owner-lock and health follow-up](owner-lock-health-follow-up.md).
+
 **Freeze record (2026-10-17, frozen by human decision).** The API payload limits above (page ≤ 100 rows
 and ≤ 128 KiB, ordinary response ≤ 1 MiB) and the DOM limits (≤ 5 000 nodes, ≤ 300 rendered rows) are
 frozen exactly as written. They change only by a new human decision; V9 measurements may report against

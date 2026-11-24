@@ -269,12 +269,39 @@ for (const kind of ['systemd', 'launchd', 'wsl', 'termux']) {
         assert.match(result.activation, /daemon-reload do not stop it/);
         assert.ok(result.activation.includes('systemctl --user stop cretli.service'));
       } else {
-        assert.match(result.activation, /continues until it receives SIGTERM or the session ends/);
+        assert.match(result.activation, /continues until it is stopped or the session ends/);
+        assert.ok(result.activation.endsWith(`Stop it now with: ${result.stopCommand}`));
       }
       assert.ok(!result.commands.some(([, args]) => args.includes('bootout') || args.includes('stop')));
       assert.equal(fs.existsSync(file), !apply);
     }
     assert.ok(!calls.some(([, args]) => args.includes('bootout') || args.includes('stop')));
+  });
+}
+
+for (const kind of ['wsl', 'termux']) {
+  test(`${kind}: stopCommand quotes absolute node and supervisor script and request-stop`, async (t) => {
+    const { adapter, calls } = fixture(t, kind, { execPath: "/home/o'brien/node install/bin/node", root: "/home/o'brien/my app" });
+    const result = await adapter.install();
+    assert.equal(result.stopCommand,
+      `'/home/o'\\''brien/node install/bin/node' '/home/o'\\''brien/my app/scripts/cretli-supervisor.mjs' request-stop`);
+    assert.ok(result.warnings.some((warning) => warning.endsWith(result.stopCommand)));
+    // The shell must parse it back into exactly three arguments.
+    const parsed = spawnSync('sh', ['-c', `printf '%s\\n' ${result.stopCommand}`], { encoding: 'utf8' });
+    assert.deepEqual(parsed.stdout.trim().split('\n'),
+      ["/home/o'brien/node install/bin/node", "/home/o'brien/my app/scripts/cretli-supervisor.mjs", 'request-stop']);
+    const removed = await adapter.uninstall();
+    assert.equal(removed.stopCommand, result.stopCommand);
+    assert.ok(removed.activation.endsWith(result.stopCommand));
+    assert.ok(!calls.some(([, args]) => args.includes('stop') || args.includes('bootout')));
+  });
+}
+
+for (const kind of ['systemd', 'launchd']) {
+  test(`${kind}: adapter result carries no stopCommand`, async (t) => {
+    const { adapter } = fixture(t, kind);
+    assert.equal('stopCommand' in await adapter.install(), false);
+    assert.equal('stopCommand' in await adapter.uninstall(), false);
   });
 }
 

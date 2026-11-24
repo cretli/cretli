@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zadania i plany</title>
+<meta name="description" content="Twórz zadania, zatwierdzaj plany, ustalaj kolejność i sprawdzaj wyniki przeglądu.">
+<link rel="canonical" href="https://cretli.com/docs/pl/todos.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/todos.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/todos.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/todos.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/todos.html">
+<meta property="og:title" content="Zadania i plany">
+<meta property="og:description" content="Twórz zadania, zatwierdzaj plany, ustalaj kolejność i sprawdzaj wyniki przeglądu.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/todos.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html" aria-current="page">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Zadania i plany</h1>
+<p>Utwórz zadanie dla konkretnej pracy, podając jasny cel i kryteria akceptacji. Dodaj plan opisujący zmiany oraz sposób sprawdzenia wyniku. Możesz przygotować zadanie samodzielnie albo poprosić agenta o szkic, a następnie przeczytać propozycję przed wykonaniem.</p>
+<h2 id="status-i-zatwierdzenie">Status i zatwierdzenie</h2>
+<p>Używaj <code>idea</code> dla wstępnego pomysłu, <code>ready</code> dla pracy gotowej do rozpoczęcia, <code>doing</code> podczas wykonania, <code>done</code> po zakończeniu oraz <code>deferred</code> dla odłożonej pracy. Zadanie czekające na zatwierdzenie planu może pokazywać wskaźnik oczekiwania mimo zapisanego statusu ready.</p>
+<p><strong>Plan może zatwierdzić wyłącznie człowiek.</strong> Agent może go napisać lub poprawić, ale nie zatwierdzić. Gdy zatwierdzenie jest wymagane, zgoda na zadaniu lub jego przodku otwiera możliwość wykonania. Przegląd planu nie daje tej zgody, a zatwierdzenie nie dowodzi poprawności implementacji.</p>
+<h2 id="kolejność-i-przegląd">Kolejność i przegląd</h2>
+<p>Podziel większe zadanie na dzieci, jeśli mają odrębne wyniki. Domyślnie wykonują się kolejno: późniejsza praca czeka na zakończenie wcześniejszego dziecka. Wybieraj równoległość dla niezależnych prac. Gdy gotowe zadanie nie startuje, sprawdź opis blokady.</p>
+<p>Odznaka przeglądu wynika z zapisanych recenzji i może wskazywać oczekiwanie, sukces, błąd lub nieaktualny wynik. Otwórz ustalenia i wyniki testów; zmiana materiału może unieważnić wcześniejszy sukces. Przegląd planu i kodu odpowiadają na różne pytania.</p>
+<p>Praca zakończona w osobnym katalogu zadania może nadal czekać na integrację z projektem. Sam udany przegląd nie udostępnia tych plików kolejnemu zadaniu w sekwencji. Sprawdź wynik integracji razem z raportem wykonania.</p>
+<p><img src="../img/todo-tree.png" alt="Drzewo zadań" width="1280" height="720" loading="lazy"></p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="chat-and-agents.html">&larr; Panele pracy</a>
+      <a rel="next" href="workspace-watcher.html">Watcher obszaru roboczego &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#status-i-zatwierdzenie">Status i zatwierdzenie</a></li>
+      <li><a href="#kolejność-i-przegląd">Kolejność i przegląd</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

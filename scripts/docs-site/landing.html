@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<link rel="canonical" href="{{canonical}}">
+{{alternates}}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{canonical}}">
+<meta property="og:title" content="{{title}}">
+<meta property="og:description" content="{{description}}">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="/docs/assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">{{skip}}</a>
+<header class="site-header"><a class="brand" href="{{canonical}}">Cretli</a><a href="{{docs}}index.html">{{docsLabel}}</a><a href="https://github.com/cretli/cretli">GitHub</a><a href="{{languageHref}}" hreflang="{{otherLang}}">{{languageName}}</a><button class="theme-toggle" type="button">{{theme}}</button></header>
+<main id="content" class="landing">
+<div class="hero"><span class="eyebrow">{{eyebrow}}</span><h1>{{headline}}</h1><p>{{description}}</p><div class="actions"><a class="button" href="{{docs}}getting-started.html">{{install}}</a><a class="button" href="{{docs}}index.html">{{docsLabel}}</a></div></div>
+<section aria-labelledby="features"><h2 id="features">{{featuresTitle}}</h2><div class="feature-grid">{{features}}</div></section>
+<section aria-labelledby="how"><h2 id="how">{{howTitle}}</h2>{{diagram}}</section>
+<section aria-labelledby="screens"><h2 id="screens">{{screensTitle}}</h2><div class="screenshots">{{screenshots}}</div></section>
+<section aria-labelledby="start"><h2 id="start">{{startTitle}}</h2><p>{{installNote}}</p><pre><code>git clone https://github.com/cretli/cretli.git &amp;&amp; cd cretli &amp;&amp; npm ci &amp;&amp; npm run build:front:prod &amp;&amp; npm start</code></pre><p>{{security}} <a href="{{docs}}security-basics.html">{{docsLabel}}</a></p></section>
+</main>
+<footer class="site-footer">Cretli · MIT · <a href="https://github.com/cretli/cretli">GitHub</a></footer>
+<script src="/docs/assets/docs.js" defer></script>
+</body>
+</html>

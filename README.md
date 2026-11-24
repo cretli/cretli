@@ -92,6 +92,8 @@ docker compose up --build
 # then open https://localhost:3011 and paste CRETLI_SETUP_TOKEN on first-run setup
 ```
 
+For automatic recovery of a hung server, opt in with `docker compose -f docker-compose.yml -f docker-compose.supervisor.yml up --build`. This runs Cretli’s supervisor under Docker’s init process; `docker stop` remains an intended stop. Healthcheck status alone does not restart containers. If repeated crashes leave the supervisor in `crash_loop`, fix the cause and run `docker compose -f docker-compose.yml -f docker-compose.supervisor.yml exec cretli node scripts/cretli-supervisor.mjs request-restart`. See [Docker supervision](docs/server-diagnostics.md#docker-supervision) for limits and logs.
+
 Linux, macOS, WSL2, Termux and LAN/HTTPS: [docs/INSTALL.md](docs/INSTALL.md). If the page
 does not connect: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 

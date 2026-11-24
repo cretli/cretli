@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delegowanie i niezależny przegląd</title>
+<meta name="description" content="Jak Cretli dzieli pracę między silniki i dlaczego wynik sprawdza inny model.">
+<link rel="canonical" href="https://cretli.com/docs/pl/delegation-review.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/delegation-review.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/delegation-review.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/delegation-review.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/delegation-review.html">
+<meta property="og:title" content="Delegowanie i niezależny przegląd">
+<meta property="og:description" content="Jak Cretli dzieli pracę między silniki i dlaczego wynik sprawdza inny model.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/delegation-review.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html" aria-current="page">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Delegowanie i niezależny przegląd</h1>
+<p>Cretli potrafi podzielić jedno zadanie między kilka silników agentów. Czat koordynujący sam nie pisze kodu. Uruchamia czaty potomne na innych modelach, czyta ich raporty i decyduje, co dalej. Użyj tego, gdy wynik powinien sprawdzić ktoś inny niż model, który go wytworzył.</p>
+<h2 id="pętla-pracy">Pętla pracy</h2>
+<ol>
+<li><strong>Plan.</strong> Powstaje plan, a tam, gdzie wymaga tego obszar roboczy, zatwierdzasz go Ty. Agenci nigdy nie zatwierdzają planów.</li>
+<li><strong>Implementacja.</strong> Jeden czat potomny zmienia pliki projektu i raportuje zmiany.</li>
+<li><strong>Weryfikacja.</strong> Cretli może uruchomić stały katalog testów na wyniku, zanim zacznie się przegląd.</li>
+<li><strong>Przegląd.</strong> Inny czat potomny sprawdza pracę tylko do odczytu i kończy werdyktem: PASS, FAIL albo BLOCKED.</li>
+<li><strong>Poprawki.</strong> Przy FAIL implementator usuwa uwagi, a pętla powtarza się, aż praca przejdzie, osiągnie limit rund albo zdecyduje człowiek.</li>
+</ol>
+<p>Ta sama pętla działa w cyklach <a href="workspace-watcher.html">Watchera</a>, a wynik widać na <a href="todos.html">zadaniu</a> jako odznakę przeglądu. Zapisuje ją wyłącznie serwer na podstawie rzeczywistych delegacji; nikt nie ustawia jej ręcznie.</p>
+<h2 id="jak-wybierany-jest-recenzent">Jak wybierany jest recenzent</h2>
+<p>Prostymi słowy: Cretli wybiera spośród modeli, które włączysz jako ulubione w <strong>Ustawieniach</strong> dla każdej roli (plan, implementacja, przegląd, poprawki). Wybierając recenzenta:</p>
+<ul>
+<li>woli model inny niż ten, który implementował pracę, i w miarę możliwości nie powtarza poprzedniego recenzenta;</li>
+<li>pomija modele, które niedawno osiągnęły limit użycia albo nie uruchomiły się;</li>
+<li>unika bardzo szybkich, lekkich modeli w przeglądach, chyba że wskażesz je wprost;</li>
+<li>rozkłada pracę między silniki, żeby jeden dostawca nie był jedynym recenzentem.</li>
+</ul>
+<p>Możesz też ustawić <strong>stałą parę</strong> recenzentów dla danego rodzaju przeglądu. Przeglądy planu mają trzy tryby współpracy: niezależny (domyślny, recenzenci się nie widzą), wymiana (jedna runda z podsumowaniami kolegów) oraz współpraca.</p>
+<h2 id="limity-pod-twoją-kontrolą">Limity pod Twoją kontrolą</h2>
+<p>Czaty potomne domyślnie nie uruchamiają kolejnych delegacji; zagnieżdżanie wymaga jawnej zgody i ma limit głębokości. Dla zadania możesz ustawić budżety rund, czasu i kosztów. Zanim pozwolisz na pracę automatyczną, sprawdź, które silniki są włączone, a różnice przeczytaj sam przed integracją.</p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="workspace-watcher.html">&larr; Watcher obszaru roboczego</a>
+      <a rel="next" href="mcp.html">Narzędzia MCP i klienci zewnętrzni &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#pętla-pracy">Pętla pracy</a></li>
+      <li><a href="#jak-wybierany-jest-recenzent">Jak wybierany jest recenzent</a></li>
+      <li><a href="#limity-pod-twoją-kontrolą">Limity pod Twoją kontrolą</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

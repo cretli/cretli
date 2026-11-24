@@ -38,6 +38,9 @@ const sessionEvents = normalizeClaudeMessage({
   session_id: 'claude-sess-1',
 });
 assert.deepEqual(sessionEvents, [{ kind: 'session', sessionId: 'claude-sess-1' }]);
+assert.deepEqual(normalizeClaudeMessage({ type: 'prompt_suggestion', suggestion: 'Ask for tests' }), [
+  { kind: 'prompt_suggestion', suggestion: 'Ask for tests' },
+]);
 
 const assistantText = normalizeClaudeMessage({
   type: 'assistant',

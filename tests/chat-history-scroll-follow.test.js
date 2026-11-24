@@ -41,7 +41,7 @@ const SCROLL_SCENARIO = async ({ viewUrl, args }) => {
   const records = [];
   for (let seq = 1; seq <= 30; seq += 1) records.push(notice(seq));
   await rich.replayHistoryRecords(records, { instant: true, source: 'test' });
-  rich.scrollToBottom();
+  rich.scrollToBottom({ force: true });
   await settle();
   const distance = () => mount.scrollHeight - mount.clientHeight - mount.scrollTop;
   const meta = (seq) => ({ historySeq: seq, roomEventSeq: seq, eventStreamId: 'room-scroll' });
@@ -80,7 +80,7 @@ const SCROLL_SCENARIO = async ({ viewUrl, args }) => {
   return out;
 };
 
-test('a user scrolling up mid-stream is not pulled back down (Chromium)', { timeout: 180_000 }, async () => {
+test('a user scrolling up mid-stream is not pulled back down (g, Chromium)', { timeout: 180_000 }, async () => {
   const { result, pageErrors } = await runRichViewScenario(SCROLL_SCENARIO, { args: { name: 'user-scrolls-up-mid-stream' } });
   assert.deepEqual(pageErrors, []);
   assert.ok(result.startDistance <= 2, `starts at the bottom: ${JSON.stringify(result)}`);
@@ -181,7 +181,7 @@ test('switching away and back keeps a reader in place and a follower at the bott
     const records = [];
     for (let seq = 1; seq <= 30; seq += 1) records.push({ kind: 'meta', variant: 'notice', historySeq: seq, payload: `notice ${seq}` });
     await rich.replayHistoryRecords(records, { instant: true, source: 'test' });
-    rich.scrollToBottom();
+    rich.scrollToBottom({ force: true });
     await settle();
     const hideAndShow = async () => {
       mount.style.display = 'none';
@@ -200,7 +200,7 @@ test('switching away and back keeps a reader in place and a follower at the bott
     await settle();
     await hideAndShow();
     const readerAtTop = mount.scrollTop;
-    rich.scrollToBottom();
+    rich.scrollToBottom({ force: true });
     await settle();
     await hideAndShow();
     const follower = mount.scrollHeight - mount.clientHeight - mount.scrollTop;
@@ -243,4 +243,206 @@ test('a long chunked history replay stays at the bottom while it renders (Chromi
   assert.ok(result.samples > 0, 'replay was sampled while rendering');
   assert.ok(result.worst <= 2, `view left the bottom during replay: ${JSON.stringify(result)}`);
   assert.ok(result.finalDistance <= 2);
+});
+
+for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+  test(`reading anchor survives late layout, prepend, transforms and snapshots (${viewport.width}px Chromium)`, { timeout: 180_000 }, async () => {
+    const { result, pageErrors } = await runRichViewScenario(async ({ viewUrl }) => {
+      const { createSdkRichView } = await import(viewUrl);
+      const mount = document.getElementById('mount');
+      const rich = createSdkRichView({ id: 'anchor-layout' }, mount, { appendPlain() {} });
+      const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(requestAnimationFrame); };
+      const records = Array.from({ length: 40 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 81, payload: `notice ${i + 81}` }));
+      await rich.replayHistoryRecords(records, { instant: true });
+      await settle();
+      mount.scrollTop = 350;
+      await settle();
+      const stream = mount.querySelector('.sdk-rich-stream');
+      const card = [...stream.children].find((el) => el.getBoundingClientRect().bottom > mount.getBoundingClientRect().top);
+      const offset = () => card.getBoundingClientRect().top - mount.getBoundingClientRect().top;
+      const original = offset();
+      const errors = [];
+      const check = () => errors.push(Math.abs(offset() - original));
+      // A late image/diagram above the reading card changes the stream's measured height.
+      const image = document.createElement('div');
+      image.style.height = '300px';
+      stream.prepend(image);
+      await settle(); check();
+      mount.style.height = '120px';
+      await settle(); check();
+      // The resume banner is a sibling of the stream, above the reader.
+      const banner = document.createElement('div');
+      banner.style.height = '100px';
+      mount.insertBefore(banner, stream);
+      await settle(); check();
+      image.style.height = '100px';
+      await settle(); check();
+      // Pull-up transforms move the scroller and its content together.
+      mount.style.transform = 'translateY(-60px)';
+      image.style.height = '200px';
+      await settle(); check();
+      mount.style.transform = '';
+      const saved = JSON.parse(JSON.stringify(rich.getViewportSnapshot()));
+      mount.style.display = 'none';
+      mount.dispatchEvent(new Event('scroll'));
+      await settle();
+      mount.style.display = '';
+      rich.restoreViewportSnapshot(saved);
+      await settle(); check();
+      const older = Array.from({ length: 80 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 1, payload: `older ${i}` }));
+      rich.prependHistoryRecords(older);
+      await settle(); check();
+      rich.scrollToBottom();
+      await settle(); check();
+      const following = rich.getViewportSnapshot().following;
+      rich.scrollToBottom({ force: true });
+      await settle();
+      const distance = mount.scrollHeight - mount.clientHeight - mount.scrollTop;
+      rich.destroy();
+      return { errors, following, distance };
+    }, { viewport });
+    assert.deepEqual(pageErrors, []);
+    assert.ok(result.errors.every((error) => error <= 2), JSON.stringify(result));
+    assert.equal(result.following, false);
+    assert.ok(result.distance <= 2, JSON.stringify(result));
+  });
+}
+
+test('background replay, queue and context changes preserve reading; local send takes following (k, Chromium)', { timeout: 180_000 }, async () => {
+  const { result, pageErrors } = await runRichViewScenario(async ({ viewUrl }) => {
+    const { createSdkRichView } = await import(viewUrl);
+    const mount = document.getElementById('mount');
+    const rich = createSdkRichView({ id: 'background-scroll' }, mount, { appendPlain() {} });
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(requestAnimationFrame); };
+    const records = Array.from({ length: 40 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 1, payload: `notice ${i}` }));
+    await rich.replayHistoryRecords(records, { instant: true });
+    await settle();
+    mount.scrollTop = 120;
+    await settle();
+    const positions = [];
+    const note = async () => { await settle(); positions.push(mount.scrollTop); };
+    rich.appendQueuedPrompt('background queue', 1, { silent: true }); await note();
+    rich.promoteQueuedPrompt('background queue'); await note();
+    rich.promoteQueuedPrompt('missing queued block'); await note();
+    rich.markUserPromptQueued('missing queued block'); await note();
+    rich.appendContextSeedBlock('context', { silent: true }); await note();
+    await rich.appendHistoryRecords([{ kind: 'meta', variant: 'notice', historySeq: 41, payload: 'new history' }], { instant: true }); await note();
+    await rich.replayHistoryRecords(records, { instant: true }); await note();
+    const followingBeforeSend = rich.getViewportSnapshot().following;
+    // The alternate replay API has no history seqs; its safe fallback is scrollTop.
+    rich.applyAgentMessagesHistory(Array.from({ length: 30 }, (_, i) => ({ type: 'user', message: { content: [{ type: 'text', text: `prompt ${i}` }] } })));
+    await note();
+    rich.appendUserPrompt('my explicit send');
+    await settle();
+    const distance = mount.scrollHeight - mount.clientHeight - mount.scrollTop;
+    const followingAfterSend = rich.getViewportSnapshot().following;
+    rich.destroy();
+    return { positions, followingBeforeSend, followingAfterSend, distance };
+  });
+  assert.deepEqual(pageErrors, []);
+  assert.ok(result.positions.every((top) => Math.abs(top - 120) <= 2), JSON.stringify(result));
+  assert.equal(result.followingBeforeSend, false);
+  assert.equal(result.followingAfterSend, true);
+  assert.ok(result.distance <= 2, JSON.stringify(result));
+});
+
+test('delayed own scroll events and pointer focus do not release follow (h, Chromium)', { timeout: 180_000 }, async () => {
+  const { result, pageErrors } = await runRichViewScenario(async ({ viewUrl }) => {
+    const { createSdkRichView } = await import(viewUrl);
+    const mount = document.getElementById('mount');
+    const rich = createSdkRichView({ id: 'delayed-own-scroll' }, mount, { appendPlain() {} });
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(requestAnimationFrame); };
+    await rich.replayHistoryRecords(Array.from({ length: 30 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 1, payload: `notice ${i}` })), { instant: true });
+    await settle();
+    mount.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    mount.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    const late = document.createElement('div'); late.style.height = '300px';
+    mount.querySelector('.sdk-rich-stream').append(late);
+    await settle();
+    mount.dispatchEvent(new Event('scroll'));
+    await settle();
+    const out = { following: rich.getViewportSnapshot().following, distance: mount.scrollHeight - mount.clientHeight - mount.scrollTop };
+    rich.destroy();
+    return out;
+  });
+  assert.deepEqual(pageErrors, []);
+  assert.equal(result.following, true);
+  assert.ok(result.distance <= 2, JSON.stringify(result));
+});
+
+test('scroll intent belongs to the conversation, excluding editors and nested scrollers (Chromium)', { timeout: 180_000 }, async () => {
+  const { result, pageErrors } = await runRichViewScenario(async ({ viewUrl }) => {
+    const { createSdkRichView } = await import(viewUrl);
+    const mount = document.getElementById('mount');
+    const rich = createSdkRichView({ id: 'scroll-intent' }, mount, { appendPlain() {} });
+    const settle = async () => { for (let i = 0; i < 4; i++) await new Promise(requestAnimationFrame); };
+    await rich.replayHistoryRecords(Array.from({ length: 40 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 1, payload: `notice ${i}` })), { instant: true });
+    await settle();
+    const nested = document.createElement('div');
+    nested.style.cssText = 'height:40px;overflow:auto';
+    nested.innerHTML = '<div style="height:200px"></div>';
+    const editor = document.createElement('textarea');
+    mount.querySelector('.sdk-rich-stream').append(nested, editor);
+    await settle();
+    nested.dispatchEvent(new WheelEvent('wheel', { deltaY: -40, bubbles: true, composed: true }));
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true, composed: true }));
+    await settle();
+    const nestedFollowing = rich.getViewportSnapshot().following;
+    rich.scrollToBottom();
+    mount.dispatchEvent(new WheelEvent('wheel', { deltaY: -40, bubbles: true }));
+    await settle();
+    const wheelFollowing = rich.getViewportSnapshot().following;
+    rich.scrollToBottom({ force: true }); await settle();
+    rich.scrollToBottom();
+    mount.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp', bubbles: true }));
+    await settle();
+    const keyFollowing = rich.getViewportSnapshot().following;
+    // Removing the visible card falls back to its next neighbour at the same offset.
+    mount.scrollTop = 300; await settle();
+    const stream = mount.querySelector('.sdk-rich-stream');
+    const card = [...stream.children].find((el) => el.getBoundingClientRect().bottom > mount.getBoundingClientRect().top);
+    const neighbour = card.nextElementSibling;
+    const before = neighbour.getBoundingClientRect().top;
+    card.remove(); await settle();
+    const removalError = Math.abs(neighbour.getBoundingClientRect().top - before);
+    rich.scrollToBottom({ force: true });
+    rich.destroy();
+    mount.scrollTop = 0;
+    await settle();
+    return { nestedFollowing, wheelFollowing, keyFollowing, removalError, afterDestroy: mount.scrollTop };
+  });
+  assert.deepEqual(pageErrors, []);
+  assert.equal(result.nestedFollowing, true);
+  assert.equal(result.wheelFollowing, false);
+  assert.equal(result.keyFollowing, false);
+  assert.ok(result.removalError <= 2, JSON.stringify(result));
+  assert.equal(result.afterDestroy, 0);
+});
+
+test('chunked background replacement restores a reading card beyond the sync head (Chromium)', { timeout: 180_000 }, async () => {
+  const { result, pageErrors } = await runRichViewScenario(async ({ viewUrl }) => {
+    const { createSdkRichView } = await import(viewUrl);
+    const mount = document.getElementById('mount');
+    const rich = createSdkRichView({ id: 'chunked-reading' }, mount, { appendPlain() {} });
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(requestAnimationFrame); };
+    const records = Array.from({ length: 200 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 81, payload: `notice ${i + 81}` }));
+    await rich.replayHistoryRecords(records);
+    await settle();
+    mount.scrollTop = 1500; await settle();
+    const stream = mount.querySelector('.sdk-rich-stream');
+    const card = [...stream.children].find((el) => el.getBoundingClientRect().bottom > mount.getBoundingClientRect().top);
+    const seq = card.dataset.historySeq;
+    const before = card.getBoundingClientRect().top - mount.getBoundingClientRect().top;
+    const older = Array.from({ length: 80 }, (_, i) => ({ kind: 'meta', variant: 'notice', historySeq: i + 1, payload: `older ${i}` }));
+    await rich.replayHistoryRecords([...older, ...records]);
+    await settle();
+    const restored = [...stream.children].find((el) => el.dataset.historySeq === seq);
+    const after = restored.getBoundingClientRect().top - mount.getBoundingClientRect().top;
+    const following = rich.getViewportSnapshot().following;
+    rich.destroy();
+    return { before, after, following };
+  });
+  assert.deepEqual(pageErrors, []);
+  assert.equal(result.following, false);
+  assert.ok(Math.abs(result.before - result.after) <= 2, JSON.stringify(result));
 });

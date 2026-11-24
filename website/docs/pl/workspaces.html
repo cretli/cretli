@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obszary robocze</title>
+<meta name="description" content="Zapisz foldery projektu, zaimportuj obszar i wybierz właściwy katalog pracy.">
+<link rel="canonical" href="https://cretli.com/docs/pl/workspaces.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/workspaces.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/workspaces.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/workspaces.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/workspaces.html">
+<meta property="og:title" content="Obszary robocze">
+<meta property="og:description" content="Zapisz foldery projektu, zaimportuj obszar i wybierz właściwy katalog pracy.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/workspaces.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html" aria-current="page">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Obszary robocze</h1>
+<p>Obszar roboczy grupuje foldery projektu, aby czaty, zadania i narzędzia działały we właściwym miejscu. W <strong>Ustawienia → Obszar roboczy</strong> dodaj folder projektu lub zaimportuj istniejący plik <code>.code-workspace</code> z VS Code albo Cursora. Folder musi istnieć na komputerze uruchamiającym Cretli, również wtedy, gdy łączysz się z telefonu. Na początek możesz wybrać projekt <code>my-app</code>.</p>
+<h2 id="zapisane-obszary-i-import">Zapisane obszary i import</h2>
+<p>Cretli przechowuje definicje obszarów we własnej bazie SQL: kolejność folderów, ich włączenie oraz folder domyślny. Do dalszej pracy z zapisanym obszarem nie potrzebujesz pliku obszaru roboczego. Import <code>.code-workspace</code> dostarcza początkową listę folderów. Późniejsze zmiany tego pliku nie aktualizują automatycznie listy w Cretli.</p>
+<p>Użyj jawnego odświeżenia z pliku, aby zaimportować nowo dodane foldery. Odświeżenie dodaje brakujące pozycje zamiast usuwać zapisane wybory. Zapis folderów z powrotem do pliku to osobna, opcjonalna czynność. Ścieżki względne w importowanym pliku są rozwiązywane względem jego położenia.</p>
+<h2 id="przed-rozpoczęciem-pracy">Przed rozpoczęciem pracy</h2>
+<p>Sprawdź wybrany obszar i folder domyślny przed utworzeniem czatu lub zadania. Czaty, zadania i delegacje są powiązane z katalogiem pracy, więc ten wybór ma znaczenie. W ustawieniach skonfigurujesz też Dokumenty obszaru: istniejący folder dokumentacji projektu działa od razu, natomiast zewnętrzny folder notatek wymaga Twojej zgody i osobnego włączenia odczytu przez agentów.</p>
+<p>Zobacz <a href="chat-and-agents.html">panele pracy</a>, aby poznać narzędzia obszaru, oraz <a href="settings.html">Ustawienia</a>, aby znaleźć pozostałe opcje.</p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="harness-cursor-sdk.html">&larr; Cursor SDK</a>
+      <a rel="next" href="settings.html">Ustawienia &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#zapisane-obszary-i-import">Zapisane obszary i import</a></li>
+      <li><a href="#przed-rozpoczęciem-pracy">Przed rozpoczęciem pracy</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

@@ -112,7 +112,7 @@ function publicPlan(plan) {
  *   getCapabilities: (transport: string) => { canResumeSession?: boolean },
  *   readSessionId: (transport: string, chat: Record<string, any>) => string,
  *   getGeneration: (chatId: string) => number,
- *   getFreshness: (chatId: string, options: { now: number }) => Record<string, any>,
+ *   getFreshness: (chatId: string, options: { now: number, chat?: Record<string, any> | null }) => Record<string, any>,
  *   isRunBusy: (chatId: string) => boolean,
  *   hasActiveDelegationOnChat: (chatId: string, exceptDelegationId: string) => boolean,
  *   hasNewerDelegationOnChat: (chatId: string, delegationId: string) => boolean,
@@ -273,7 +273,7 @@ export function createKeepAliveScheduler(deps) {
     const t = now();
     const row = deps.loadDelegation(plan.delegationId);
     const chat = await deps.loadChat(plan.chatId);
-    const freshness = chat ? deps.getFreshness(plan.chatId, { now: t }) : null;
+    const freshness = chat ? deps.getFreshness(plan.chatId, { now: t, chat }) : null;
     const rates = deps.resolveRates({ transport: plan.harness, model: plan.model });
     const contextTokens = freshness?.context?.inputTokens ?? null;
     return {
@@ -445,7 +445,7 @@ export function createKeepAliveScheduler(deps) {
       }
       const t = now();
       const limits = normalizeKeepAliveLimits(input?.limits || {}, t);
-      const freshness = chat ? deps.getFreshness(chatId, { now: t }) : null;
+      const freshness = chat ? deps.getFreshness(chatId, { now: t, chat }) : null;
       const rates = deps.resolveRates({ transport: harness, model: text(row.executor?.model) });
       const availability = evaluateKeepAliveAvailability({
         canResumeSession: deps.getCapabilities(harness)?.canResumeSession === true,

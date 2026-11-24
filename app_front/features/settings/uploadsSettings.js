@@ -98,7 +98,7 @@ export function initUploadsSettings() {
   async function refreshStats() {
     if (!statsEl) return;
     try {
-      const json = await getUploadsStats();
+      const json = /** @type {Awaited<ReturnType<typeof getUploadsStats>> & { files?: number, videos?: number, bytes?: number }} */ (await getUploadsStats());
       if (!json || json.ok === false) return;
       statsEl.textContent = json.files
         ? t('settings.uploadsStats', { files: json.files, videos: json.videos, size: formatBytes(json.bytes) })
@@ -112,7 +112,7 @@ export function initUploadsSettings() {
   async function runCleanup(all) {
     if (all && !window.confirm(t('settings.uploadsDeleteAllConfirm'))) return;
     try {
-      const json = await cleanupUploads({ all });
+      const json = /** @type {Awaited<ReturnType<typeof cleanupUploads>> & { error?: string, deleted?: number, freedBytes?: number }} */ (await cleanupUploads({ all }));
       if (json && json.ok === false) throw new Error(json.error || 'cleanup_failed');
       setStatus(t('settings.uploadsCleaned', { count: json.deleted || 0, size: formatBytes(json.freedBytes) }));
     } catch (err) {

@@ -1,3 +1,4 @@
+import { getViewContextRuntimeScope } from '../../app/appShell/viewContextBridge.js';
 /**
  * Settings → Delegations: runtime health and repair actions.
  */
@@ -14,6 +15,7 @@ import {
 import { t } from '../../i18n/index.js';
 
 const FILTERS = [
+  ['needs_attention', 'settings.delegationsFilterAttention'],
   ['', 'settings.delegationsFilterAll'],
   ['active', 'settings.delegationsFilterActive'],
   ['needs_input', 'settings.delegationsFilterInput'],
@@ -31,6 +33,7 @@ const inflightActions = new Set();
 /** @type {object[]} */
 let loadedRows = [];
 let nextCursor = '';
+const initializedFilters = new WeakSet();
 let confirmImpl = (message) => window.confirm(message);
 
 /**
@@ -58,11 +61,7 @@ function escapeHtml(text) {
  * @returns {{ workspaceFolder: string, workspaceFile: string }}
  */
 function getActiveWorkspaceScope() {
-  const trigger = document.getElementById('header-workspace-trigger');
-  return {
-    workspaceFolder: String(trigger?.dataset?.workspaceFolder || '').trim(),
-    workspaceFile: String(trigger?.dataset?.workspaceFile || '').trim(),
-  };
+  return getViewContextRuntimeScope();
 }
 
 /**
@@ -71,7 +70,8 @@ function getActiveWorkspaceScope() {
 function fillFilter() {
   const select = document.getElementById('delegation-center-filter');
   if (!select) return;
-  const current = select.value != null ? String(select.value) : '';
+  const current = initializedFilters.has(select) ? String(select.value || '') : 'needs_attention';
+  initializedFilters.add(select);
   select.options = FILTERS.map(([value, key]) => ({ value, label: t(key) }));
   select.setAttribute('aria-label', t('settings.delegationsFilter'));
   select.value = current;
@@ -89,6 +89,8 @@ function renderHealth(runtime) {
   const hung = runtime?.worker?.hungTick === true;
   const ready = runtime?.readiness === true || (runtime?.ok === true && !stale && !hung && String(runtime?.lifecycle?.state || '') === 'ready');
   const state = String(runtime?.lifecycle?.state || '');
+  const health = /** @type {HTMLDetailsElement | null} */ (document.getElementById('delegation-runtime-section'));
+  if (health) health.open = /** @type {any} */ (runtime)?.degraded === true || state === 'degraded';
   const counts = runtime?.counts || {};
   const lines = [
     processOn ? t('settings.delegationsServerUp') : t('settings.delegationsServerDown'),
@@ -118,6 +120,9 @@ function renderHealth(runtime) {
  */
 function renderRow(row) {
   const id = escapeHtml(row.id);
+  const anyRow = /** @type {any} */ (row);
+  const chatId = String(anyRow.chatId || anyRow.childChatId || anyRow.parentChatId || '');
+  const title = String(anyRow.title || '').trim() || t('settings.delegationsUntitled');
   const status = String(row.status || '');
   const slotHeld = row.slotOccupied === true || row.runStopping === true;
   const canRetry = !slotHeld && ['completed', 'failed', 'interrupted', 'cancelled'].includes(status);
@@ -141,9 +146,11 @@ function renderRow(row) {
   return `
     <article class="cr-card delegation-center-card" role="listitem" tabindex="0" data-delegation-id="${id}">
       <header class="delegation-center-card-head">
-        <strong>${escapeHtml(status)}</strong>
+        <strong>${escapeHtml(title)}</strong>
         <span>${escapeHtml(row.executor?.model || row.executor?.transport || '')}</span>
       </header>
+      <p class="cr-hint">${escapeHtml(status)}</p>
+      <a style="color: var(--cr-link)" href="/?panel=chat&amp;chat=${encodeURIComponent(chatId)}">${escapeHtml(t('settings.delegationsOpenChat'))}</a>
       <p class="cr-hint">${escapeHtml(hintText)}</p>
       <p class="cr-hint">${escapeHtml(t('settings.delegationsAttemptHint', { count: Number(row.attemptCount) || 0 }))}</p>
       <div class="delegation-center-actions">

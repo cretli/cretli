@@ -62,9 +62,9 @@ export function roleLabel(role, t) {
 /**
  * Build the editable, DOM-free model for the panel.
  *
- * @param {object|null} snapshot GET /api/harness-model-role-config payload
+ * @param {Record<string, any>|null} snapshot GET /api/harness-model-role-config payload
  * @param {(key: string, values?: object) => string} t
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 export function buildModelRoleConfigViewModel(snapshot, t = (key) => key) {
   const source = snapshot && typeof snapshot === 'object' ? snapshot : {};
@@ -180,12 +180,12 @@ export function computeRoleDelta(input) {
  *     adaptive?: { enabled: boolean },
  *   },
  * }} input
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 export function computeModelRoleConfigDelta(input) {
   const model = input?.model || {};
   const desired = input?.desired || {};
-  /** @type {Record<string, object>} */
+  /** @type {Record<string, Record<string, any>>} */
   const roles = {};
   for (const role of MODEL_ROLE_CONFIG_ROLES) {
     const view = (model.roles || []).find((row) => row.role === role);
@@ -211,7 +211,7 @@ export function computeModelRoleConfigDelta(input) {
 }
 
 /**
- * @param {object} model
+ * @param {Record<string, any>} model
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */
@@ -300,7 +300,7 @@ export function renderModelRoleConfigHtml(model, t) {
  * still owns the author/time fields; this form only collects the operator's
  * intent.
  *
- * @param {object} model
+ * @param {Record<string, any>} model
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */
@@ -352,7 +352,7 @@ export function renderOverridesHtml(model, t) {
  * Render the read-only explore status. Rotation cold-start stays a distinct
  * ranking signal; the out-of-band ledger is the attempt list below.
  *
- * @param {object} model
+ * @param {Record<string, any>} model
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */
@@ -375,7 +375,7 @@ export function renderExploreStatusHtml(model, t) {
 /**
  * Render the server-computed diff (what a save would change).
  *
- * @param {object|null} diff
+ * @param {Record<string, any>|null} diff
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */

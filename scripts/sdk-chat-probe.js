@@ -8,7 +8,7 @@
  */
 
 import path from 'path';
-import { loadChats } from '../lib/persist/chats-persist.js';
+import { loadChatsAsync } from '../lib/persist/chats-persist.js';
 import { runSdkChatProbe } from '../lib/sdk/sdk-agent-probe.ts';
 import { resolveSdkCwdForChat } from '../lib/workspace.js';
 
@@ -48,7 +48,7 @@ async function main() {
     console.error('Usage: node scripts/sdk-chat-probe.js --chat-id <uuid> [--resume-only] [--timeout-ms 120000]');
     process.exit(2);
   }
-  const chats = loadChats();
+  const chats = await loadChatsAsync();
   const chat = chats.find((entry) => entry.id === args.chatId);
   if (!chat) {
     console.error(`Chat not found: ${args.chatId}`);

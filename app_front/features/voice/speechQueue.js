@@ -17,7 +17,7 @@ import { appLogger } from '../../core/logging/logger.js';
  *   getVoiceName: () => string,
  *   onStateChange?: (speaking: boolean) => void,
  *   onError?: (error: Error, meta: { engineId: string, permanent: boolean }) => void,
- *   resolveEngine?: (engineId: string) => import('./ttsEngine.js').TtsEngine, replaces the real engines (tests)
+ *   resolveEngine?: (engineId: string) => import('./ttsEngine.js').TtsEngine,
  * }} options
  */
 export function createSpeechQueue(options) {

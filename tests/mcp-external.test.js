@@ -22,8 +22,10 @@ import { EXTERNAL_MCP_AUDIT_FILE, setExternalMcpRateLimit } from '../lib/mcp/mcp
 import { bindOperatorSessionId, registerExternalMcpRoutes } from '../lib/routes/mcp-external-routes.js';
 import { loadMcpDocument, saveMcpDocument } from '../lib/persist/mcp-persist.js';
 import { createBuiltinCretliServer } from '../lib/mcp/mcp-config.js';
+import { mutateWorkspaceWatcherRow } from '../lib/persist/workspace-watchers-persist.js';
+import { noteHarnessPlanLimit } from '../lib/usage/harness-health.ts';
 import { addTodo, loadTodosData, updateTodo, writeTodoReview } from '../lib/persist/todos-legacy-adapter.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   getMockChatRun,
   getMockChatRunStartCount,
@@ -134,6 +136,43 @@ test('tokens are shown once, stored as a hash, revocable and expiring', () => {
   assert.equal(revokeExternalMcpClient(client.id), true);
   assert.throws(() => verifyExternalMcpToken(token), /revoked/);
   assert.equal(revokeExternalMcpClient('missing'), false);
+});
+
+test('plan token can call the allowlisted fleet summary; unauthenticated calls get 401', async () => {
+  saveSettings({ externalMcpEnabled: true });
+  mutateWorkspaceWatcherRow(workspace, () => ({
+    blockedBackoff: { 'private-todo-id': { count: 2, until: new Date(Date.now() + 60_000).toISOString() } },
+  }), { dataDir: resolveDataPath() });
+  noteHarnessPlanLimit({ harness: 'test-provider', utilization: 42, dataDir: resolveDataPath() });
+  const unauth = await rawPost({});
+  assert.equal(unauth.status, 401);
+
+  const { token } = createExternalMcpClient({ name: 'Fleet reader', workspaceFolder: workspace, mode: 'plan' });
+  const client = await connect(token);
+  try {
+    const defs = await client.listTools();
+    const tool = defs.tools.find((entry) => entry.name === 'fleet_summary');
+    assert.ok(tool, 'fleet_summary is listed to a plan token');
+    assert.equal(tool.annotations?.readOnlyHint, true);
+    const response = await client.callTool({ name: 'fleet_summary', arguments: {} });
+    assert.equal(response.isError, false);
+    const value = response.structuredContent;
+    assert.deepEqual(Object.keys(value).sort(), [
+      'activeWatcherCycles', 'blockedTodos', 'instance', 'plansAwaitingApproval', 'providerUsage', 'schemaVersion',
+    ]);
+    assert.deepEqual(Object.keys(value.instance).sort(), ['online']);
+    assert.deepEqual(Object.keys(value.providerUsage), ['test-provider']);
+    assert.deepEqual(Object.keys(value.providerUsage['test-provider']).sort(), ['limitPercent', 'utilizationPercent']);
+    assert.deepEqual(value.providerUsage['test-provider'], { utilizationPercent: 42, limitPercent: 100 });
+    assert.doesNotMatch(JSON.stringify(value), /private-todo-id/);
+    assert.equal(value.schemaVersion, 1);
+    assert.equal(value.instance.online, true);
+    assert.equal(value.activeWatcherCycles, 0);
+    assert.equal(value.blockedTodos, 1);
+    assert.equal(value.plansAwaitingApproval, 0);
+  } finally {
+    await client.close();
+  }
 });
 
 test('rotating a token keeps the client and invalidates the old token', () => {
@@ -358,6 +397,11 @@ test('operator_watcher_policy validates a whitelist, requires reason for sensiti
     const status = JSON.parse((await op.callTool({ name: 'operator_server_status', arguments: {} })).content[0].text);
     assert.equal(status.ready, true);
     assert.equal(status.pid, process.pid);
+    // operator_restart: validation only (confirm, mode); a real restart is never triggered here.
+    const restart = (args) => op.callTool({ name: 'operator_restart', arguments: args });
+    assert.equal((await restart({})).isError, true, 'confirm missing');
+    assert.equal((await restart({ confirm: true, mode: 'sideways' })).isError, true, 'unknown mode');
+    assert.equal((await restart({ confirm: true, mode: 'fast' })).isError, true, 'no routes registered in the test process: refused, not executed');
     const read = JSON.parse((await raw({})).content[0].text);
     assert.equal(read.autoRestart, false);
     assert.equal((await raw({ patch: { autoRestart: true }, reason: 'x' })).isError, true, 'confirm missing');

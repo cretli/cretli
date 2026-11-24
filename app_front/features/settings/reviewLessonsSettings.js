@@ -8,17 +8,23 @@
  * as HTML. A stale write (409) reloads the list instead of overwriting.
  */
 
+import '../../components/ui/cr-bar-input.js';
+import '../../components/ui/cr-bar-textarea.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from '../watcher/watcherWorkspaceScope.js';
 import { createSingleFlight, runBulkLessonPatch, summarizeBulkResult } from './reviewLessonsBulk.js';
+import { clampLessonText, bindLessonTextLimit } from './lessonTextLimit.js';
 import './review-lessons-settings.scss';
 
 const LESSONS_PATH = '/api/review-lessons';
 const STATS_WINDOWS = ['7d', '30d', '90d'];
 const VIEWS = ['candidate', 'active', 'retired'];
 
-/** @type {{ lessons: object[], view: string, window: string, stats: object | null, statsFailed: boolean, bound: boolean, openTodo: ((id: string) => Promise<boolean>) | null, selected: Set<string> }} */
+/** @typedef {{ id: string, revision: number, status: string, audience?: string, kind?: string, category?: string, text?: string, pathGlobs?: string[], origin?: string, retiredReason?: string, statusReason?: string, evidence?: Array<{ leafId?: string, ledgerKey?: string, outcome?: string }>, stats?: { injected?: number, recurred?: number, cleanAfterInjection?: number } }} ReviewLesson */
+/** @typedef {{ injected?: number, cleanAfterInjection?: number, recurred?: number }} LessonStats */
+/** @typedef {{ lessons: ReviewLesson[], view: string, window: string, stats: { workspaces?: Array<{ windows?: Record<string, { codeReview?: { leaves?: number, findings?: number, cleanRounds?: number, totalRounds?: number, cleanRate?: number } }> }> } | null, statsFailed: boolean, bound: boolean, openTodo: ((id: string) => Promise<boolean>) | null, selected: Set<string> }} ReviewLessonsState */
+/** @type {ReviewLessonsState} */
 const state = { lessons: [], view: 'candidate', window: '30d', stats: null, statsFailed: false, bound: false, openTodo: null, selected: new Set() };
 
 const bulkFlight = createSingleFlight();
@@ -127,7 +133,7 @@ function setStatus(text, tone = '') {
 }
 
 /**
- * @param {object} lesson
+ * @param {ReviewLesson} lesson
  * @returns {HTMLElement}
  */
 function renderEvidence(lesson) {
@@ -149,7 +155,7 @@ function renderEvidence(lesson) {
 }
 
 /**
- * @param {object} lesson
+ * @param {ReviewLesson} lesson
  * @returns {HTMLElement}
  */
 function renderStats(lesson) {
@@ -161,7 +167,7 @@ function renderStats(lesson) {
 }
 
 /**
- * @param {object} lesson
+ * @param {ReviewLesson} lesson
  * @returns {HTMLElement}
  */
 function renderActions(lesson) {
@@ -177,7 +183,7 @@ function renderActions(lesson) {
 }
 
 /**
- * @param {object} lesson
+ * @param {ReviewLesson} lesson
  * @returns {HTMLElement}
  */
 function renderLesson(lesson) {
@@ -205,7 +211,7 @@ function renderLesson(lesson) {
 }
 
 /**
- * @param {object | null} stats API payload
+ * @param {ReviewLessonsState['stats']} stats API payload
  * @returns {HTMLElement}
  */
 function renderStatsCard(stats) {
@@ -440,9 +446,11 @@ function runBulk(kind) {
  * @param {object} lesson
  */
 function openEditDialog(lesson) {
-  const text = el('textarea', { rows: '3', maxlength: '300', 'data-lessons-edit-text': '1' });
-  text.value = String(lesson.text || '');
-  const globs = el('input', { type: 'text', 'data-lessons-edit-globs': '1' });
+  // cr-bar-textarea has no maxlength, so the 300-character limit is enforced on input.
+  const text = /** @type {any} */ (el('cr-bar-textarea', { rows: '3', 'aria-label': t('settings.reviewLessonsFieldText'), 'data-lessons-edit-text': '1' }));
+  text.value = clampLessonText(lesson.text);
+  bindLessonTextLimit(text);
+  const globs = /** @type {any} */ (el('cr-bar-input', { type: 'text', 'aria-label': t('settings.reviewLessonsFieldGlobs'), 'data-lessons-edit-globs': '1' }));
   globs.value = (Array.isArray(lesson.pathGlobs) ? lesson.pathGlobs : []).join(', ');
   const message = el('p', { class: 'cr-status', 'data-tone': '' });
   const save = el('cr-bar-button', { variant: 'primary' }, [t('settings.reviewLessonsSave')]);
@@ -457,7 +465,9 @@ function openEditDialog(lesson) {
   dialog.addEventListener('cr-dialog-close', close);
   cancel.addEventListener('click', close);
   save.addEventListener('click', async () => {
-    const value = text.value.trim();
+    // The inner control may hold more than the host after a native change event.
+    const inner = text.shadowRoot?.querySelector?.('textarea');
+    const value = clampLessonText(inner?.value ?? text.value).trim();
     if (!value) {
       message.textContent = t('settings.reviewLessonsTextRequired');
       message.setAttribute('data-tone', 'error');

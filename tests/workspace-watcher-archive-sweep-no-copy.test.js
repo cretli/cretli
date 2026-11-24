@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cretli-sweep-nocopy-'));
 process.env.CRETLI_DATA_DIR = dir;
-const chats = await import('../lib/persist/chats-persist.js');
+const chats = await import('../lib/persist/chats-legacy-store.js');
 const { sweepClosedWorkspaceWatcherCycles } = await import('../lib/workspace-watcher-archive-sweep.js');
 
 test('sweep reads candidate chats without copying the whole chat list', async () => {

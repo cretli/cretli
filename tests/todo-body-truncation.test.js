@@ -10,7 +10,7 @@ import path from 'node:path';
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'cr-todo-body-data-'));
 process.env.CRETLI_DATA_DIR = dataDir;
 
-const { addChat } = await import('../lib/persist/chats-persist.js');
+const { addChat } = await import('../lib/persist/chats-legacy-store.js');
 const { MAX_BODY_LEN, describeBodyTruncation, loadTodosData } = await import('../lib/persist/todos-legacy-adapter.js');
 const { setBuiltinMcpRuntimeDeps } = await import('../lib/mcp/builtin/runtime-deps.js');
 const { createInProcessMcpClient } = await import('../lib/mcp/mcp-inprocess-client.js');

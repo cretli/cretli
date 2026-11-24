@@ -51,11 +51,16 @@ Converted to the `*Async` API: `lib/routes/**`, `lib/chat-run-service.js`, `lib/
   chat, retried on a version conflict, never thrown into an event handler.
 - `guardArchivedChatSocket` checks the archive flag asynchronously and keeps frame order (a queue behind a pending prompt frame);
   `ws.whenArchiveGuardIdle()` resolves when it drained.
-- Signatures that unconverted callers still invoke synchronously keep a sync twin that reads through
-  `lib/persist/chats-sync-compat.js` (legacy runtime only; removed in B5): `probeChatRunLiveness`, `getChatRunState`,
-  `isChatRunConfirmedIdle`, `lookupChatRunRequest`, `countActiveChatRuns`, `getChatBySessionKey`, `rejectArchivedRoomPrompt`,
-  `buildAgentTitleHint`, the recovery-resume collaborators. `summarizeChatRunStates(ids, { chats })` is pure over rows.
-  A contract test (`tests/chats-b2-callers.test.js`) pins the list of shim users so it can only shrink.
+- B5.4: `lib/persist/chats-sync-compat.js` is deleted and the facade `chats-persist.js` exports only the `*Async` API. The
+  synchronous `chats.json` code lives in `lib/persist/chats-legacy-store.js`, imported only by the facade and the legacy
+  backend adapter (and tests). The sync `probeChatRunLiveness`, `getChatRunState`, `lookupChatRunRequest` and
+  `countActiveChatRuns` that the watcher/delegation/update-gate chains still call without awaiting read the in-process row
+  index `lib/chat-row-index.js` (fed by every row the facade hands out, warmed at boot), so they work on the SQLite runtime;
+  a chat absent from the index probes as `chat_missing`, so the boot warm must precede any probe consumer. Async callers use the `*Async` twins.
+  `getChatBySessionKey` is index-backed too; `rejectArchivedRoomPrompt` is removed
+  (use `rejectArchivedRoomPromptAsync`); `buildAgentTitleHint` reads only `input.chat` / `deps.loadChat`; the operator and Scout
+  sync identity guards rely on the in-process registries only. Contract test: `tests/chats-b3-callers.test.js`.
+  `CHATS_SQLITE_RUNTIME_ENABLED` is `true`; a sqlite runtime still starts only when the `chats-backend.json` marker selects it.
 - Tests: `tests/helpers/chats-backends.js` (`CHATS_TEST_BACKEND`, `seedChatRows`) and `tests/chats-b2-backend-matrix.test.js`
   run the converted tests on an isolated SQLite runtime. Tests that cross into an unconverted group (delegation bridge/mailbox,
   ws-router, chat-catalog, mcp-inprocess-client, context-scope) are listed with the blocking module in `SQLITE_BLOCKED`.

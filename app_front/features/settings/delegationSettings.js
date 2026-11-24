@@ -71,7 +71,7 @@ export const DELEGATION_LEGACY_FIELDS = Object.freeze(['reviewer_pair_enabled', 
 /** Review subjects with their own reviewer policy (`other` stays legacy-only). */
 export const REVIEWER_POLICY_SUBJECTS = Object.freeze(['plan', 'code']);
 
-/** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }> }} */
+/** @type {{ data: object | null, favorites: Array<{ harness: string, model: string, label: string }>, harnesses: object[], favoritesAt: number, favoritesPromise: Promise<Array<{ harness: string, model: string, label: string }>> | null, favoritesPaintedFor: string | null, dirty: Set<string> }} */
 const state = { data: null, favorites: [], harnesses: [], favoritesAt: 0, favoritesPromise: null, favoritesPaintedFor: null, dirty: new Set() };
 /** Favorites change rarely; reuse them across tab entries for this long. */
 const FAVORITES_TTL_MS = 60_000;
@@ -526,11 +526,14 @@ function renderReviewCertification(data) {
 
 /**
  * @param {string} tab
- * @param {object} data
+ * @param {{ scope?: Record<string, string>, recovery?: any }} data
  * @returns {string}
  */
 function renderSubtab(tab, data) {
-  const fields = DELEGATION_SUBTAB_FIELDS[tab].map((spec) => renderField(spec, data)).join('');
+  const specs = DELEGATION_SUBTAB_FIELDS[tab];
+  const workspaceFields = specs.filter((spec) => data.scope?.[spec.field] !== 'server').map((spec) => renderField(spec, data)).join('');
+  const serverFields = specs.filter((spec) => data.scope?.[spec.field] === 'server').map((spec) => renderField(spec, data)).join('');
+  const fields = `${workspaceFields}${serverFields ? `<div class="cr-card" data-settings-scope="server">${serverFields}</div>` : ''}`;
   const recovery = data.recovery || {};
   const extra = tab === 'models'
     ? `<div class="cr-field" data-delegation-recovery>

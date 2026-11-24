@@ -16,15 +16,8 @@ import { appendVoiceSessionEvent } from './voiceSessionLog.js';
  * @returns {Promise<{ status: number, json: any }>}
  */
 async function watcherRequest(path, options = {}) {
-  const scope = await import('../watcher/watcherWorkspaceScope.js');
-  const { cretliApiFetch } = await import('../../lib/cretliApiRequest.js');
-  const scoped = scope.scopeWatcherRequestToWorkspace(path, options, scope.getWatcherWorkspaceFolder());
-  const res = await cretliApiFetch(scoped.path, {
-    method: scoped.options.method || 'GET',
-    headers: { Accept: 'application/json' },
-    credentials: 'include',
-  });
-  return { status: res.status, json: await res.json().catch(() => null) };
+  const { watcherApi } = await import('../settings/watcher/api.js');
+  return watcherApi(path, options);
 }
 
 /**
@@ -55,7 +48,7 @@ export function buildWorkToolDeps({ findActiveChat, loadChatModule }) {
       const workspaceFile = context?.workspaceFile || '';
       const workspaceFolder = context?.workspaceFolder || '';
       if (!workspaceFile || !workspaceFolder) return { ok: false, error: 'No workspace is selected' };
-      const select = typeof document !== 'undefined' ? document.getElementById('chat-new-harness-select') : null;
+      const select = typeof document !== 'undefined' ? (/** @type {import('../../components/ui/cr-bar-select.js').CrBarSelect|null} */ (document.getElementById('chat-new-harness-select'))) : null;
       const agentTransport = resolveTodoStartHarness(todo, String(select?.value || 'sdk').trim() || 'sdk');
       const panel = await import('../todo/index.js');
       const outcome = await panel.startTodoAgentForVoice(todo.id, { workspaceFile, workspaceFolder, agentTransport });

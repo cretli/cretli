@@ -10,6 +10,8 @@ import { buildHistoryCardReportHostHtml, registerHistoryCardReportFullText, wire
 import { shouldPlaceViewCardBefore } from '../../chatHistoryViewOrder.js';
 import { reviewerSessionLabel } from '../services/sdkEventNormalize.js';
 import { decorateCodeForCopy, renderMarkdownSource } from '../services/markdownEngine.js';
+import { getModelIconSrc } from '../../modelIcon.js';
+import { formatElapsedClock, parseExecutorModel } from './delegationCardHead.js';
 
 /**
  * Delegation history cards and the accept action.
@@ -23,6 +25,25 @@ export function installDelegationCards(rv) {
   rv.renderHistoryCardProse = renderHistoryCardProse;
   rv.decorateHistoryCardReports = decorateHistoryCardReports;
   rv.renderDelegationCard = renderDelegationCard;
+
+  let elapsedTimer = 0;
+
+  /** Live elapsed clock for running delegations; stops itself when none is left. */
+  function tickElapsedClocks() {
+    const clocks = [...rv.stream.querySelectorAll('.sdk-rich-delegation-elapsed[data-started-ms]')];
+    const live = clocks.filter((el) => el instanceof HTMLElement && el.isConnected
+      && isActiveDelegationStatus(/** @type {HTMLElement | null} */ (el.closest('.sdk-rich-delegation'))?.dataset.delegationStatus));
+    for (const el of live) el.textContent = formatElapsedClock(Date.now() - Number(el.dataset.startedMs));
+    if (!live.length && elapsedTimer) {
+      window.clearInterval(elapsedTimer);
+      elapsedTimer = 0;
+    }
+  }
+
+  function ensureElapsedTimer() {
+    if (elapsedTimer || typeof window === 'undefined') return;
+    elapsedTimer = window.setInterval(tickElapsedClocks, 1000);
+  }
 
   /**
    * Aggregate wait label above existing delegation cards (not a second card system).
@@ -39,6 +60,7 @@ export function installDelegationCards(rv) {
     if (!(banner instanceof HTMLElement)) {
       banner = document.createElement('div');
       banner.className = 'sdk-rich-line sdk-rich-delegation-wait';
+      banner.dataset.wait = '1';
     }
     banner.textContent = t('chat.delegationWaitingForAgents', { n: String(waitingCount) });
     if (first instanceof HTMLElement && banner.nextElementSibling !== first) {
@@ -144,7 +166,12 @@ export function installDelegationCards(rv) {
     const historySeq = Number(rv.renderedRecordHistorySeq) || 0;
     const previousHistorySeq = Number(card?.dataset.delegationHistorySeq) || 0;
     // A buffered live start may arrive after HTTP restored the finished card.
-    if (previousHistorySeq > 0 && historySeq <= previousHistorySeq) {
+    // A live update carries no history seq (0): it must still advance a card that is not
+    // finished yet, otherwise the card stays on its first status until the job ends.
+    const previousFinished = card instanceof HTMLElement
+      && !isActiveDelegationStatus(card.dataset.delegationStatus);
+    const isStale = historySeq > 0 ? historySeq <= previousHistorySeq : previousFinished;
+    if (previousHistorySeq > 0 && isStale) {
       if (card instanceof HTMLElement && childChatId) {
         card.dataset.childChatId = rv.relatedChatDomId(childChatId);
       }
@@ -186,7 +213,7 @@ export function installDelegationCards(rv) {
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-interrupt">${escapeHtml(interruptText === interruptKey ? interruptCode : interruptText)}</div>`
       : '';
     const errorProse = status === 'waiting_for_input' || error === report ? '' : renderHistoryCardProse(error);
-    const detailsOpen = content.querySelector('.sdk-rich-delegation-details')?.open === true;
+    const detailsOpen = content.querySelector('.sdk-rich-delegation-details-toggle')?.getAttribute('aria-expanded') === 'true';
     card.dataset.reportContentKey = report ? registerHistoryCardReportFullText(report) : '';
     card.dataset.errorContentKey = error && status !== 'waiting_for_input'
       ? registerHistoryCardReportFullText(error) : '';
@@ -252,14 +279,37 @@ export function installDelegationCards(rv) {
     const childGrantLabel = model.allowChildDelegations
       ? `<div class="sdk-rich-delegation-meta sdk-rich-delegation-child-grant">${escapeHtml(t('chat.delegationChildGrant'))}</div>`
       : '';
+    const active = isActiveDelegationStatus(status);
+    const { name: modelName, effort } = parseExecutorModel(executor.model);
+    const startedMs = Date.parse(String(/** @type {any} */ (data).startedAt || /** @type {any} */ (data).createdAt || createdAt || ''));
+    const effortLevel = ({ low: 1, minimal: 1, medium: 2, high: 3, xhigh: 4, max: 4 })[effort] || 0;
+    const effortHtml = effort
+      ? `<span class="sdk-rich-delegation-effort" data-level="${effortLevel}" title="${escapeHtml(effort)}" aria-label="${escapeHtml(effort)}">${'<i></i>'.repeat(4)}</span>`
+      : '';
+    const elapsedText = active && Number.isFinite(startedMs)
+      ? formatElapsedClock(Date.now() - startedMs)
+      : (durationSec > 0 ? formatElapsedClock(durationSec * 1000) : '');
+    const elapsedHtml = elapsedText
+      ? `<span class="sdk-rich-delegation-elapsed"${active && Number.isFinite(startedMs) ? ` data-started-ms="${startedMs}"` : ''}>${escapeHtml(elapsedText)}</span>`
+      : '';
+    const stopHtml = model.canCancel
+      ? `<button type="button" class="sdk-rich-delegation-btn sdk-rich-delegation-btn--icon sdk-rich-delegation-stop" title="${escapeHtml(t('chat.delegationCancel'))}" aria-label="${escapeHtml(t('chat.delegationCancel'))}"><span class="mdi mdi-stop" aria-hidden="true"></span></button>`
+      : '';
+    const headHtml = `<div class="sdk-rich-delegation-head">`
+      + (executor.model || executor.transport
+        ? `<img class="sdk-rich-delegation-logo" src="${escapeHtml(getModelIconSrc(executor.model, executor.transport))}" alt="" loading="lazy" decoding="async">`
+        + `<span class="sdk-rich-delegation-model">${escapeHtml(modelName || executor.transport || '')}</span>${effortHtml}`
+        : '')
+      + `<span class="sdk-rich-delegation-state" data-active="${active ? '1' : '0'}">${active ? '<span class="sdk-rich-delegation-pulse" aria-hidden="true"></span>' : ''}${escapeHtml(delegationStatusLabel(resolveDelegationStatusKey(data)))}</span>`
+      + elapsedHtml + `</div>`;
     content.innerHTML = [
-      `<strong class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</strong>`,
-      `<div class="sdk-rich-delegation-meta">${escapeHtml(delegationStatusLabel(resolveDelegationStatusKey(data)))} ${unverified} ${uncertain} ${acceptedBadge}</div>`,
-      executorLabel ? `<div class="sdk-rich-delegation-meta">${escapeHtml(executorLabel)}${durationSec > 0 ? ` · ${escapeHtml(t('chat.delegationDuration', { seconds: String(durationSec) }))}` : ''}</div>` : duration,
+      `<span class="sdk-rich-delegation-title">${escapeHtml(t('chat.delegationCardTitle'))}</span>`,
+      headHtml,
+      `<div class="sdk-rich-delegation-meta">${unverified} ${uncertain} ${acceptedBadge}</div>`.replace(/<div class="sdk-rich-delegation-meta">\s*<\/div>/, ''),
       sessionResumeLabel,
       childGrantLabel,
-      `<details class="sdk-rich-delegation-details"${detailsOpen ? ' open' : ''}>`,
-      `<summary>${escapeHtml(t('chat.delegationDetails'))}</summary>`,
+      `<div class="sdk-rich-delegation-bar"><button type="button" class="sdk-rich-delegation-btn sdk-rich-delegation-details-toggle" aria-expanded="${detailsOpen ? 'true' : 'false'}"><span class="mdi mdi-chevron-down" aria-hidden="true"></span>${escapeHtml(t('chat.delegationDetails'))}</button><span class="sdk-rich-delegation-bar-end">${stopHtml}</span></div>`,
+      `<div class="sdk-rich-delegation-details-box"${detailsOpen ? '' : ' hidden'}>`,
       attemptLabel,
       deliveryLabel,
       attemptsLabel,
@@ -269,7 +319,8 @@ export function installDelegationCards(rv) {
       planPaceLabel,
       reviewerPolicyLabel,
       sourceLabel,
-      '</details>',
+      
+'</div>',
       waiting,
       interruptLabel,
       errorProse,
@@ -278,6 +329,17 @@ export function installDelegationCards(rv) {
     ].filter(Boolean).join('');
     decorateHistoryCardReports(content);
     refreshDelegationWaitBanner();
+    const toggleBtn = content.querySelector('.sdk-rich-delegation-details-toggle');
+    toggleBtn?.addEventListener('click', () => {
+      const box = content.querySelector('.sdk-rich-delegation-details-box');
+      if (!(box instanceof HTMLElement)) return;
+      box.hidden = !box.hidden;
+      toggleBtn.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+    });
+    content.querySelector('.sdk-rich-delegation-stop')?.addEventListener('click', () => {
+      hooks.onCancelDelegation?.(id);
+    });
+    if (active && Number.isFinite(startedMs)) ensureElapsedTimer();
     const actions = content.querySelector('.sdk-rich-delegation-actions');
     if (actions instanceof HTMLElement) {
       if (childChatId) {
@@ -288,17 +350,7 @@ export function installDelegationCards(rv) {
         openBtn.addEventListener('click', () => {
           hooks.onOpenDelegationChat?.(childChatId);
         });
-        actions.appendChild(openBtn);
-      }
-      if (model.canCancel) {
-        const cancelBtn = document.createElement('button');
-        cancelBtn.type = 'button';
-        cancelBtn.className = 'sdk-rich-delegation-btn';
-        cancelBtn.textContent = t('chat.delegationCancel');
-        cancelBtn.addEventListener('click', () => {
-          hooks.onCancelDelegation?.(id);
-        });
-        actions.appendChild(cancelBtn);
+        (content.querySelector('.sdk-rich-delegation-bar-end') || actions).appendChild(openBtn);
       }
       if (model.canAck) {
         const ackBtn = document.createElement('button');

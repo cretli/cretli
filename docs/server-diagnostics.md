@@ -121,6 +121,34 @@ production tail behavior or satisfy the remaining V9 fixture/duration criteria.
 
 **Restart storm protection.** `StartLimitBurst=5` within `StartLimitIntervalSec=600`, plus `RestartSec=10`, caps a crash loop at 5 starts per 10 minutes; then the unit is `failed` (start-limit-hit) instead of looping. Inspect with `systemctl --user status cretli.service`, fix the cause, then `systemctl --user reset-failed cretli.service` and start again.
 
+### Docker supervision
+
+The table above describes the manual systemd unit. Docker’s base `restart: unless-stopped` policy also reacts only to container exit. Opt in to hang detection with:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.supervisor.yml up --build
+```
+
+The entrypoint keeps its setup-token, certificate and frontend preparation, then execs `scripts/cretli-supervisor.mjs` instead of `npm start` when `CRETLI_DOCKER_SUPERVISOR=1`. The override enables Docker’s init process (tini) to forward signals and reap orphaned descendants, and allows 60 seconds for stopping, beyond the supervisor’s default 40-second child stop budget. `docker stop <container>` makes the supervisor exit 0 and the container stays stopped under `unless-stopped`. A supervisor failure instead exits the container so Docker can restart it. Without the override, the Dockerfile, base Compose settings and `npm start` behavior are unchanged.
+
+The healthcheck uses the same loopback `/api/health` probe as the supervisor, with `PORT` (default 3011), `USE_HTTPS` (default 1), self-signed TLS support and a 10-second request timeout. Docker runs it every 30 seconds with a 15-second timeout, three retries and a 150-second start period. It provides visibility only: `unhealthy` does not restart a container. Long boots or tolerated event-loop stalls can temporarily show unhealthy status.
+
+**Recovery scope.** With default `CRETLI_SUPERVISOR_*` settings, a healthy child at least 150 seconds old (past the 120-second startup grace), fresh supervisor state (`safeMode: false`, `crashCount: 0`) and normal startup within about two minutes, a fully stopped server (`SIGSTOP`, including its watchdog worker) should get a replacement child PID within 120 seconds. HTTP should answer within three minutes after the replacement appears; this is a smoke-test target, not a worst-case boot guarantee. A blocked event loop whose watchdog worker still makes progress can be tolerated for up to `blockedLimitMs` (10 minutes). Boot progress can be tolerated up to `bootLimitMs` (20 minutes). Persisted safe mode suppresses the normal hang kill while progress continues or until those limits; these states have no promise of automatic replacement within the SIGSTOP bounds.
+
+After five crashes in ten minutes, `crash_loop` deliberately leaves the supervisor running without a server. The container becomes unhealthy. Inspect `/app/data/supervisor-state.json` and `/app/data/supervisor.log`, fix the cause, then recover with:
+
+```sh
+docker exec <container> node scripts/cretli-supervisor.mjs request-restart
+```
+
+**Manual verification.** Use a fresh temporary data mount, with default supervisor settings. From `/app` in the container, read `data/supervisor-state.json`; record on the host when `childPid` first appears, wait at least 150 seconds with that same PID, and confirm `/api/health` answers, `safeMode` is false and `crashCount` is zero. Record host `date +%s`, then stop only the server:
+
+```sh
+docker exec <container> node -e "process.kill(JSON.parse(require('fs').readFileSync('data/supervisor-state.json','utf8')).childPid,'SIGSTOP')"
+```
+
+Poll state from the host and record `date +%s` when a different `childPid` first appears. Expect at most 120 seconds, `lastCrash.reason: health_probe_failed`, and HTTP recovery within three minutes after the new PID, without a container restart. Then verify `docker stop` finishes before 60 seconds with `Exited (0)` and stays stopped. Verify `docker kill` followed by `docker start`, and two successive Compose restarts, each start a supervisor without a stale-lock refusal. Finally, run without the override and verify the entrypoint still executes `npm start`.
+
 ### Persistent state and data migration
 
 **Persistent state.** `StateDirectory=cretli` makes systemd create and own a directory that survives restarts and reboots, and `CRETLI_DATA_DIR=%S/cretli` points Cretli's data directory (`lib/runtime-paths.js`) at it; without it data goes to `data/` inside the checkout. The server and memory-monitor examples deliberately contain the exact same two settings. Install both in the same service scope and run them as the same user so `%S/cretli` resolves to one directory (`$XDG_STATE_HOME/cretli`, normally `~/.local/state/cretli`, for user units; `/var/lib/cretli` for system units). Alternatively, configure the same explicit absolute `CRETLI_DATA_DIR` in both units and arrange ownership deliberately. Keep API keys in the ignored `.env` file; the units contain no secrets.
@@ -386,7 +414,11 @@ A platform manager starts the supervisor, which alone starts the server.
 `systemctl --user stop` and `launchctl bootout` stop the managed service;
 external SIGTERM to the supervisor causes `Restart=always` / `KeepAlive=true`
 to bring it back. Without a manager (WSL, Termux), SIGTERM to the supervisor
-stops it.
+stops it; `scripts/cretli-supervisor.mjs request-stop` sends that SIGTERM to the
+PID in `data/supervisor.lock` (exit 0 delivered, 3 no supervisor, 4 failure; 0 does
+not mean shutdown has finished, the supervisor waits up to `stopTimeoutMs`). Use
+`request-stop` only without a platform manager: under systemd or launchd the
+manager brings the supervisor back, so stop it with `systemctl`/`launchctl`.
 
 Under supervision, API and update restarts use the same scheduling function:
 the planned restart flag is set before sending SIGUSR2 to the parent. Restart

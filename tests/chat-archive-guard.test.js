@@ -1,7 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import {
   patchMockChatRun,
   registerMockChatRunAdapter,

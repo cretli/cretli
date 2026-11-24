@@ -8,7 +8,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { spawnSync } from 'node:child_process';
 import { createSupervisor, supervisorConfig, SUPERVISOR_DEFAULTS, loadSupervisorEnv,
-  requestRestart, acquireSupervisorLock, atomicSupervisorState, supervisorLogTail,
+  requestRestart, requestStop, acquireSupervisorLock, atomicSupervisorState, supervisorLogTail,
   probeSupervisorHealth, processAlive, processCommand, SUPERVISOR_RECLAIM_STALE_MS } from '../lib/cretli-supervisor.js';
 
 function harness(config = {}, history = {}) {
@@ -163,6 +163,19 @@ test('exclusive lock, dead owner recovery and request-restart codes without unsa
     assert.equal(requestRestart(lock, { ...deps, read: () => 'invalid' }), 4);
     assert.equal(requestRestart(lock, { ...deps, command: () => { throw new Error(); } }), 4);
     assert.equal(requestRestart(lock, { ...deps, kill: () => { throw new Error(); } }), 4);
+    // requestStop shares the validation and exit codes but delivers SIGTERM.
+    const sent = [];
+    const stopDeps = { ...deps, kill: (pid, signal) => { sent.push([pid, signal]); } };
+    assert.equal(requestStop(lock, stopDeps), 0); assert.deepEqual(sent, [[42, 'SIGTERM']]);
+    assert.equal(requestRestart(lock, stopDeps), 0); assert.deepEqual(sent.at(-1), [42, 'SIGUSR2']);
+    sent.length = 0;
+    assert.equal(requestStop(lock, { ...stopDeps, alive: () => false }), 3);
+    assert.equal(requestStop(lock, { ...stopDeps, command: () => 'other-app' }), 3); assert.deepEqual(sent, []);
+    assert.equal(requestStop(lock, { ...stopDeps, read: () => { throw Object.assign(new Error(), { code: 'EACCES' }); } }), 4);
+    assert.equal(requestStop(lock, { ...stopDeps, read: () => 'invalid' }), 4);
+    assert.equal(requestStop(lock, { ...stopDeps, command: () => { throw new Error(); } }), 4);
+    assert.equal(requestStop(lock, { ...stopDeps, kill: () => { throw new Error(); } }), 4);
+    assert.equal(requestStop(path.join(dir, 'missing.lock')), 3); assert.deepEqual(sent, []);
     assert.equal(processAlive(-1), false); assert.equal(processAlive(42, () => { throw { code: 'ESRCH' }; }), false);
     assert.equal(processAlive(42, () => { throw { code: 'EPERM' }; }), true);
     assert.ok(processCommand(process.pid).includes('node'));

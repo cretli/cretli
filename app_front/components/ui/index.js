@@ -8,7 +8,12 @@ import './cr-bar-select.js';
 import './cr-searchable-select.js';
 import './cr-icon-button.js';
 import './cr-checkbox.js';
+import './cr-radio.js';
 import './cr-collapsible.js';
 import './cr-dialog.js';
 import './cr-tabs.js';
 import './cr-fs-picker.js';
+import './cr-emoji-picker.js';
+import './cr-swipe-picker.js';
+
+import './cr-scope-badge.js';

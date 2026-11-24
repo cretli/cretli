@@ -181,17 +181,9 @@ test('the Workspace section renders the master and per-workspace toggles', () =>
   assert.match(sidebar, /workspaceWatcherRuntimeRevision/);
 });
 
-test('the Workspace header can expand to every workspace', () => {
-  const sidebar = readSidebarViewSource();
-  assert.match(sidebar, /readWatcherShowAllFlag/);
-  assert.match(sidebar, /writeWatcherShowAllFlag/);
-  assert.match(sidebar, /sidebar-watcher-show-all/);
-  assert.match(sidebar, /data-watcher-show-all/);
-  assert.match(sidebar, /watcherShowAllShow/);
-  assert.match(sidebar, /watcherShowAllHide/);
-  // The default view is the enabled-watcher list; "show all" reveals off rows.
-  assert.match(sidebar, /listEnabledWorkspaceWatcherPinnedChats/);
-  assert.match(sidebar, /watcherNoneEnabled/);
-  // The flag is part of the layout signature, so toggling repaints the list.
-  assert.match(sidebar, /\(readWatcherShowAllFlag\(\) \? '1' : '0'\)/);
+test('the watcher section lives in the Agents view and lists every workspace there', () => {
+  const pinned = readSource('app_front/features/sidebar/views/sidebarPinnedSection.js');
+  // The old per-header "show all" toggle was replaced by the Agents view mode.
+  assert.match(pinned, /readViewMode\(\) !== 'agents'/);
+  assert.doesNotMatch(pinned, /readWatcherShowAllFlag/);
 });

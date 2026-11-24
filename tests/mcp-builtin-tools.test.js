@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addChat, applyAutoTitle } from '../lib/persist/chats-persist.js';
+import { addChat, applyAutoTitle } from '../lib/persist/chats-legacy-store.js';
 import { appendChatHistoryEvents } from '../lib/persist/chat-history-persist.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';

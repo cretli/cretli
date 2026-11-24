@@ -7,7 +7,7 @@ import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import { sendDelegationReply } from '../lib/delegation-mailbox.js';
@@ -79,7 +79,7 @@ patchMockChatRun(second.childChatId, { busy: false });
 
 // The old token is still valid for the live session (same incarnation), but its
 // claims name round one: end-to-end it must be rejected for round two.
-const staleCtx = resolveAuthorizedMcpContext(oldClaims);
+const staleCtx = await resolveAuthorizedMcpContext(oldClaims);
 assert.deepEqual(staleCtx.callProvenance, { attemptId: first.attemptId, delegationId: first.id });
 {
   const res = await sendDelegationReply({
@@ -121,7 +121,7 @@ assert.deepEqual(staleCtx.callProvenance, { attemptId: first.attemptId, delegati
 
 // (2) A token minted for the current round works.
 {
-  const ctx = resolveAuthorizedMcpContext(tokenFor(second.childChatId, second));
+  const ctx = await resolveAuthorizedMcpContext(tokenFor(second.childChatId, second));
   const res = await sendDelegationReply({
     fromChatId: second.childChatId, body: report('PASS'), replyKind: 'final_report', taskOutcome: 'success',
     callAttemptId: ctx.callProvenance.attemptId, callDelegationId: ctx.callProvenance.delegationId,

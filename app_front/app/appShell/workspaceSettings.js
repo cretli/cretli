@@ -1,3 +1,4 @@
+import { initSettingsScopeBadges } from '../../features/settings/settingsScopeBadges.js';
 import { t } from '../../i18n/index.js';
 import '../../components/ui/index.js';
 import { openFsPicker } from '../../components/ui/cr-fs-picker.js';
@@ -279,6 +280,8 @@ export function createWorkspaceSettings(deps = {}) {
             folder: sourceEntry.folder || '',
             workspaceFile: normalizePath(workspaceFile),
             label: '',
+            color: sourceEntry.color || '',
+            icon: sourceEntry.icon || '',
             folders: { ...(sourceEntry.folders || {}) },
           };
           createWorkspaceCard(
@@ -415,6 +418,77 @@ export function createWorkspaceSettings(deps = {}) {
     nameField.appendChild(nameInput);
     card.appendChild(nameField);
 
+    const appearanceField = document.createElement('div');
+    appearanceField.className = 'settings-field cr-field settings-workspace-appearance';
+    const colorLabel = document.createElement('label');
+    colorLabel.className = 'settings-field-label cr-field-label';
+    colorLabel.textContent = t('workspace.colorLabel');
+    const swatches = document.createElement('div');
+    swatches.className = 'settings-workspace-swatches';
+    swatches.setAttribute('role', 'radiogroup');
+    swatches.setAttribute('aria-label', t('workspace.colorLabel'));
+    const paintSwatches = () => {
+      swatches.querySelectorAll('button').forEach((btn) => {
+        const active = (btn.dataset.color || '') === (draftConfig[sidebarKey]?.color || '');
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-checked', active ? 'true' : 'false');
+      });
+    };
+    ['', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'gray'].forEach((key) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `settings-workspace-swatch${key ? ` ws-color-${key}` : ' is-none'}`;
+      btn.dataset.color = key;
+      btn.setAttribute('role', 'radio');
+      btn.title = key ? t(`workspace.color.${key}`) : t('workspace.colorNone');
+      btn.setAttribute('aria-label', btn.title);
+      btn.addEventListener('click', () => {
+        if (!draftConfig[sidebarKey]) return;
+        draftConfig[sidebarKey].color = key;
+        paintSwatches();
+        persistDraft.save();
+      });
+      swatches.appendChild(btn);
+    });
+    const iconLabel = document.createElement('label');
+    iconLabel.className = 'settings-field-label cr-field-label';
+    iconLabel.textContent = t('workspace.iconLabel');
+    const iconInput = /** @type {import('../../components/ui/cr-bar-input.js').CrBarInput} */ (document.createElement('cr-bar-input'));
+    iconInput.className = 'settings-workspace-card-icon';
+    iconInput.setAttribute('aria-label', t('workspace.iconLabel'));
+    iconInput.setAttribute('maxlength', '8');
+    iconInput.placeholder = t('workspace.iconPlaceholder');
+    iconInput.value = entry.icon || '';
+    iconInput.addEventListener('input', () => {
+      if (draftConfig[sidebarKey]) draftConfig[sidebarKey].icon = readControlValue(iconInput);
+    });
+    iconInput.addEventListener('change', () => {
+      if (draftConfig[sidebarKey]) draftConfig[sidebarKey].icon = readControlValue(iconInput);
+      persistDraft.save();
+    });
+    const iconRow = document.createElement('div');
+    iconRow.className = 'settings-workspace-icon-row';
+    const iconToggle = document.createElement('cr-bar-button');
+    iconToggle.className = 'settings-workspace-icon-toggle';
+    iconToggle.textContent = t('workspace.iconPick');
+    const iconPicker = /** @type {HTMLElement & { value: string }} */ (document.createElement('cr-emoji-picker'));
+    iconPicker.hidden = true;
+    iconToggle.addEventListener('click', () => {
+      iconPicker.hidden = !iconPicker.hidden;
+      iconPicker.value = readControlValue(iconInput);
+    });
+    iconPicker.addEventListener('cr-change', (/** @type {CustomEvent} */ ev) => {
+      const value = String(ev.detail?.value || '');
+      iconInput.value = value;
+      if (draftConfig[sidebarKey]) draftConfig[sidebarKey].icon = value;
+      iconPicker.value = value;
+      persistDraft.save();
+    });
+    iconRow.append(iconInput, iconToggle);
+    appearanceField.append(colorLabel, swatches, iconLabel, iconRow, iconPicker);
+    card.appendChild(appearanceField);
+    queueMicrotask(paintSwatches);
+
     const folderField = document.createElement('div');
     folderField.className = 'settings-field cr-field';
     const folderLabel = document.createElement('label');
@@ -448,6 +522,8 @@ export function createWorkspaceSettings(deps = {}) {
         folder: entry.folder || '',
         workspaceFile: normalizePath(workspaceFile),
         label: entry.label || '',
+        color: entry.color || '',
+        icon: entry.icon || '',
         folders: { ...(entry.folders || {}) },
       };
     }
@@ -585,6 +661,8 @@ export function createWorkspaceSettings(deps = {}) {
       const enabled = entry.enabled !== false;
       const folder = typeof entry.folder === 'string' ? entry.folder.trim() : '';
       const label = typeof entry.label === 'string' ? entry.label.trim() : '';
+      const color = typeof entry.color === 'string' ? entry.color.trim() : '';
+      const icon = typeof entry.icon === 'string' ? entry.icon.trim() : '';
       const isClone = isSidebarCloneKey(key);
       const folders = {};
       Object.entries(entry.folders || {}).forEach(([folderPath, meta]) => {
@@ -597,11 +675,14 @@ export function createWorkspaceSettings(deps = {}) {
         };
       });
       const hasFolders = Object.keys(folders).length > 0;
-      if (!isClone && enabled && !folder && !label && !hasFolders) return;
+      if (!isClone && enabled && !folder && !label && !color && !icon && !hasFolders) return;
       payload[key] = {};
       if (!enabled) payload[key].enabled = false;
       if (folder) payload[key].folder = folder;
       if (label) payload[key].label = label;
+      // Always sent: an empty value is how a cleared colour or icon is removed on the server.
+      payload[key].color = color;
+      payload[key].icon = icon;
       if (hasFolders) payload[key].folders = folders;
       if (isClone) {
         payload[key].workspaceFile = normalizePath(
@@ -630,6 +711,7 @@ export function createWorkspaceSettings(deps = {}) {
   }
 
   function initSettingsWorkspacePicker() {
+    initSettingsScopeBadges({ getWorkspaces: getWorkspacesList });
     const cardsWrap = document.getElementById('settings-workspace-cards');
     const applyBtn = document.getElementById('settings-workspace-apply');
     const statusEl = document.getElementById('settings-workspace-status');
@@ -665,6 +747,8 @@ export function createWorkspaceSettings(deps = {}) {
           folder: preferredFolder || '',
           workspaceFile: normalizePath(workspaceItem.workspaceFile || workspaceItem.id || ''),
           label: savedEntry?.label || '',
+          color: savedEntry?.color || '',
+          icon: savedEntry?.icon || '',
           folders: foldersFromWorkspaceItem(workspaceItem, savedEntry),
         };
         createWorkspaceCard(
@@ -685,6 +769,8 @@ export function createWorkspaceSettings(deps = {}) {
             folder: cloneFolder || '',
             workspaceFile: normalizePath(workspaceItem.workspaceFile || workspaceItem.id || ''),
             label: cloneEntry?.label || '',
+            color: cloneEntry?.color || '',
+            icon: cloneEntry?.icon || '',
             folders: foldersFromWorkspaceItem(workspaceItem, cloneEntry),
           };
           createWorkspaceCard(

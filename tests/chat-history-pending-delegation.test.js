@@ -1,6 +1,6 @@
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   appendChatHistoryEvents,
   getChatHistorySince,

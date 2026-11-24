@@ -1,11 +1,13 @@
 /** Pinned watcher ("Workspace") section HTML and its incremental application. */
 
 import { t } from '../../../i18n/index.js';
-import { listEnabledWorkspaceWatcherPinnedChats, listWorkspaceWatcherPinnedChats, resolveWorkspaceWatcherBadge } from '../workspaceAutopilotBadge.js';
+import { listWorkspaceWatcherPinnedChats, resolveWorkspaceWatcherBadge } from '../workspaceAutopilotBadge.js';
 import { getWorkspaceWatcherRuntimeControl, isWorkspaceWatcherStartsEnabled } from '../workspaceWatcherToggle.js';
 import { readSidebarOnlyActiveWorkspaceFlag } from '../sidebarOnlyActiveFilter.js';
 import { workspaceDisplayNameForFolder } from '../workspaceChatMatch.js';
-import { readWatcherShowAllFlag, normalizePath } from '../state/sidebarPersistence.js';
+import { renderWorkspaceMarkerHtml } from '../sidebarWorkspaceMarker.js';
+import { readViewMode, normalizePath } from '../state/sidebarPersistence.js';
+import { findOperatorChat, getOperatorStatus, onOperatorStatusChange, refreshOperatorStatus, renderOperatorSectionHtml } from '../../chat/operatorChat.js';
 
 /**
  * @param {Record<string, any>} ctx shared sidebar closure: deps, state and sibling modules
@@ -67,7 +69,7 @@ export function createSidebarPinnedSection(ctx) {
       (row.pinnedChatId ? '" data-pinned-chat-id="' + escapeHtml(row.pinnedChatId) : '') +
       '" tabindex="' + (active ? '0' : '-1') +
       '" title="' + escapeHtml(row.sub || row.name) + '">' +
-      '<span class="mdi mdi-robot-outline sidebar-pinned-chat-icon" aria-hidden="true"></span>' +
+      (row.markerHtml || '<span class="mdi mdi-robot-outline sidebar-pinned-chat-icon" aria-hidden="true"></span>') +
       '<span class="sidebar-pinned-chat-main">' +
       '<span class="sidebar-pinned-chat-title">' + escapeHtml(row.name) + '</span>' +
       '<span class="sidebar-pinned-chat-sub">' + escapeHtml(row.sub) + '</span>' +
@@ -86,9 +88,10 @@ export function createSidebarPinnedSection(ctx) {
   }
 
   function renderPinnedWorkspaceSection(activeChatId) {
+    // The watcher agents live in their own view mode; the Agents tab lists every
+    // workspace so a watcher can be switched on from there.
+    if (readViewMode() !== 'agents') return '';
     const entries = listWorkspaceWatcherPinnedChats();
-    const showAll = readWatcherShowAllFlag();
-    if (!entries.length && !showAll) return '';
     // The "active workspace only" filter also applies here: watcher rows of
     // other workspaces must not leak past the filtered chat list.
     const onlyActive = readSidebarOnlyActiveWorkspaceFlag() && !isSearchActive();
@@ -115,94 +118,57 @@ export function createSidebarPinnedSection(ctx) {
       entries.map((entry) => [normalizePath(entry.workspaceFolder), entry]),
     );
     const rows = [];
-    if (showAll) {
-      // One row per workspace group (clones included), so a watcher can be turned
-      // on for a workspace that has never had one.
-      const seenFolders = new Set();
-      for (const workspace of wsList) {
-        const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
-        const folder = String(
-          getPreferredWorkspaceFolder(sidebarKey)
-          || workspace.workspaceFolder
-          || workspace.workspaceDir
-          || '',
-        ).trim();
-        if (!folder) continue;
-        const norm = normalizePath(folder);
-        if (seenFolders.has(norm)) continue;
-        if (!matchesActive(norm)) continue;
-        seenFolders.add(norm);
-        const entry = entryByFolder.get(norm) || null;
-        const chat = entry ? chats.find((item) => item.id === entry.pinnedChatId) : null;
-        rows.push(renderPinnedWatcherRow({
-          name: workspace.name || nameFor(folder),
-          sub: chat?.title || folder,
-          folder,
-          pinnedChatId: entry?.pinnedChatId || '',
-          enabled: !!resolveWorkspaceWatcherBadge(workspace, folder),
-          status: entry?.stopReason || (entry?.paused ? t('sidebar.watcherAutopilotPaused') : ''),
-          gated,
-          activeChatId,
-          stateOn,
-          stateOff,
-        }));
-      }
-    } else {
-      // Without "show all" the section is the watcher list, so a workspace whose
-      // watcher is off stays hidden — the list button reveals it again.
-      for (const entry of listEnabledWorkspaceWatcherPinnedChats()) {
-        if (!matchesActive(entry.workspaceFolder)) continue;
-        const chat = chats.find((item) => item.id === entry.pinnedChatId);
-        if (!chat) continue;
-        rows.push(renderPinnedWatcherRow({
-          name: nameFor(entry.workspaceFolder),
-          sub: chat.title,
-          folder: entry.workspaceFolder,
-          pinnedChatId: entry.pinnedChatId,
-          enabled: true,
-          status: entry.stopReason || (entry.paused ? t('sidebar.watcherAutopilotPaused') : ''),
-          gated,
-          activeChatId,
-          stateOn,
-          stateOff,
-        }));
-      }
+    // One row per workspace group (clones included), so a watcher can be turned
+    // on for a workspace that has never had one.
+    const seenFolders = new Set();
+    for (const workspace of wsList) {
+      const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
+      const folder = String(
+        getPreferredWorkspaceFolder(sidebarKey)
+        || workspace.workspaceFolder
+        || workspace.workspaceDir
+        || '',
+      ).trim();
+      if (!folder) continue;
+      const norm = normalizePath(folder);
+      if (seenFolders.has(norm)) continue;
+      if (!matchesActive(norm)) continue;
+      seenFolders.add(norm);
+      const entry = entryByFolder.get(norm) || null;
+      const chat = entry ? chats.find((item) => item.id === entry.pinnedChatId) : null;
+      rows.push(renderPinnedWatcherRow({
+        name: workspace.name || nameFor(folder),
+        sub: chat?.title || folder,
+        folder,
+        pinnedChatId: entry?.pinnedChatId || '',
+        enabled: !!resolveWorkspaceWatcherBadge(workspace, folder),
+        status: entry?.stopReason || (entry?.paused ? t('sidebar.watcherAutopilotPaused') : ''),
+        // The workspace's own colour / emoji identifies its agent.
+        markerHtml: renderWorkspaceMarkerHtml(workspace, escapeHtml),
+        gated,
+        activeChatId,
+        stateOn,
+        stateOff,
+      }));
     }
-    // Keep the header (and the list button) reachable while every watcher is
-    // off, otherwise the disabled rows could never be shown again.
     if (!rows.length && !entries.length) return '';
     const allTitle = t('sidebar.watcherToggleAllTitle', {
       state: allOn ? stateOn : stateOff,
     });
-    const showAllTitle = showAll ? t('sidebar.watcherShowAllHide') : t('sidebar.watcherShowAllShow');
     return (
       '<div class="sidebar-pinned-section' + (gated ? ' is-gated' : '') +
-      '" aria-label="' +
-      escapeHtml(t('sidebar.workspaceSection')) +
-      '">' +
-      '<div class="sidebar-pinned-section-header">' +
-      '<span class="mdi mdi-robot-outline" aria-hidden="true"></span>' +
-      escapeHtml(t('sidebar.workspaceSection')) +
-      '<button type="button" class="sidebar-watcher-show-all' + (showAll ? ' is-active' : '') +
-      '" aria-pressed="' + (showAll ? 'true' : 'false') +
-      '" data-watcher-show-all aria-label="' +
-      escapeHtml(showAllTitle) +
-      '" title="' +
-      escapeHtml(showAllTitle) +
-      '">' +
-      '<span class="mdi mdi-format-list-bulleted" aria-hidden="true"></span>' +
-      '</button>' +
+      '" aria-label="' + escapeHtml(t('sidebar.workspaceSection')) + '">' +
+      // Master "kill switch": one framed control that stops every workspace agent.
+      '<div class="sidebar-agents-master' + (allOn ? '' : ' is-off') + '">' +
+      '<span class="mdi mdi-power sidebar-agents-master-icon" aria-hidden="true"></span>' +
+      '<span class="sidebar-agents-master-text">' +
+      '<span class="sidebar-agents-master-title">' + escapeHtml(t('sidebar.agentsMasterTitle')) + '</span>' +
+      '<span class="sidebar-agents-master-hint">' +
+      escapeHtml(allOn ? t('sidebar.agentsMasterOn') : t('sidebar.agentsMasterOff')) + '</span>' +
+      '</span>' +
       renderWatcherToggleHtml({ scope: 'all', checked: allOn, title: allTitle }) +
       '</div>' +
-      '<ul class="sidebar-pinned-chats" role="listbox">' +
-      (rows.length
-        ? rows.join('')
-        : !showAll
-          ? '<li class="sidebar-pinned-empty">' +
-            escapeHtml(t('sidebar.watcherNoneEnabled')) +
-            '</li>'
-          : '') +
-      '</ul>' +
+      '<ul class="sidebar-pinned-chats" role="listbox">' + rows.join('') + '</ul>' +
       '</div>'
     );
   }
@@ -224,5 +190,33 @@ export function createSidebarPinnedSection(ctx) {
     state.lastPinnedSectionHtml = html;
   }
 
-  return { renderWatcherToggleHtml, renderPinnedWatcherRow, renderPinnedWorkspaceSection, applyPinnedSection };
+  /**
+   * The internal operator's owner thread, pinned above everything else. It has
+   * no archive/delete controls; the chip shows `running|queued N|idle|paused|budget|off`.
+   */
+  function applyOperatorSection(body, activeChatId) {
+    const chat = findOperatorChat(getChats());
+    const html = chat ? renderOperatorSectionHtml({ chat, status: getOperatorStatus(), activeChatId, escapeHtml }) : '';
+    const existing = body.querySelector('.sidebar-operator-section');
+    if (chat) {
+      void refreshOperatorStatus();
+      if (!state.operatorStatusSubscribed && typeof ctx.forceRerender === 'function') {
+        state.operatorStatusSubscribed = true;
+        onOperatorStatusChange(() => ctx.forceRerender());
+      }
+    }
+    if (!html) {
+      if (existing) existing.remove();
+      state.lastOperatorSectionHtml = '';
+      return;
+    }
+    if (existing && state.lastOperatorSectionHtml === html) return;
+    const node = parseSidebarMarkup(html);
+    if (!node) return;
+    if (existing) existing.replaceWith(node);
+    else body.insertBefore(node, body.firstChild);
+    state.lastOperatorSectionHtml = html;
+  }
+
+  return { renderWatcherToggleHtml, renderPinnedWatcherRow, renderPinnedWorkspaceSection, applyPinnedSection, applyOperatorSection };
 }

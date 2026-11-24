@@ -118,3 +118,6 @@ subscription/provider end-to-end runs are a separate check. Native transcripts
 stay uncompressed for resume compatibility.
 Storage can grow substantially: at 170 MB/day, 365 days is roughly 62 GB. No disk
 alert or automatic compression is included. Codex session retention is unchanged.
+# Prompt suggestions
+
+Ordinary Claude chats request SDK prompt suggestions when enabled in Settings → Claude. Suggestions are held only in room memory and disappear when the server restarts. Disabling the setting clears visible suggestions immediately; enabling it applies when the Claude process next starts.

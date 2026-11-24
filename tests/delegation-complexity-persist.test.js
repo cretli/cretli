@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { getDelegationById, loadDelegations } from '../lib/persist/delegations-persist.js';

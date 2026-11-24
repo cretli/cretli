@@ -117,7 +117,7 @@ it started itself for that app.
 | `start` | Exactly one form: `{ "taskLabel": "<label from .vscode/tasks.json>" }`, `{ "command", "args"?, "cwd"?, "env"? }` or `{ "external": true }`. `cwd` is relative to the workspace folder, or an absolute path; at launch its real path must stay inside the workspace folder or one of its Git worktrees (`git worktree list`), so an app can run from a sibling worktree. `..` escapes and symlinks leaving those roots are rejected (`invalid-cwd`). Without `args`, `command` runs through the shell |
 | `ports[]` | `{ port (1-65535, unique across all apps), bind (default 127.0.0.1; an IP address, `localhost` or `*`), role: http|api|db|other (default other), healthPath? }`. `healthPath` must start with a single `/` (no whitespace, backslash or `#`). Health probes only connect to loopback (wildcards probe 127.0.0.1 / ::1) or to an address of a local network interface; anything else is skipped |
 | `exposure` | `local` (default) or `lan`; the monitor warns when the real bind address contradicts it |
-| `autoStart` | Optional. Marks an app that is expected to keep running: an unexpected exit raises a notification. Cretli does not start it on boot |
+| `autoStart` | Optional. Starts this non-external app once on Cretli boot; an unexpected exit also raises a notification |
 | `notes` | Optional free text |
 
 `{ "external": true }` describes an app that something else runs, such as a system nginx.
@@ -145,13 +145,23 @@ All routes require a Cretli login session.
 | `GET /api/apps` | Validated definitions of the current workspace |
 | `PUT /api/apps` | Replace all definitions (`{ "apps": [...] }`); validated before writing |
 | `POST /api/apps` | Append one definition (`{ "app": {...} }`), e.g. accepting a suggestion or orphan. Writes the definition only |
-| `DELETE /api/apps/:id` | Remove one definition; `409 app-running` while its run is alive |
-| `GET /api/apps/status` | Cached monitor report (at most 10 s old) plus `lanHost` and `network`; `?refresh=1` takes a fresh listener snapshot |
+| `DELETE /api/apps/:id` | Remove one definition; `409 app-running` while its run is alive, `409 app-starting` while a start is in flight |
+| `GET /api/apps/status` | Cached monitor report (at most 10 s old; a foreign-owned port carries `listener.ancestors: [{ pid, command }]`, the parents a takeover would also end) plus `lanHost` and `network`; `?refresh=1` takes a fresh listener snapshot |
 | `GET /api/apps/suggestions` | Read-only proposals (see below) |
-| `POST /api/apps/:id/start` | Start as a task run; `409 port-in-use` (with `conflicts`) when a declared port is held by another process; `409 app-already-running` |
+| `POST /api/apps/:id/start` | Start as a task run; `409 port-in-use` (with `conflicts`) when a declared port is held by another process; `409 app-already-running` or `409 app-starting` |
 | `POST /api/apps/:id/stop` | Stop only the run stored for this app; `409 app-not-running` and nothing stopped when there is none |
 | `POST /api/apps/:id/restart` | Stop (if running), wait for exit, start again |
-| `POST /api/apps/:id/takeover` | `{ "pids": [...] }`: end the confirmed process holding the app's ports, then start the app. See [Takeover](#takeover) |
+| `POST /api/apps/:id/takeover` | `{ "pids": [...] }`: end the confirmed listener and its confirmed ancestors, then start the app. See [Takeover](#takeover) |
+
+An app whose `start.taskLabel` task declares `dependsOn` runs those tasks in
+dependency order and waits for each to exit successfully before starting the app.
+Unknown or cyclic task labels return `task-dependency-invalid`; a non-zero
+dependency exit returns `task-dependency-failed` with the failing label, and a
+dependency that exceeds the wait limit returns `task-dependency-timeout`. While
+dependencies run, start and restart return `app-starting`; Stop cancels the wait
+and stops its active dependency. At boot, autoStart apps are queued in registry
+order once the runtime is ready (never while it is degraded) and the update gate is open (up to ten minutes); `port-in-use` and
+`app-starting` are recorded and do not prevent later apps from starting.
 
 Every route takes an optional `?workspaceFolder=`: the Apps panel sends the folder selected in
 the header and MCP tools use the chat's folder, so definitions and runs follow the workspace.
@@ -170,17 +180,25 @@ panel then offers **Take over**, which ends that process after you confirm it an
 as a normal run. This is the only path where Cretli signals a process it did not start, so it is
 limited:
 
-- It needs a Cretli login session and your confirmation of the PIDs shown. Widget and MCP callers
-  get `403`, and no MCP tool can reach it.
-- Only listeners on the app's own declared ports qualify, and each must run from inside the
-  workspace (`/proc/<pid>/cwd`). Otherwise the answer is `403 takeover-outside-workspace` with a
-  copyable `killHint`. Cretli never ends its own process.
-- If the owner changed since you confirmed, the answer is `409 takeover-stale`.
-- It sends `SIGTERM` to the listener only and waits 5 s for the port. It never escalates to
-  `SIGKILL`: a process that holds on gets `409 takeover-timeout` with a `killHint`.
+- It needs a Cretli login session and your confirmation of the PIDs shown (listeners and their
+  ancestors). Widget and MCP callers get `403`, and no MCP tool can reach it.
+- Only listeners on the app's own declared ports qualify, and each, like every ancestor, must run
+  from inside the workspace (`/proc/<pid>/cwd`). Otherwise the answer is
+  `403 takeover-outside-workspace` with a copyable `killHint`. Cretli never ends its own process.
+- The confirmed PIDs must equal exactly what the server recomputes (listeners plus ancestors): a
+  missing or an extra PID gives `409 takeover-stale`.
+- It sends `SIGTERM` once to each PID, outermost ancestor first and the listener last, and waits
+  5 s for the port. It never escalates to `SIGKILL`: a process that holds on gets
+  `409 takeover-timeout` with a `killHint`.
 
-Only the listener is signalled. A supervisor such as `node --watch` or a sibling `tsc --watch`
-from the old start keeps running until you end it.
+The ancestors are the old supervisors, such as `node --watch`, that would restart the listener.
+The walk goes up from the listener and stops, excluding the process it stopped at, at the first
+parent that runs outside the workspace, is PID 1, is Cretli or one of its ancestors, is a process
+Cretli tracks, or is a shell (`/proc/<pid>/comm` is `sh`, `bash`, `dash`, `zsh` or `fish`, a
+leading `-` ignored). An unreadable parent or `comm`, a cycle or more than 64 levels also end it.
+
+Known limit: a sibling `tsc --watch` that is not an ancestor of the listener is not ended and keeps
+running until you end it.
 
 ### Monitoring
 
@@ -560,3 +578,6 @@ held by another process. Settings -> Connection -> Network shows the report, the
 suggestions (a "Repair" button appears only for dead or stale rules that are in the
 ledger and only while the helper runs), the helper card and the exposure policy
 (`GET`/`PUT /api/port-exposures/policy`, values are clamped server-side).
+
+Device measurement scripts use a private loopback CDP proxy and separate consent,
+not a LAN port exposure. See [Devices: security and runs](devices.md#security-trust-model).

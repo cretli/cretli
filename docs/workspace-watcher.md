@@ -23,6 +23,7 @@ guarantees, the notification behavior and a practical `decisionLog` guide.
 - [MCP feedback triage](#mcp-feedback-triage)
 - [Worktree execution, Git context and integration](#worktree-execution-git-context-and-integration)
 - [Notifications](#notifications)
+- [Triage queue](#triage-queue)
 - [Policy reference](#policy-reference)
 - [Control surfaces](#control-surfaces)
 - [Debugging through the decision log](#debugging-through-the-decision-log)
@@ -1169,6 +1170,38 @@ entry in the "Why?" log and pushes once per episode with the idle child titles.
 or an ancestor has an approved plan (`plan.approvedAt`), the first idea child (by
 `siblingIndex`) is moved to `ready` with a changelog note.
 
+## Triage queue
+
+A deterministic (no LLM) backlog of todos that look stuck. It lives in the
+watcher row as `triageQueue` (`{ v: 1, entries, updatedAt }`, versioned; no new
+SQLite schema) and is computed by `lib/workspace-watcher-triage-signals.js`
+(pure `computeTriageSignals`, `reconcileTriageQueue`, git probe
+`probeWorktreeBase`). It is refreshed whenever `operator_watcher_status` is read
+(`triage_queue`, next to `doing_attention`) and survives a server restart.
+
+**The queue is information only.** The autopilot tick never reads it, no agent,
+claim or todo write results from it, and `off` / `observe` behave as before.
+
+| Signal | Fires when (strictly above the threshold) | Threshold (`policy.triage`) |
+|--------|-------------------------------------------|-----------------------------|
+| `stale_doing_tree` | a `doing` tree root with children whose newest node `updatedAt` is older | `staleDoingTreeMs` = 7 d |
+| `tree_done_unintegrated` | worktree-mode tree root (also when the root itself is `done`), every leaf `done`, no integration evidence; age from the newest leaf update | `doneUnintegratedMs` = 48 h |
+| `leaf_done_unconfirmed` | `done` leaf that went through integration but is still `unconfirmed` (not a no-code result) | `doneUnintegratedMs` = 48 h |
+| `worktree_base_behind` | the tree worktree base is more than K commits behind HEAD | `baseBehindCommits` = 20 |
+| `worktree_patch_conflict` | the real worktree change set (committed, uncommitted and untracked, as integration would collect it) no longer applies to HEAD (`git apply --cached --check` on a temporary index file outside the repo) | - |
+| `plan_draft_unreviewed` | plan draft, no plan review, not approved (also by an ancestor) | `planUnreviewedMs` = 24 h |
+| `plan_review_unapproved` | plan review `passed`, plan not approved | `planUnapprovedMs` = 12 h |
+| `leaf_needs_human` / `leaf_needs_rescope` | latest blocked report for the leaf carries that reason code and the leaf still has a `blockedReason` | `needsHumanMs` = 24 h |
+| `integration_ready_idle` | leaf `integration.state = ready` and no todo update | `integrationReadyMs` = 24 h |
+
+Each entry carries `signal`, `evidence`, `since` (the timestamp the age is
+measured from) and `firstSeenAt`. Entries are deduplicated by
+(todo, signal, todo revision): when the revision (the todo's own `updatedAt`,
+also for tree signals; descendant activity is evidence only) changes, the old entry is dropped and, if the
+signal still holds, a new one starts with a fresh `firstSeenAt`. An entry is
+removed as soon as its signal clears. At most 20 worktree records are probed
+with Git per refresh; a failed probe yields no signal.
+
 ## Policy reference
 
 Defaults from `defaultWorkspaceWatcherPolicy()`:
@@ -1176,6 +1209,7 @@ Defaults from `defaultWorkspaceWatcherPolicy()`:
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `maxParallel` | `1` | Overall cycle ceiling (1-12). Values through 5 preserve the existing S1 safety-valve behavior. Above 5, each new start additionally requires at least 3 GB plus 1.5 GB per resulting active cycle, load1/core below 0.8, and at least 20 GB free on the worktree partition |
+| `triage` | see [Triage queue](#triage-queue) | Thresholds of the triage queue (`staleDoingTreeMs`, `doneUnintegratedMs`, `baseBehindCommits` = K = 20, `planUnreviewedMs`, `planUnapprovedMs`, `needsHumanMs`, `integrationReadyMs`) |
 | `maxParallelCeiling` | `5` | Operator-configurable ceiling (5-12); the default preserves the existing maximum. Raise this together with `maxParallel` to opt into resource-gated concurrency |
 | `maxParallelWorktree` | `0` | Separate cap for worktree leaves (0-12, `0` = no separate limit); `maxParallel` stays the overall ceiling |
 | `maxParallelProject` | `0` | Separate cap for leaves running in the project folder (0-12, `0` = no separate limit) |
@@ -1931,9 +1965,15 @@ a recommended option id, and a one-sentence explanation:
     { "id": "defer", "label": "Defer", "effect": "Postpone the task" }
   ],
   "recommended": "retry",
-  "why": "A retry can recover a temporary failure."
+  "why": "A retry can recover a temporary failure.",
+  "question": "Which API version should the task target?",
+  "blocker_key": "api-version"
 }
 ```
+
+Each option may carry `continuation: resume | defer | none`, the explicit producer
+intent of choosing it (never inferred from `label`/`effect` text). `blocker_key`
+is a stable key of the blocking problem; `question` becomes the card title.
 
 Both `watcher_report` and `watcher_update action=report` support this contract.
 Validation is soft: incomplete options, an invalid recommendation or missing
@@ -1948,6 +1988,36 @@ Selections and free text return to the source orchestrator chat as a structured
 to create/read a card and optionally wait at most 24 seconds per call. They
 cannot resolve it. See [Decision cards](decision-cards.md#structured-human-requests)
 for idempotency, timeout policy and response details.
+
+#### Durable answer and continuation
+
+A structured card (with `blocker_key`) is deduplicated by workspace + related
+todo ids + `blocker_key`, so the same blocker raised by a later cycle returns the
+same card; a changed todo scope (plan revision) supersedes a still-pending card
+and records `relations.supersedes`. Reports without a key keep the legacy
+per-cycle card and are shown as legacy: their answer is delivered to the next
+cycle of each related todo (choice + free text), never turned into a resume.
+
+* **Blocking is per todo.** While a `needs_human` card for a todo is `pending` or
+  `deciding`, the pick rejects exactly that todo with `awaiting_human_decision`
+  (visible in "Why?"); other todos keep progressing. A card is voided (`stale`)
+  when all its todos are gone/done or their scope changed.
+* **The decision is the durable channel.** Resolving stores the choice, the
+  free text and a `continuation` record on the decision; the notice to the old
+  cycle chat is best-effort. A repeated POST is a conflict, never a second
+  decision. A `saved` continuation is re-applied by the Watcher snapshot after a
+  restart or partial write.
+* **Resume** clears only that todo's retry delay and failure count and nudges the
+  scheduler (`waiting`). It does not start work itself: pause, stop, off, budgets,
+  plan approval, review, ownership and permissions still apply, and the API says
+  what it waits for (`watcher_paused`, `watcher_stopped`, `watcher_not_autopilot`,
+  `waiting_for_scheduler`). The next cycle for the todo receives the chosen option,
+  the free text and the decision id in its prompt ("Resolved human decisions"),
+  with an instruction to pass the id on in delegation task text. Only then is the
+  continuation `resumed` (with `cycleId`/`chatId`). **Defer** moves the todo to
+  `deferred`; **none** only records the answer.
+* A failed continuation (`scope_changed`, `todo_gone_or_done`, `todo_not_deferrable`,
+  a write error) keeps the choice and reports the reason; a human can retry it.
 
 ### Waiting for a plan and abandoned doing leaves
 

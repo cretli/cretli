@@ -13,11 +13,11 @@ export async function postUpdateApply() {
   return apiFetchJson('/api/update/apply', { method: 'POST' }, 'postUpdateApply');
 }
 
-export async function postDevAction(action = 'restart-server', { force = false } = {}) {
+export async function postDevAction(action = 'restart-server', { force = false, mode = 'drain' } = {}) {
   return apiFetchJson('/api/dev-actions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, force: force === true }),
+    body: JSON.stringify({ action, force: force === true, ...(mode === 'fast' ? { mode } : {}) }),
   }, 'postDevAction');
 }
 

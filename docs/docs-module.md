@@ -4,6 +4,70 @@ Docs uses ordinary UTF-8 `.md` files under one root per registered workspace.
 The existing `<workspace>/docs` directory is the default; if it does not exist,
 the module is unconfigured. No directory is created automatically.
 
+## Setup in short
+
+1. Open **Settings → Workspace → Docs** and pick a root: an existing directory,
+   `./docs` (created on request) or none. A workspace that already has a `docs/`
+   directory uses it without any setting.
+2. For a folder outside the workspace (for example a notes vault kept by another
+   app), confirm the consent dialog. Consent permits the panel to read and write
+   that folder; the separate **agent read** switch lets agents read it too.
+3. Open **Docs** in the tab bar. Agents use `doc_*` tools and can only propose
+   changes, which you apply or reject in the panel.
+
+## Note format
+
+Notes are plain UTF-8 Markdown with an optional YAML frontmatter block:
+
+```markdown
+---
+title: Release checklist
+tags: [process, release]
+cretli_id: 7d1c0b9e-0000-4000-8000-000000000001
+cretli:
+  todo: 11111111-2222-4333-8444-555555555555
+---
+# Release checklist
+
+See [[deploy/runbook|the runbook]] and [[Glossary#Terms]]. Inline #tags count too.
+```
+
+- `title` wins over the first `# H1`, which wins over the file name. `tags` (list or
+  comma/space separated string) and inline `#tags` are merged.
+- `cretli_id` is an optional stable identity; together with the content hash it
+  lets Cretli suggest a new path after a note was moved outside Cretli.
+- `cretli: { todo, initiative, decision }` is a read-only hint, never a link.
+- Wikilinks are `[[target]]`, `[[target|alias]]` and `[[target#heading]]`. A target
+  resolves relative to the note, then from the root, then by unique base name;
+  `.md` is optional. Wikilinks inside code are ignored.
+- Managed links (note ↔ Todo/Initiative/Decision) live in the Cretli state store,
+  not in the file, so notes stay clean Markdown. A standalone line
+  `cretli-ref todo=<uuid>` in a note is a read-only mention.
+
+## Working next to an external notes app
+
+Docs deliberately uses nothing but ordinary files, so another notes application
+can open the same folder. This is safe and supported:
+
+- Cretli ignores hidden entries (`.obsidian/`, `.trash/`, sync temp files) and
+  every non-`.md` file, and never writes configuration into the folder. Its only
+  artefacts are the hidden `.cretli-trash/` directory and short-lived hidden
+  `.cretli-write-*` staging directories, removed after each write.
+- Edits made by the other app are picked up on the next request (mtime and size
+  scan, plus a debounced directory watcher). An open draft in the panel is never
+  replaced silently: saving sends the hash of the version that was read, and a
+  stale hash opens the reviewed conflict flow.
+- Moving or renaming a note in the other app leaves its managed links `dangling`,
+  with a suggested new path when `cretli_id` or the content hash matches. Moves
+  made inside Cretli rewrite wikilinks and managed links for you.
+- Deleting in Cretli moves the note to `.cretli-trash/`; the other app's own trash
+  is not used.
+- The other app's MCP server, if connected to Cretli, is independent of the Docs
+  approval gate (see the end of this document). Use Docs tools for reads you want
+  scoped by consent and `agentRead`, and its per-tool policy for the rest.
+- Symlinks that leave the root are refused, so do not link a second vault into the
+  root; configure that folder as the root instead.
+
 Choose a root with `PUT /api/docs/config`, passing `{ root: "docs" }`, another
 workspace-relative directory, or an absolute external directory. `{ root: null }`
 clears it. `{ root: "docs", create: true }` explicitly creates a missing directory
@@ -315,3 +379,28 @@ auto-approved, promoted through autonomy, swiped, answered by voice in car mode,
 or resolved through a push action token. Touch controls remain available.
 An external MCP server that independently writes the same folder is outside
 this approval boundary; configure its per-tool policy separately.
+
+## Audit
+
+Final cross-cutting audit (leaf "Docs 7"). Every check was verified against the
+code on this branch; the guards marked with a test are in `tests/docs-audit.test.js`
+or the named suite and keep running in `npm test`.
+
+| Check | Result |
+| --- | --- |
+| Path traversal: absolute, `..`, hidden, backslash, control and non-NFC paths rejected by one shared contract (`isDocPath`) used by REST, MCP, `@doc` and prompts (`docs-backend`) | pass |
+| Symlinks: every component is realpath-checked, final read uses `O_NOFOLLOW`, escaping, cyclic and non-Markdown targets are refused or skipped, trash directory re-validated (`docs-backend`) | pass |
+| Markdown XSS: `html: false`, allowlisted tree, static Lit templates, no `innerHTML`/`unsafeHTML`, URL allowlist (http, https, mailto), links `noopener noreferrer` (`docs-audit`, `docs-panel`) | pass |
+| Size limits: 128 KiB notes (also checked before and after read), 4 KiB proposal metadata, 48 KiB card, 1 MiB pending budget, 20 pending per chat, 256-char query, index limits for notes, entries, depth and bytes | pass |
+| External root consent: bound to the root realpath, cleared when the root changes or the symlink is retargeted, separate `agentRead`, re-checked when a proposal is applied (`docs-backend`, `docs-proposals`) | pass |
+| Human/agent boundary: every non-GET route except proposal creation requires a human session with CSRF; proposal routes require a workspace-bound MCP chat and refuse humans, widgets and login agent cookies; the route list is enumerated so a new route cannot skip the check (`docs-audit`) | pass |
+| Agent proposals never write: apply/reject only through the human-only decision route, with revision, base hash and link-revision re-checks (`docs-proposals`) | pass |
+| Absolute-path leaks: agent config view is sanitized, skipped diagnostics and errors use root-relative paths, MCP maps native fs errors to generic codes; only the human config view returns the root realpath for the consent dialog (`docs-routes`, `docs-agent-context`). Defect found: agent proposal responses (REST, stdio and in-process `doc_propose_*`) spread the stored decision card, exposing its absolute `workspaceFolder`; they now return a whitelisted view without it (`docs-proposals`) | fix |
+| Rename/delete/write concurrency: hash preconditions (428/409), exclusive create, atomic publish, partial rename reported with completed steps | pass |
+| Docs accuracy: setup, note format, wikilinks, managed links, MCP tools, proposals, consent and external-app workflow documented here; `docs/ARCHITECTURE.md` and `docs/mcp/SETUP.md` point to this file | fixed (added setup, note format and external-app sections) |
+| CHANGELOG: one coherent Docs entry under Added and one under Fixed instead of seven fragments | fixed |
+| Repo rules: English comments, pl/en i18n parity for all `docs.*` keys, no Polish literals in components, `var(--cr-*)` tokens only in the Docs stylesheet, no private names or host paths (`docs-audit`, `i18n-dictionaries`) | pass |
+| New regression guards: human-only route enumeration and static source rules | added (`tests/docs-audit.test.js`) |
+
+One code defect was found and fixed: absolute `workspaceFolder` leaked in agent proposal responses (see the absolute-path row). Known limitations (F3, F4,
+unpaged decision history, table pipes in wikilinks) are listed above and unchanged.

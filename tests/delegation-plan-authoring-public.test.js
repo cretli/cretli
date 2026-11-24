@@ -8,7 +8,7 @@ import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
-import { addChat, loadChats } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 import { getDelegationById } from '../lib/persist/delegations-persist.js';
 import { saveSettings } from '../lib/persist/settings.js';
 import { assertPlannerAdapterAllowed } from '../lib/delegation-adapter-capabilities.js';

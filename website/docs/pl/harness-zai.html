@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Z.AI</title>
+<meta name="description" content="Skonfiguruj dostęp do Z.AI, wybierz modele i poznaj ograniczenia.">
+<link rel="canonical" href="https://cretli.com/docs/pl/harness-zai.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/harness-zai.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/harness-zai.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/harness-zai.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/harness-zai.html">
+<meta property="og:title" content="Z.AI">
+<meta property="og:description" content="Skonfiguruj dostęp do Z.AI, wybierz modele i poznaj ograniczenia.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/harness-zai.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html" aria-current="page">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Z.AI</h1>
+<p>Z.AI udostępnia osobny backend czatu GLM korzystający z oficjalnego SDK Python. W <strong>Ustawienia → Harness → Z.AI</strong> zainstaluj SDK dostępną akcją albo wykonaj <code>npm run setup:zai-sdk</code> na serwerze. Przed utworzeniem czatu Z.AI sprawdź dostępność SDK oraz dane dostępu.</p>
+<h2 id="logowanie-i-modele">Logowanie i modele</h2>
+<p>Wpisz klucz w ustawieniach tego backendu albo ustaw <code>ZAI_SDK_API_KEY</code>. Wybierz pasującego dostawcę: Coding Plan lub zwykłe API Z.AI. Dostęp Coding Plan wymaga klucza, a nie interaktywnego logowania kontem konsumenckim. Te dane i wybór dostawcy są oddzielone od konfiguracji Z.AI w OpenCode. Klucz ustawiony dla OpenCode nie konfiguruje automatycznie tego backendu.</p>
+<p>Lista modeli korzysta z utrzymywanego przez Cretli stałego katalogu GLM zamiast aktualnego zapytania o modele konta. Udokumentowane pozycje to <code>glm-5.3</code>, <code>glm-5.3-flash</code> i <code>glm-5.2</code>, z domyślnym <code>glm-5.3</code>. Włącz w ustawieniach modele, których chcesz używać.</p>
+<h2 id="znane-ograniczenia">Znane ograniczenia</h2>
+<p>SDK wymaga obsługi Pythona na serwerze; sam zapisany klucz nie zapewnia gotowości. Jeśli dostępność nie odświeży się po instalacji, uruchom serwer ponownie. Walidacja odrzuca nieobsługiwane formaty kluczy, w tym zaczynające się od <code>sk-</code>. Stały katalog nie potwierdza dostępu do każdego modelu w wybranym planie. Po błędzie sprawdź SDK, klucz, dostawcę i dostępny limit konta przed ponowną próbą.</p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="harness-mimo.html">&larr; Xiaomi MiMo</a>
+      <a rel="next" href="harness-codebuddy.html">CodeBuddy &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#logowanie-i-modele">Logowanie i modele</a></li>
+      <li><a href="#znane-ograniczenia">Znane ograniczenia</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

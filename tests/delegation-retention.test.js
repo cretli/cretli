@@ -7,7 +7,7 @@ import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-dat
 import './fixtures/fake-transport.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { applyDelegationRetention, MAILBOX_BODY_PREVIEW } from '../lib/delegation-retention.js';
 import {
   createDelegationRecord,

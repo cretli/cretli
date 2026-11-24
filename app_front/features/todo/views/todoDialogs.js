@@ -1,3 +1,4 @@
+import '../../../components/ui/cr-bar-input.js';
 import { t } from '../../../i18n/index.js';
 
 /** @type {any} */
@@ -119,17 +120,20 @@ export function askDeferDetails(offerMoveToLater = false) {
     const dateLabel = document.createElement('span');
     dateLabel.className = 'cr-field-label';
     dateLabel.textContent = t('todo.deferUntilLabel');
-    const dateInput = document.createElement('input');
+    // The inner control lives in shadow DOM, so the outer label text is repeated as aria-label.
+    const dateInput = /** @type {any} */ (document.createElement('cr-bar-input'));
     dateInput.type = 'date';
+    dateInput.setAttribute('aria-label', t('todo.deferUntilLabel'));
     dateField.append(dateLabel, dateInput);
     const reasonField = document.createElement('label');
     reasonField.className = 'cr-field';
     const reasonLabel = document.createElement('span');
     reasonLabel.className = 'cr-field-label';
     reasonLabel.textContent = t('todo.deferReasonLabel');
-    const reasonInput = document.createElement('input');
+    const reasonInput = /** @type {any} */ (document.createElement('cr-bar-input'));
     reasonInput.type = 'text';
     reasonInput.maxLength = 500;
+    reasonInput.setAttribute('aria-label', t('todo.deferReasonLabel'));
     reasonField.append(reasonLabel, reasonInput);
     const laterLabel = document.createElement('label');
     laterLabel.className = 'cr-check';

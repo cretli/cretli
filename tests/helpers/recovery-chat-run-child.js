@@ -24,7 +24,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-import { addChat } from '../../lib/persist/chats-persist.js';
+import { addChat } from '../../lib/persist/chats-legacy-store.js';
+import { peekChatsAsync } from '../../lib/persist/chats-persist.js';
+import { noteChatRowsForRunIndex } from '../../lib/chat-row-index.js';
 import {
   cancelChatRun,
   probeChatRunLiveness,
@@ -116,10 +118,10 @@ function readChatId() {
 }
 
 function createChat() {
-  const chat = addChat(`sess-crash-${process.pid}`, 'Crash matrix', null, '/tmp', 'm', {
+  const chat = noteChatRowsForRunIndex(addChat(`sess-crash-${process.pid}`, 'Crash matrix', null, '/tmp', 'm', {
     agentTransport: TRANSPORT,
     sdkMode: 'agent',
-  });
+  }));
   fs.writeFileSync(IDS_FILE, JSON.stringify({ chatId: chat.id }));
   return chat;
 }
@@ -240,6 +242,8 @@ async function bootStage() {
   const probeMode = env.CR_PROBE || 'missing';
   openRecoveryStore({ dataDir });
   const chatId = readChatId();
+  // The server warms the sync row index with one facade read before any probe consumer runs (server.js boot).
+  await peekChatsAsync();
   installAdapter({
     getState() {
       if (probeMode === 'idle') return { busy: false, waitingForInput: false, runId: '' };

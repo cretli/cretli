@@ -4,15 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  addChat,
-  addChatAsync,
-  getChatByIdAsync,
-  loadChatsAsync,
-  saveChatsAsync,
-  updateChat,
-  updateChatAsync,
-} from '../lib/persist/chats-persist.js';
+import { addChatAsync, getChatByIdAsync, loadChatsAsync, saveChatsAsync, updateChatAsync } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { setActiveChatsRuntime } from '../lib/persist/chats-runtime.js';
 import { runOnChatsBackends } from './helpers/chats-backends.js';
 import { isScoutReadOnlyChatId, isScoutReadOnlyChatIdAsync } from '../lib/workspace-scout-chat.js';
@@ -45,7 +38,7 @@ const PURE_HELPERS = new Set([
 const SYNC_IMPORT_ALLOWLIST = new Set([
   'lib/persist/chats-persist.js',
   'lib/persist/chats-runtime.js',
-  'lib/persist/chats-sync-compat.js',
+  'lib/persist/chats-legacy-store.js',
   'lib/persist/chats-backend-legacy.js',
   'lib/backup/conversations-store.js',
   'lib/chat-catalog.js',
@@ -122,16 +115,15 @@ describe('B3 scope contract (B2 + B3 together)', () => {
     for (const file of SYNC_IMPORT_ALLOWLIST) assert.ok(fs.existsSync(path.join(ROOT, file)), file);
   });
 
-  it('the sync compat shim is used only by the pinned entry points (the list may only shrink)', () => {
-    const users = PRODUCTION_FILES.filter((file) => file !== 'lib/persist/chats-sync-compat.js'
-      && /chats-sync-compat\.js/.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
-    const pinned = [
-      'lib/chat-message-guard.js', 'lib/chat-run-service.js', 'lib/chat-title-agent.js', 'lib/routes/recovery-resume-routes.js', 'lib/workspace-scout-chat.js',
-      // Operator run identity is checked by synchronous security guards (setOperatorSyncRowReader);
-      // they need a sync row read until B5 removes the shim together with the other pinned users.
-      'lib/operator/operator-run-chat.js',
-    ];
-    for (const user of users) assert.ok(pinned.includes(user), `new compat user: ${user}`);
+  it('the sync compat shim is gone and the legacy store has only the pinned production importers', () => {
+    assert.equal(fs.existsSync(path.join(ROOT, 'lib/persist/chats-sync-compat.js')), false);
+    const compatUsers = PRODUCTION_FILES.filter((file) => /chats-sync-compat/.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
+    assert.deepEqual(compatUsers, []);
+    const users = PRODUCTION_FILES.filter((file) => file !== 'lib/persist/chats-legacy-store.js'
+      && /chats-legacy-store\.js/.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
+    // Only the facade and the legacy adapter may touch the sync store; the sync run probes use lib/chat-row-index.js.
+    const pinned = ['lib/persist/chats-persist.js', 'lib/persist/chats-backend-legacy.js'];
+    for (const user of users) assert.ok(pinned.includes(user), `new legacy-store user: ${user}`);
   });
 
   it('holds no lock across an await: no chats lock and no synchronous wait around a chats call', () => {

@@ -7,7 +7,7 @@ import { setRenderedSidebarChatIds, getRenderedSidebarChatIds } from '../sidebar
 import { dropWorkspacesWithoutLiveChats, filterWorkspacesByActiveWorkspace, readSidebarOnlyActiveWorkspaceFlag } from '../sidebarOnlyActiveFilter.js';
 import { readWorkspaceOrder } from '../sidebarWorkspaceOrder.js';
 import { sortSidebarWorkspaces } from '../sidebarWorkspaceSort.js';
-import { readPinActiveWorkspaceFlag } from '../state/sidebarPersistence.js';
+import { readPinActiveWorkspaceFlag, readViewMode } from '../state/sidebarPersistence.js';
 import { isUiFreezeTraceActive } from '../../../lib/uiFreezeTrace.js';
 import { getUiFreezeCounters } from '../../../lib/uiFreezeCounters.js';
 import { diffSignatureSegments, getUiFreezeMetrics, monoNow } from '../sidebarRenderMetrics.js';
@@ -21,6 +21,8 @@ import { planWorkspaceRebuild } from './sidebarRebuildPlan.js';
  */
 export function createSidebarRender(ctx) {
   const { getWorkspaces, getChats, getActiveWorkspaceFile, getActiveWorkspaceFolder, getActiveChatId, getPreferredWorkspaceFolder, openWorkspaceSettings, state, renderedWorkspaceNodes, updateScheduler } = ctx;
+  // Mode-aware list (the flat view swaps in one virtual workspace); plain registry otherwise.
+  const listWorkspaces = () => (typeof ctx.getListWorkspaces === 'function' ? ctx.getListWorkspaces() : getWorkspaces());
   const getContainer = (...args) => ctx.getContainer(...args);
   const beginRenderPass = (...args) => ctx.beginRenderPass(...args);
   const endRenderPass = (...args) => ctx.endRenderPass(...args);
@@ -40,6 +42,7 @@ export function createSidebarRender(ctx) {
   const activeChainIds = (...args) => ctx.activeChainIds(...args);
 
   function render() {
+    ctx.paintMenuAttention?.();
     const aside = getContainer();
     if (!aside) return;
     // Never rebuild the DOM mid-gesture — a live drag node would detach, and
@@ -52,6 +55,9 @@ export function createSidebarRender(ctx) {
     }
     const body = aside.querySelector('.sidebar-body');
     if (!body) return;
+    // CSS hides the workspace list in the agents mode.
+    body.setAttribute('data-view-mode', readViewMode());
+    aside.setAttribute('data-view-mode', readViewMode());
     // The whole pass shares one workspace-tree computation (see workspaceModel).
     beginRenderPass();
     try {
@@ -132,10 +138,27 @@ export function createSidebarRender(ctx) {
       return;
     }
 
-    const wsList = getWorkspaces();
+    const wsList = listWorkspaces();
     const activeWorkspaceFile = getActiveWorkspaceFile();
     const activeWorkspaceFolder = getActiveWorkspaceFolder();
     const activeChatId = getActiveChatId();
+
+    // Agents mode lists only the watcher section, so a search or filter that empties
+    // the (hidden) workspace list must not turn it into a "no results" page.
+    if (readViewMode() === 'agents') {
+      renderedWorkspaceNodes.clear();
+      setRenderedSidebarChatIds(new Set());
+      body.querySelector('.sidebar-workspaces')?.remove();
+      body.querySelector('.sidebar-only-active-hint')?.remove();
+      body.querySelector('.sidebar-empty')?.remove();
+      applyPinnedSection(body, activeChatId);
+      ctx.applyOperatorSection?.(body, activeChatId);
+      wireBodyEvents();
+      if (metrics) {
+        metrics.recordSidebarRender({ changed: true, changedSegments, sigMs, innerMs: 0, rows: 0, rebuilt: true });
+      }
+      return;
+    }
 
     if (!wsList.length) {
       renderedWorkspaceNodes.clear();
@@ -211,7 +234,8 @@ export function createSidebarRender(ctx) {
     const activeFilter = filterWorkspacesByActiveWorkspace(ordered, {
       activeWorkspaceFolder,
       searching,
-      enabled: readSidebarOnlyActiveWorkspaceFlag(),
+      // The flat view has one virtual workspace that never matches the active folder.
+      enabled: readSidebarOnlyActiveWorkspaceFlag() && readViewMode() !== 'all',
       getPreferredWorkspaceFolder,
       keepWorkspace: (workspace) => holdsActiveChain(workspace),
     });
@@ -262,6 +286,7 @@ export function createSidebarRender(ctx) {
       chatsByKey,
     });
     applyPinnedSection(body, activeChatId);
+    ctx.applyOperatorSection?.(body, activeChatId);
     applyOnlyActiveHint(body, activeFilter);
     const innerMs = trace ? monoNow() - innerStart : 0;
     const wireStart = trace ? monoNow() : 0;

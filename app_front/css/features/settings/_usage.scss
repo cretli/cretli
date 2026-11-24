@@ -396,7 +396,11 @@
 }
 
 .settings-usage-sort-arrow {
-  font-size: var(--cr-font-size-xs);
+  margin-left: 0.2rem;
+
+  .mdi {
+    font-size: var(--cr-font-size-xs);
+  }
 }
 
 .settings-usage-share {
@@ -631,7 +635,7 @@
 
   label {
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--cr-font-size-legacy-09);
   }
 }
 

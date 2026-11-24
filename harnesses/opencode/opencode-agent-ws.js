@@ -40,6 +40,7 @@ import { buildAssistantFullEvent } from '../../lib/agent-harness/event-normalize
 import { OpenCodeMessageRegistry, noteOpenCodeMessageFromEvent } from './opencode-message-registry.js';
 import {
   resolveOpenCodeUsageFromStreamEvent,
+  selectOpenCodeRunAssistantInfos,
   unwrapOpenCodeStreamEvent,
 } from './opencode-usage.js';
 import {
@@ -132,6 +133,7 @@ import { canAcceptNewRun } from '../../lib/update-gate.js';
 import { msg } from '../../lib/messages.js';
 import { acceptRoomPrompt, bindRoomRecoveryLifecycle, createDurableRequestLookup } from '../../lib/chat-run/kernel-adapter.ts';
 import { notifyAgentNeedsInput } from '../../lib/agent-needs-input-push.js';
+import { moveQueuedPrompt } from '../../lib/agent-harness/queue-controls.ts';
 
 const DEFAULT_OPENCODE_MODEL = 'opencode/x-preview-f-free';
 const PLAN_MODE_SYSTEM = HARNESS_PLAN_MODE_HINT;
@@ -619,6 +621,37 @@ export function noteOpenCodeUsageFromEvent(room, event) {
     outputTokens: (Number(prevPayload.outputTokens) || 0) + resolved.delta.output,
   };
   broadcastRoom(room, { type: 'sdkEvent', event: resolved.sdkEvent });
+}
+
+/**
+ * End-of-run usage fallback: when the stream delivered no usage event, fold the
+ * assistant messages' own `tokens` (session.messages) into the same per-message
+ * delta path. Idempotent by message id, so a message already counted from the
+ * stream is never counted twice. Never throws: capture must not fail a run.
+ *
+ * @param {any} room
+ * @returns {Promise<number>} usage events broadcast
+ */
+export async function recoverOpenCodeUsageFromSession(room) {
+  if (!room || room._runHadMeasurement === true || !room.opencodeSessionId || !room.cwd) return 0;
+  try {
+    const client = await ensureOpenCodeClient(room);
+    const response = await client.session.messages({
+      path: { id: room.opencodeSessionId },
+      query: { directory: room.cwd },
+      signal: AbortSignal.timeout(5000),
+      throwOnError: true,
+    });
+    let count = 0;
+    for (const info of selectOpenCodeRunAssistantInfos(readOpenCodeMessagesFromResponse(response), Number(room._runStartedAt))) {
+      const before = room._lastUsagePayload;
+      noteOpenCodeUsageFromEvent(room, { type: 'message.updated', properties: { info } });
+      if (room._lastUsagePayload !== before) count += 1;
+    }
+    return count;
+  } catch {
+    return 0;
+  }
 }
 
 function handleOpenCodeStreamEvent(room, event) {
@@ -1758,6 +1791,7 @@ async function runPrompt(text, modeOverride, fromQueue = false, displayText = ''
     if (!runResult) {
       throw new Error('OpenCode run ended without result');
     }
+    await recoverOpenCodeUsageFromSession(room);
     if (runResult.status === 'cancelled') {
       const status = room._planGuardTriggered ? 'plan_guard_cancelled' : 'cancelled';
       broadcastRoom(room, {
@@ -1795,6 +1829,7 @@ async function runPrompt(text, modeOverride, fromQueue = false, displayText = ''
       }, { log: true });
     }
   } catch (err) {
+    await recoverOpenCodeUsageFromSession(room);
     broadcastOpenCodeRunError(room, runId, err?.message || String(err), err);
   } finally {
     room._awaitingPromptFinish = false;
@@ -2139,6 +2174,10 @@ export async function handleOpenCodeAgentWebSocket(ws, sessionKey, deps) {
         room.pendingPrompts.splice(idx, 1);
         broadcastRoom(room, { type: 'sdkQueueRemoved', text: target });
       }
+      return;
+    }
+    if (msg.type === 'queueMove' && typeof msg.text === 'string') {
+      moveQueuedPrompt(room, msg.text, msg.direction, { broadcast: broadcastRoom });
       return;
     }
     if (msg.type === 'queueForceSend' && typeof msg.text === 'string') {

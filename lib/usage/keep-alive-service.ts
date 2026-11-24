@@ -26,7 +26,8 @@ import { readChatHarnessSessionId } from '../delegation-session-resume.js';
 import { isTerminalDelegationStatus } from '../delegation-status.js';
 import { findActiveLockoutRow } from '../model-pick-gate-primitives.js';
 import { listHarnessUsageLimits, listHarnessUsageLimitsForWorkspace } from '../harness-usage-limits.js';
-import { getCacheFreshness, getCacheStateForChat } from './cache-state.ts';
+import { getCacheStateForChat } from './cache-state.ts';
+import { buildChatCacheViewForChat } from './cache-freshness-view.ts';
 import { lookupFirmTokenRates } from './usage-rates.js';
 import { loadKeepAliveGate } from './keep-alive-gate.ts';
 import { createKeepAliveScheduler } from './keep-alive-scheduler.ts';
@@ -165,7 +166,8 @@ export function getKeepAliveScheduler() {
     getCapabilities: getChatRunAdapterCapabilities,
     readSessionId: readChatHarnessSessionId,
     getGeneration: (chatId) => getCacheStateForChat(chatId)?.generation ?? 0,
-    getFreshness: (chatId, options) => getCacheFreshness(chatId, options),
+    // Same retention as the countdown view: a 1h Claude cache must not be planned as 5 min.
+    getFreshness: (chatId, options) => buildChatCacheViewForChat(options?.chat || null, chatId, { now: options?.now }).freshness,
     isRunBusy: (chatId) => {
       try {
         const state = getChatRunState({ chatId });

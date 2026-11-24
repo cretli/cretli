@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import '../../components/ui/index.js';
 import { t } from '../../i18n/index.js';
+import { showChoiceDialog } from '../../lib/choiceDialog.js';
 import { apiFetchJson } from '../../core/api/runtime.js';
 
 export class CrChatArchivist extends LitElement {
@@ -24,6 +25,8 @@ export class CrChatArchivist extends LitElement {
     this.busy = false;
     this.message = '';
     this.idleDays = 7;
+    this.cancelBatch = false;
+    this.batchRunning = false;
   }
   label(key) { return t(`settings.archivist${key}`); }
   reason(reason) {
@@ -51,6 +54,43 @@ export class CrChatArchivist extends LitElement {
       this.message = error.code ? this.reason(error.code) : this.label('Failed');
     } finally { this.busy = false; }
   }
+  latestAssessments() {
+    const latest = new Map();
+    for (const item of this.report?.items || []) if (item.kind === 'assessment' && !latest.has(item.chatId)) latest.set(item.chatId, item);
+    return latest;
+  }
+  completedAssessments() {
+    const items = this.report?.items || [];
+    return (this.report?.candidates || []).map((chat) => this.latestAssessments().get(chat.id)).filter((assessment) =>
+      assessment?.verdict === 'completed' && !items.some((item) => ['archive', 'followups'].includes(item.kind) && item.assessmentId === assessment.id));
+  }
+  async batch(archive = false) {
+    if (this.busy) return;
+    const rows = archive ? this.completedAssessments() : (this.report?.candidates || []).slice(0, 20);
+    if (!rows.length) return;
+    this.busy = true;
+    this.cancelBatch = false;
+    this.batchRunning = true;
+    try {
+      if (archive && await showChoiceDialog({ heading: this.label('ArchiveAll'), body: this.label('BatchConfirm'),
+        options: [{ value: 'archive', label: this.label('Archive'), variant: 'primary' }], cancelLabel: this.label('Leave') }) !== 'archive') return;
+      const errors = [];
+      for (let index = 0; index < rows.length && !this.cancelBatch; index += 1) {
+        const row = rows[index];
+        this.message = `${this.label('Working')} ${index + 1}/${rows.length}`;
+        try {
+          const result = await this.request(archive ? 'archive' : 'assess', archive
+            ? { assessmentId: row.id, confirm: true } : { chatId: row.id, mode: 'manual' });
+          if (!result?.ok) throw Object.assign(new Error(), { code: result?.code });
+        } catch (error) { errors.push(`${row.title || row.id}: ${error.code ? this.reason(error.code) : this.label('Failed')}`); }
+      }
+      const refreshed = await this.request('');
+      if (!refreshed?.ok) throw new Error();
+      this.report = refreshed.report;
+      this.message = [this.cancelBatch ? this.label('Stopped') : this.label('BatchDone'), ...errors].join(' · ');
+    } catch (error) { this.message = error.code ? this.reason(error.code) : this.label('Failed'); }
+    finally { this.busy = false; this.batchRunning = false; }
+  }
   download() {
     if (!this.report) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), ...this.report }, null, 2)], { type: 'application/json' }));
@@ -75,13 +115,18 @@ export class CrChatArchivist extends LitElement {
         <cr-bar-button ?disabled=${this.busy} @click=${() => this.run()}>${this.label('Refresh')}</cr-bar-button>
         <cr-bar-button ?disabled=${this.busy || !this.report} @click=${() => this.download()}>${this.label('Export')}</cr-bar-button>
       </div>
+      <div class="controls">
+        <cr-bar-button ?disabled=${this.busy || !this.report?.candidates?.length} @click=${() => this.batch()}>${this.label('AssessAll')}</cr-bar-button>
+        <cr-bar-button ?disabled=${this.busy || !this.completedAssessments().length} @click=${() => this.batch(true)}>${this.label('ArchiveAll')} (${this.completedAssessments().length})</cr-bar-button>
+        ${this.busy && this.batchRunning ? html`<cr-bar-button @click=${() => { this.cancelBatch = true; }}>${this.label('Stop')}</cr-bar-button>` : ''}
+      </div>
       <p class="message" role="status" aria-live="polite">${this.message}</p>
       ${this.report ? html`
         <h4>${this.label('Candidates')} (${this.report.totalCandidates})</h4>
         <p>${this.label('CandidateHint')}</p>
         <div class="rows">${this.report.candidates.length ? this.report.candidates.map((chat) => {
           const assessment = latest.get(chat.id);
-          const used = items.some((row) => row.kind === 'archive' && row.assessmentId === assessment?.id);
+          const used = items.some((row) => ['archive', 'followups'].includes(row.kind) && row.assessmentId === assessment?.id);
           return html`<article>
             <strong class="title">${chat.title || chat.id}</strong>
             <small>${chat.updatedAt}</small>
@@ -97,9 +142,10 @@ export class CrChatArchivist extends LitElement {
         <div class="rows">${items.length ? items.map((item) => html`<article>
           <strong class="title">${item.title || item.chatId}</strong>
           <small>${item.createdAt} · ${this.label(`Status_${item.status || item.verdict}`)}</small>
+          ${item.kind === 'followups' ? html`<p>${this.label('Status_followups')} · ${this.label('FollowupsCount')}: ${Object.keys(item.todoIds || {}).length}</p>` : ''}
           ${item.reason ? html`<p>${this.reason(item.reason)}</p>` : ''}
           ${item.members?.length ? html`<p>${item.members.map((member) => member.title || member.id).join(' · ')}</p>` : ''}
-          ${item.kind === 'archive' && item.status === 'archived' && !items.some((row) => row.archiveId === item.id && row.status === 'restored') ? html`<cr-bar-button ?disabled=${this.busy} @click=${() => this.run('restore', { actionId: item.id })}>${this.label('Restore')}</cr-bar-button>` : ''}
+          ${['archive', 'followups'].includes(item.kind) && item.status === 'archived' && !items.some((row) => row.archiveId === item.id && row.status === 'restored') ? html`<cr-bar-button ?disabled=${this.busy} @click=${() => this.run('restore', { actionId: item.id })}>${this.label('Restore')}</cr-bar-button>` : ''}
         </article>`) : html`<p>${this.label('Empty')}</p>`}</div>
       ` : ''}
     `;

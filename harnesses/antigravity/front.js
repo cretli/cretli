@@ -1,6 +1,7 @@
 import { configurationState } from '../../app_front/state/index.js';
 import * as api from '../../app_front/core/api/index.js';
 import { t } from '../../app_front/i18n/index.js';
+import { initModelPanel, renderModelPanel, setModelCatalog, getSelectedModels, noteModelSelectionSaved } from './model-settings.js';
 
 let initialized = false;
 let revision = 0;
@@ -11,24 +12,14 @@ export async function refresh() {
   try {
     const [settings, data, status] = await Promise.all([api.getSettings(), api.getAntigravityModels(), api.getAntigravityStatus()]);
     if (current !== revision) return;
-    const list = document.getElementById('antigravity-models-list');
-    if (!list) return;
-    const selected = new Set(settings.antigravityChatEnabledModels || []);
-    list.replaceChildren();
-    for (const model of data.models || []) {
-      const label = document.createElement('label');
-      label.className = 'cr-check';
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = model.id;
-      checkbox.checked = selected.size === 0 || selected.has(model.id);
-      label.append(checkbox, document.createTextNode(model.name || model.id));
-      const row = document.createElement('div');
-      row.className = 'cr-field';
-      row.append(label);
-      list.append(row);
-    }
+    if (!data?.ok) throw new Error('Model discovery failed');
+    setModelCatalog(data.catalog || [], settings.antigravityChatEnabledModels || []);
+    renderModelPanel();
+    const modelsStatus = document.getElementById('antigravity-models-status');
+    if (modelsStatus) modelsStatus.textContent = data.modelsSource === 'fallback' ? t('settings.chatModelsLoadError') : '';
     document.getElementById('antigravity-status').textContent = status.ready ? t('settings.harnessAntigravityReady') : t('settings.harnessStatusAntigravityMissing');
+    const installRow = document.getElementById('antigravity-install-row');
+    if (installRow) installRow.hidden = Boolean(status.ready);
   } catch {
     const status = document.getElementById('antigravity-models-status');
     if (status && current === revision) status.textContent = t('settings.chatModelsLoadError');
@@ -39,15 +30,36 @@ export function init() {
   if (initialized) return;
   initialized = true;
   initLogin();
+  initModelPanel();
+  document.getElementById('antigravity-install')?.addEventListener('click', async (event) => {
+    const button = /** @type {HTMLElement & { disabled: boolean }} */ (event.currentTarget);
+    const status = document.getElementById('antigravity-install-status');
+    if (button.disabled) return;
+    button.disabled = true;
+    if (status) status.textContent = t('settings.antigravityInstalling');
+    try {
+      const result = await api.installAntigravityCli();
+      if (status) status.textContent = result?.ok ? t('settings.antigravityInstalled') : (result?.error || t('settings.antigravityInstallError'));
+      if (result?.ok) {
+        configurationState.invalidateCredentials('antigravity');
+        window.dispatchEvent(new CustomEvent('cretli-antigravity-config-changed'));
+      }
+    } catch {
+      if (status) status.textContent = t('settings.antigravityInstallError');
+    } finally {
+      button.disabled = false;
+    }
+  });
   window.addEventListener('cretli-antigravity-config-changed', () => { void refresh(); });
   document.getElementById('antigravity-models-refresh')?.addEventListener('click', () => { void refresh(); });
   document.getElementById('antigravity-models-save')?.addEventListener('click', async () => {
     const status = document.getElementById('antigravity-models-status');
-    const models = Array.from(document.querySelectorAll('#antigravity-models-list input:checked')).map((input) => /** @type {HTMLInputElement} */ (input).value);
+    const models = getSelectedModels();
     status.textContent = t('settings.chatModelsSaving');
     try {
       const result = await api.patchSettings({ antigravityChatEnabledModels: models });
       if (!result?.ok) throw new Error('Settings save failed');
+      noteModelSelectionSaved(models);
       status.textContent = t('settings.chatModelsSaved');
       window.dispatchEvent(new CustomEvent('cretli-antigravity-models-changed', { detail: { antigravityChatEnabledModels: models } }));
     } catch { status.textContent = t('settings.chatModelsSaveError'); }

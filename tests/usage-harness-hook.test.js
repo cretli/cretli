@@ -8,6 +8,7 @@ import { createAgentRoomKernel } from '../lib/agent-harness/room-kernel.ts';
 import { runOpenRouterAgentLoop } from '../harnesses/openrouter/openrouter-agent-loop.js';
 import { normalizeClaudeMessage } from '../lib/agent-harness/claude-event-normalizer.ts';
 import { buildClaudeUsageSdkEvent } from '../lib/claude/claude-agent-ws.ts';
+import { USAGE_SCHEMA_VERSION } from '../lib/usage/usage-contract.js';
 import { createUsageEvent } from '../lib/usage/usage-event.js';
 import { getHarnessUsageLimit } from '../lib/harness-usage-limits.js';
 import {
@@ -199,7 +200,7 @@ test('Claude result flows through the production normalizer, WS and kernel (1070
     + deltas[0].tokens.textOutput;
   assert.equal(disjoint, 1070, '100 uncached + 900 cache-read + 50 cache-write + 20 output');
   assert.equal(deltas[0].normalizationVersion, 2);
-  assert.equal(deltas[0].schemaVersion, 3);
+  assert.equal(deltas[0].schemaVersion, USAGE_SCHEMA_VERSION);
   assert.equal(runs[0].measurementPresent, true);
   assert.deepEqual(runs[0].coverage, {
     proof: true,

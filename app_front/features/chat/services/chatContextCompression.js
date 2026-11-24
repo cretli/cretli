@@ -109,6 +109,18 @@ export function isAutoContextCompressionEnabled(chat) {
   return chat.autoContextCompressionEnabled === true;
 }
 
+/**
+ * Setting state shown in chat settings. Claude chats store the same opt-in, but
+ * the server hands it to Claude Code's native auto-compaction instead of the
+ * client-side summarize + reset path (which stays SDK-only above).
+ * @param {Record<string, any>} chat
+ */
+export function isAutoContextCompressionSettingOn(chat) {
+  if (!chat) return false;
+  if (chat.agentTransport === 'claude') return chat.autoContextCompressionEnabled === true;
+  return isAutoContextCompressionEnabled(chat);
+}
+
 export function shouldResetAfterContextCompression(chat) {
   if (!chat) return true;
   return chat.autoContextCompressionReset !== false;

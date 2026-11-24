@@ -10,14 +10,14 @@ const url = (file) => `file://${repoRoot}/${file}`;
 const node = (id, functionName, file, children = []) => ({ id, callFrame: { functionName, url: file ? url(file) : '', lineNumber: id }, children });
 
 /** archiveFamilyMembers -> updateChat -> <leaf in chats-persist>; the leaf differs per profile. */
-function profile(leafName, caller = 'archiveFamilyMembers') {
+function profile(leafName, caller = 'archiveFamilyMembers', deltaUs = 1000) {
   const nodes = [
     node(1, '(root)', '', [2]),
     node(2, caller, 'lib/chat-archive.js', [3]),
     node(3, 'updateChat', 'lib/persist/chats-persist.js', [4]),
     node(4, leafName, 'lib/persist/chats-persist.js'),
   ];
-  return { nodes, samples: [4, 4, 4, 3], timeDeltas: [1000, 1000, 1000, 1000] };
+  return { nodes, samples: [4, 4, 4, 3], timeDeltas: [deltaUs, deltaUs, deltaUs, deltaUs] };
 }
 
 test('different hot leaves under one lib/ caller share one signature', () => {
@@ -132,8 +132,8 @@ test('same function with a different signature updates the existing todo instead
   assert.match(body, /^stall-occurrences: 2$/m);
   assert.match(body, /^stall-max-ms: 9000$/m);
   assert.match(body, /^stall-last-seen: 2026-11-05T09:00:00.000Z$/m);
-  assert.match(body, /## Last stack\n- `archiveFamilyMembers`/);
-  assert.equal(body.match(/## Last stack/g).length, 1);
+  assert.match(body, /## Longest stall profile\nRecorded at [^\n]+\n\n### Dominant causes[^\n]*\n- /);
+  assert.equal(body.match(/## Longest stall profile/g).length, 1);
 });
 
 test('stale idea stall todos are auto-deferred with a reason; a recurrence wakes them', async () => {
@@ -204,4 +204,104 @@ test('migration: dry-run plans without writing; apply defers duplicates with a l
   let received;
   createServerStallWatchdog({ repoRoot, dataDir: '/x', ...store, publishNotification: () => {}, createWatchdog: (o) => { received = o; return {}; } });
   assert.equal((await received.findTodoBySignature('b', { title })).id, 'a');
+});
+
+test('longer stall replaces the whole dated profile and keeps max-ms; shorter one does not', async () => {
+  const store = fakeStore();
+  const diagnostics = [];
+  const wd = createServerStallWatchdog({
+    repoRoot, dataDir: '/x', ...store, publishNotification: () => {}, now: () => Date.parse('2026-11-04T10:00:00Z'),
+    recordDiagnostic: (event, details) => diagnostics.push({ event, details }),
+    createWatchdog: (o) => createStallWatchdog({ ...o, registryPath: undefined, now: () => new Date('2026-11-04T10:00:00Z'), maxNewTodosPerDay: 99 }),
+  });
+  // Same cause (archiveFamilyMembers), different CPU numbers and leaf functions per profile.
+  const report = (ms, leaf, deltaUs, at) => ({
+    type: 'stall', reason: 'heartbeat', stalledForMs: ms, detectedAt: at, profileMs: 2000,
+    summary: summarizeProfile(profile(leaf, 'archiveFamilyMembers', deltaUs), { repoRoot }),
+  });
+  assert.equal((await wd.handleReport(report(3000, 'firstLeaf', 1000, '2026-11-04T10:00:00.000Z'))).outcome, 'created');
+  // First creation initializes the real duration and stall-max-ms.
+  assert.match(store.items[0].body, /^stall-max-ms: 3000$/m);
+  assert.match(store.items[0].body, /firstLeaf.* 3 ms/);
+  assert.equal(diagnostics.length, 0, 'a short stall is not logged to server-diagnostics');
+  // 5 s stall: longer than the stored 3 s max, so the whole profile is replaced and dated.
+  await wd.handleReport(report(5000, 'secondLeaf', 2000, '2026-11-05T09:00:00.000Z'));
+  let body = store.items[0].body;
+  assert.match(body, /^stall-max-ms: 5000$/m);
+  assert.match(body, /^- Main thread unresponsive for: 5000 ms$/m);
+  assert.match(body, /## Longest stall profile\nRecorded at 2026-11-05T09:00:00.000Z; main thread blocked for 5000 ms;/);
+  assert.match(body, /secondLeaf.* 6 ms/);
+  assert.match(body, /archiveFamilyMembers.* 8 ms \(100%\)/);
+  assert.doesNotMatch(body, /firstLeaf/);
+  assert.doesNotMatch(body, /archiveFamilyMembers.* 4 ms/);
+  assert.equal(body.match(/Top functions overall/g).length, 1);
+  // 4 s stall is shorter than the max: counters move, the profile and max stay.
+  await wd.handleReport(report(4000, 'thirdLeaf', 3000, '2026-11-06T09:00:00.000Z'));
+  body = store.items[0].body;
+  assert.match(body, /^stall-max-ms: 5000$/m);
+  assert.match(body, /^stall-occurrences: 3$/m);
+  assert.match(body, /^stall-last-seen: 2026-11-06T09:00:00.000Z$/m);
+  assert.match(body, /secondLeaf/);
+  assert.doesNotMatch(body, /thirdLeaf/);
+  // A 12 s stall always replaces the profile and is logged with its signature.
+  await wd.handleReport(report(12000, 'fourthLeaf', 4000, '2026-11-07T09:00:00.000Z'));
+  body = store.items[0].body;
+  assert.match(body, /^stall-max-ms: 12000$/m);
+  assert.match(body, /fourthLeaf/);
+  assert.doesNotMatch(body, /secondLeaf/);
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].event, 'long-event-loop-stall');
+  assert.match(diagnostics[0].details.message, /signature=[0-9a-f]{12} stalledForMs=12000/);
+});
+
+test('long-stall diagnostics are recorded even when todo storage throws', async () => {
+  const seen = [];
+  const warnings = [];
+  const wd = createStallWatchdog({
+    repoRoot,
+    findTodoBySignature: async () => { throw new Error('disk gone'); },
+    createTodo: async () => { throw new Error('disk gone'); },
+    onLongStall: (info) => { seen.push(info); },
+    logger: { warn: (m) => warnings.push(m) },
+  });
+  const summary = summarizeProfile(profile('leaf'), { repoRoot });
+  const result = await wd.handleReport({ type: 'stall', reason: 'heartbeat', stalledForMs: 15000, summary });
+  assert.equal(result.outcome, 'failed');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].signature, computeSignature(summary));
+  assert.equal(seen[0].stalledForMs, 15000);
+  // A throwing diagnostics hook must not break report handling either.
+  const wd2 = createStallWatchdog({ repoRoot, onLongStall: () => { throw new Error('diag'); }, logger: { warn: () => {} } });
+  assert.equal((await wd2.handleReport({ type: 'stall', reason: 'heartbeat', stalledForMs: 15000, summary })).outcome, 'no-createTodo');
+  assert.equal(wd2.getState().errors, 1);
+});
+
+test('worker reports the real blocked->unblocked duration of a stall', async () => {
+  const { Worker } = await import('node:worker_threads');
+  const sab = new SharedArrayBuffer(4);
+  const beat = new Int32Array(sab);
+  const worker = new Worker(new URL('../lib/server-health/stall-watchdog-worker.js', import.meta.url), {
+    execArgv: [],
+    workerData: { sab, thresholdMs: 300, profileMs: 100, cooldownMs: 0, checkMs: 50, repoRoot, heartbeatFile: '', longStallMs: 700 },
+  });
+  try {
+    const messages = [];
+    const report = new Promise((resolve, reject) => {
+      worker.on('message', (m) => { if (m.type === 'stall' || m.type === 'error') { messages.push(m); resolve(m); } });
+      worker.on('error', reject);
+    });
+    const timer = setInterval(() => Atomics.add(beat, 0, 1), 50);
+    await new Promise((r) => setTimeout(r, 200));
+    // Block the heartbeat (not the loop, so the test itself keeps running) for ~1.2 s.
+    clearInterval(timer);
+    await new Promise((r) => setTimeout(r, 1200));
+    Atomics.add(beat, 0, 1);
+    const msg = await report;
+    assert.equal(msg.type, 'stall');
+    assert.ok(msg.stalledForMs >= 1100 && msg.stalledForMs < 2500, `real duration, got ${msg.stalledForMs}`);
+    // The forced long-stall profile (>700 ms here) must not produce an earlier or extra report.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(messages.length, 1);
+    assert.equal(msg.profiledLong, true);
+  } finally { await worker.terminate(); }
 });

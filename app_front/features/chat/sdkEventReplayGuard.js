@@ -1,4 +1,6 @@
-const SERVER_AUTHORED_HISTORY_META = new Set(['delegation', 'mailbox', 'relatedChat', 'voiceReply']);
+const SERVER_AUTHORED_HISTORY_META = new Set(['delegation', 'mailbox', 'relatedChat', 'voiceReply', 'contextNotice']);
+
+/** @typedef {Record<string, any>} ReplayChat */
 
 /**
  * History cards written outside the agent event stream have no roomEventSeq.
@@ -12,7 +14,7 @@ export function isServerAuthoredHistoryMeta(rec) {
 }
 
 /**
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @param {Record<string, unknown> | null | undefined} message
  * @returns {{ streamId: string, seq: number }}
  */
@@ -29,7 +31,7 @@ function resolveSdkRoomEventRef(chat, message) {
 }
 
 /**
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @returns {Record<string, number[]>}
  */
 function cloneUnrenderedRoomEventSeqs(chat) {
@@ -48,7 +50,7 @@ function cloneUnrenderedRoomEventSeqs(chat) {
 }
 
 /**
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {Record<string, number[]>} next
  */
 function writeUnrenderedRoomEventSeqs(chat, next) {
@@ -67,7 +69,7 @@ function writeUnrenderedRoomEventSeqs(chat, next) {
  * True when this room seq was accepted on the WS path but never landed in the
  * view. A later seq must not cover that hole.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @param {string} streamId
  * @param {number} seq
  * @returns {boolean}
@@ -83,7 +85,7 @@ export function hasUnrenderedSdkRoomEventSeq(chat, streamId, seq) {
  * Remembers a room seq whose apply/render threw. Rollback of the high-water
  * mark alone cannot keep this hole if a later seq is then applied.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @param {Record<string, unknown> | null | undefined} message
  */
 export function rememberUnrenderedSdkRoomEvent(chat, message) {
@@ -100,7 +102,7 @@ export function rememberUnrenderedSdkRoomEvent(chat, message) {
 /**
  * Clears a hole after the current view actually rendered that room seq.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @param {Record<string, unknown> | null | undefined} message
  */
 export function noteRenderedSdkRoomEvent(chat, message) {
@@ -124,7 +126,7 @@ export function noteRenderedSdkRoomEvent(chat, message) {
 /**
  * Drops hole memory with the pane. Store ACK stays.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  */
 export function clearUnrenderedSdkRoomEvents(chat) {
   if (!chat || typeof chat !== 'object') return;
@@ -134,7 +136,7 @@ export function clearUnrenderedSdkRoomEvents(chat) {
 /**
  * Resets the event watermark after a new SDK room is created on the server.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown} streamId
  */
 export function syncSdkEventStream(chat, streamId) {
@@ -153,7 +155,7 @@ export function syncSdkEventStream(chat, streamId) {
  * Drops events replayed again after reconnecting to the same room.
  * Older servers that do not send roomEventSeq stay compatible.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {Record<string, unknown>} message
  * @returns {boolean}
  */
@@ -191,7 +193,7 @@ export function shouldApplySdkRoomEvent(chat, message) {
 /**
  * Holds back the WS replay until the authoritative HTTP history is restored.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  */
 export function beginSdkHistoryHydration(chat) {
   if (!chat || typeof chat !== 'object') return;
@@ -219,7 +221,7 @@ export function beginSdkHistoryHydration(chat) {
 /**
  * Marks hydration owned by openTerminal (fresh load / chat select), not PWA resume.
  *
- * @param {object & { _sdkOpenTerminalHydrating?: boolean }} chat
+ * @param {ReplayChat & { _sdkOpenTerminalHydrating?: boolean }} chat
  */
 export function beginSdkOpenTerminalHydration(chat) {
   if (!chat || typeof chat !== 'object') return;
@@ -228,7 +230,7 @@ export function beginSdkOpenTerminalHydration(chat) {
 }
 
 /**
- * @param {(object & { _sdkOpenTerminalHydrating?: boolean }) | null | undefined} chat
+ * @param {(ReplayChat & { _sdkOpenTerminalHydrating?: boolean }) | null | undefined} chat
  * @returns {boolean}
  */
 export function isSdkOpenTerminalHydrating(chat) {
@@ -239,7 +241,7 @@ export function isSdkOpenTerminalHydrating(chat) {
  * True when this hydration was started for the given view generation.
  * An older convergence must not finish a newer pane's hydration.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @param {unknown} generation
  * @returns {boolean}
  */
@@ -253,7 +255,7 @@ export function ownsSdkHistoryHydration(chat, generation) {
 }
 
 /**
- * @param {object & { _sdkOpenTerminalHydrating?: boolean }} chat
+ * @param {ReplayChat & { _sdkOpenTerminalHydrating?: boolean }} chat
  */
 export function clearSdkOpenTerminalHydrating(chat) {
   if (!chat || typeof chat !== 'object') return;
@@ -264,7 +266,7 @@ export function clearSdkOpenTerminalHydrating(chat) {
  * After a new prompt is sent the incoming WS frames are live and must not wait
  * for the slower HTTP history pull.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  */
 export function allowSdkLiveEventsDuringHydration(chat) {
   if (!chat || typeof chat !== 'object' || chat._sdkHistoryHydrating !== true) return;
@@ -272,7 +274,7 @@ export function allowSdkLiveEventsDuringHydration(chat) {
 }
 
 /**
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {Record<string, unknown>} message
  * @returns {boolean}
  */
@@ -291,7 +293,7 @@ export function bufferSdkRoomEventDuringHydration(chat, message) {
  * Ends hydration and sets the room watermark from the records already restored
  * from the server. Returns the WS events that arrived during the pull.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown[]} records
  * @returns {Array<Record<string, unknown>>}
  */
@@ -339,7 +341,7 @@ export function finishSdkHistoryHydration(chat, records) {
  * hydration coverage drop to what the replayed records hold. Otherwise a catch-up treats
  * the wiped live answers as already shown and the chat keeps only the user's prompts.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @param {unknown[]} records
  */
 export function noteSdkHistoryViewReplaced(chat, records) {
@@ -371,7 +373,7 @@ export function noteSdkHistoryViewReplaced(chat, records) {
 /**
  * Remembers a room seq rendered live while history hydration is still running.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {string} streamId
  * @param {number} seq
  */
@@ -387,7 +389,7 @@ function noteLiveRoomSeqDuringHydration(chat, streamId, seq) {
  * During hydration: whether the current view provably holds this room seq.
  * Returns null outside hydration, where the plain high-water mark applies.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {string} streamId
  * @param {number} seq
  * @returns {boolean | null}
@@ -406,7 +408,7 @@ function isRoomSeqCoveredDuringHydration(chat, streamId, seq) {
  * Local IndexedDB snapshots often omit eventStreamId, so an empty watermark
  * means a later server pull must replace the view instead of appending.
  *
- * @param {object | null | undefined} chat
+ * @param {ReplayChat | null | undefined} chat
  * @returns {boolean}
  */
 export function hasSdkHistoryRoomWatermarks(chat) {
@@ -422,7 +424,7 @@ export function hasSdkHistoryRoomWatermarks(chat) {
 }
 
 /**
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown[]} records
  * @param {boolean} commit
  * @returns {unknown[]}
@@ -500,7 +502,7 @@ function collectMissingSdkHistoryRecords(chat, records, commit) {
  * failed. Catch-up uses this to fill historySeq coverage for live/replay
  * events without re-rendering them.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown[]} records
  * @returns {unknown[]}
  */
@@ -542,7 +544,7 @@ export function selectRoomCoveredSdkHistoryRecords(chat, records) {
  * Same selection as takeMissingSdkHistoryRecords without moving watermarks.
  * Use this before an async render; commit with takeMissing after success.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown[]} records
  * @returns {unknown[]}
  */
@@ -561,7 +563,7 @@ export function selectMissingSdkHistoryRecords(chat, records) {
  * durable historySeq are included so a prompt from another client is not
  * dropped. Ephemeral meta (banner, busy, runFinished) stays skipped.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown[]} records
  * @returns {unknown[]}
  */
@@ -574,7 +576,7 @@ export function takeMissingSdkHistoryRecords(chat, records) {
  * Production catch-up must not use this as a substitute for rendering: a
  * receive watermark is not proof the current view holds the event.
  *
- * @param {object} chat
+ * @param {ReplayChat} chat
  * @param {unknown[]} messages
  */
 export function advanceSdkRoomEventWatermarksFromMessages(chat, messages) {

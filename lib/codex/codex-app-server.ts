@@ -35,6 +35,15 @@ export function isCodexAppServerEnabled(env: Record<string, string | undefined> 
   return env.CRETLI_CODEX_APP_SERVER !== '0';
 }
 
+/**
+ * True for the error Codex returns when a saved thread id has no rollout any
+ * more (deleted, rotated, or another CODEX_HOME): the thread cannot resume.
+ */
+export function isMissingCodexRolloutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /no rollout found for thread id/i.test(message);
+}
+
 /** Default per-request timeout for app-server JSON-RPC calls. */
 export const CODEX_APP_SERVER_REQUEST_TIMEOUT_MS = 30000;
 
@@ -108,7 +117,12 @@ export class CodexAppServer {
     this.pending.clear();
     this.rejectTurn?.(error);
   }
-  async initialize(options: CodexAppServerThreadOptions, threadId: string | undefined | null, config?: Record<string, unknown>): Promise<string> {
+  async initialize(
+    options: CodexAppServerThreadOptions,
+    threadId: string | undefined | null,
+    config?: Record<string, unknown>,
+    hooks: { onResumeMissing?: (error: Error) => void } = {},
+  ): Promise<string> {
     await this.request('initialize', { clientInfo: { name: 'cretli', version: '1.0.0' } });
     this.send({ method: 'initialized', params: {} });
     // Unlike `codex exec`, app-server does not log in from CODEX_API_KEY.
@@ -118,7 +132,20 @@ export class CodexAppServer {
       approvalPolicy: options.approvalPolicy, sandbox: options.sandboxMode,
       config: { ...config, ...(options.modelReasoningEffort ? { model_reasoning_effort: options.modelReasoningEffort } : {}) },
     };
-    const result = await this.request(threadId ? 'thread/resume' : 'thread/start', { ...params, ...(threadId ? { threadId } : {}) });
+    let result;
+    if (threadId) {
+      try {
+        result = await this.request('thread/resume', { ...params, threadId });
+      } catch (error) {
+        // A thread whose rollout is gone can never resume: start a fresh one
+        // instead of failing every later prompt of the chat.
+        if (!hooks.onResumeMissing || !isMissingCodexRolloutError(error)) throw error;
+        hooks.onResumeMissing(error as Error);
+        result = await this.request('thread/start', params);
+      }
+    } else {
+      result = await this.request('thread/start', params);
+    }
     const id: string = result.thread.id;
     this.threadId = id;
     return id;

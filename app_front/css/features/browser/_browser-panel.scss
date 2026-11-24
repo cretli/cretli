@@ -12,7 +12,7 @@
 }
 
 .browser-toolbar-label {
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 
@@ -42,7 +42,7 @@
 }
 
 .browser-status {
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted, var(--cr-color-858585));
   overflow: hidden;
   text-overflow: ellipsis;
@@ -60,7 +60,7 @@
 
 .browser-unavailable {
   padding: 0.6rem 0.75rem;
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   color: var(--cr-color-dcdcaa);
   border-bottom: 1px solid var(--cr-border-strong, var(--cr-color-333));
   background: var(--cr-color-rgba-220-220-170-0-06);
@@ -87,7 +87,7 @@
 }
 
 .browser-side-heading {
-  font-size: 0.62rem;
+  font-size: var(--cr-font-size-legacy-062);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--cr-text-muted, var(--cr-color-858585));
@@ -155,7 +155,7 @@
 
 .browser-card-icon {
   flex-shrink: 0;
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 
@@ -168,7 +168,7 @@
 }
 
 .browser-card-title {
-  font-size: 0.76rem;
+  font-size: var(--cr-font-size-legacy-076);
   font-weight: 600;
   line-height: 1.25;
   overflow: hidden;
@@ -177,13 +177,13 @@
 }
 
 .browser-card-sub {
-  font-size: 0.66rem;
+  font-size: var(--cr-font-size-legacy-066);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 
 .browser-empty {
   padding: 0.5rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 
@@ -295,7 +295,7 @@
 }
 
 .browser-pull-title {
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--cr-text-muted, var(--cr-color-858585));
@@ -307,7 +307,7 @@
   overflow: auto;
   padding: 0 0.5rem 0.35rem;
   font-family: var(--cr-font-mono, ui-monospace, 'Cascadia Code', 'Consolas', monospace);
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;

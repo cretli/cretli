@@ -6,6 +6,7 @@ import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import { createMcpServer } from '../lib/mcp/mcp-service.js';
 import {
   disposeAllConnections,
+  callTool,
   listTools,
   sweepIdleConnections,
 } from '../lib/mcp/mcp-runtime.js';
@@ -42,8 +43,8 @@ const fixtureProcs = () => execFileSync('pgrep', ['-P', String(process.pid), '-f
   .split('\n').map(Number).filter((n) => n > 0 && n !== process.pid);
 const pgrepSafe = () => { try { return fixtureProcs(); } catch { return []; } };
 
-await listTools(ctx('s1'), server);
-await listTools(ctx('s1'), server);
+await callTool(ctx('s1'), server, 'ping_read', {});
+await callTool(ctx('s1'), server, 'ping_read', {});
 const pids = pgrepSafe();
 assert.equal(pids.length, 1, 'repeated calls reuse one pooled stdio child');
 
@@ -53,8 +54,8 @@ assert.equal(await sweepIdleConnections(Date.now() + 120_000, 60_000), 1, 'idle 
 assert.ok(await waitDead(pids[0]), 'evicted child exited');
 
 // Shutdown closes every pooled connection.
-await listTools(ctx('s2'), server);
-await listTools(ctx('s3'), server);
+await callTool(ctx('s2'), server, 'ping_read', {});
+await callTool(ctx('s3'), server, 'ping_read', {});
 const pids2 = pgrepSafe();
 assert.equal(pids2.length, 2);
 assert.equal(await disposeAllConnections(), 2);

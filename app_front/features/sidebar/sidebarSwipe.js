@@ -41,6 +41,7 @@ export function canStartSwipe(options = {}) {
   if (options.isWorkspaceDragging === true) return false;
   if (isResizerTarget(options.target)) return false;
   if (isHiddenRowTarget(options.target)) return false;
+  if (isOwnSwipeTarget(options.target)) return false;
   return true;
 }
 
@@ -202,6 +203,11 @@ export function initSidebarSwipe(options = {}) {
         return;
       }
       if (!isHorizontalCommit(deltaX, deltaY)) return;
+      // Closing is a leftward drag; a rightward one belongs to the row swipe-to-archive.
+      if (deltaX > 0) {
+        clearPending();
+        return;
+      }
     }
     gesture.phase = 'tracking';
     sidebar.style.touchAction = 'none';
@@ -453,6 +459,19 @@ function createGesture(kind, ev, width) {
 function isResizerTarget(target) {
   if (!target || typeof target !== 'object' || typeof target.closest !== 'function') return false;
   return !!target.closest('#sidebar-resizer');
+}
+
+/**
+ * Controls that handle sideways swipes themselves (the view-mode switch) must not
+ * also start the drawer-close swipe.
+ *
+ * @param {unknown} target
+ * @returns {boolean}
+ */
+function isOwnSwipeTarget(target) {
+  const el = /** @type {any} */ (target);
+  if (!el || typeof el !== 'object' || typeof el.closest !== 'function') return false;
+  return !!el.closest('#sidebar-view-modes');
 }
 
 /**

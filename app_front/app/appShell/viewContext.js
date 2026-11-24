@@ -252,6 +252,21 @@ export function createViewContextStore(deps = {}) {
 
   /** @type {Set<(state: object) => void>} parked scoped boot passes. */
   const scopedWaiters = new Set();
+  const runtimeWaiters = new Set();
+
+  function runtimeReady() {
+    return (state.status === VIEW_CONTEXT_STATUS.RESOLVED
+      || state.status === VIEW_CONTEXT_STATUS.CONFLICT)
+      && Boolean(state.runtime.workspaceFolder || state.runtime.workspaceFile);
+  }
+
+  function settleRuntimeWaiters() {
+    if (!runtimeReady()) return;
+    const snap = snapshot();
+    const waiters = [...runtimeWaiters];
+    runtimeWaiters.clear();
+    for (const resolve of waiters) resolve(snap);
+  }
 
   /**
    * Hand one applied snapshot to the paint hook, then release the scoped boot
@@ -262,6 +277,7 @@ export function createViewContextStore(deps = {}) {
   function emitApplied() {
     const snap = snapshot();
     onApplied(snap);
+    settleRuntimeWaiters();
     if (scopedWaiters.size === 0 || !scopedAccessAllowedFor(snap)) return snap;
     const waiters = [...scopedWaiters];
     scopedWaiters.clear();
@@ -554,6 +570,11 @@ export function createViewContextStore(deps = {}) {
     clearRouteTarget,
     applyUserWorkspaceSelection,
     whenReady: ensureReady,
+    /** Wait for runtime paths, including the default workspace loaded after route boot. */
+    whenRuntimeReady() {
+      if (runtimeReady()) return Promise.resolve(snapshot());
+      return new Promise((resolve) => { runtimeWaiters.add(resolve); });
+    },
     /**
      * Park a scoped boot pass until this tab's context really permits it: the
      * snapshot settles it as soon as an explicit `ws`/`folder` link resolves
@@ -580,6 +601,7 @@ export function createViewContextStore(deps = {}) {
         status: VIEW_CONTEXT_STATUS.RESOLVED,
       };
       settleReady();
+      settleRuntimeWaiters();
     },
   };
 }

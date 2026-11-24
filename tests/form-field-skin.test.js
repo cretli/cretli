@@ -92,3 +92,16 @@ test('MCP and delegation checkboxes use cr-checkbox, not native inputs', () => {
     assert.doesNotMatch(read(rel), /type="checkbox"/, `${rel} has native checkbox`);
   }
 });
+
+test('fields use one size rule: 0.8rem desktop, 16px under 768px', () => {
+  for (const [name, { file }] of Object.entries(COMPONENTS)) {
+    if (name === 'cr-searchable-select') continue;
+    const src = read(file);
+    assert.match(src, /font-size:\s*0\.8rem/, `${name} desktop size`);
+    assert.match(src, /@media \(max-width: 768px\)[\s\S]*?font-size:\s*16px/, `${name} mobile size`);
+  }
+  const recipes = read('app_front/css/cr-recipes.scss');
+  const mobile = recipes.slice(recipes.indexOf('@media (max-width: 768px) {\n  .cr-form'));
+  assert.match(mobile.slice(0, 200), /input,\s*select,\s*textarea/, '.cr-form mobile covers input/select/textarea');
+  assert.match(mobile.slice(0, 200), /font-size:\s*16px/);
+});

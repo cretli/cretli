@@ -380,6 +380,27 @@ export function registerKernelChatRunAdapter(input: {
       }
       room.cancelled = true;
     },
+    /** Live rooms of this process (fast-restart orchestration); never persisted. */
+    listLiveRuns() {
+      const out: Array<{ chatId: string, sessionId: string, busy: boolean, canSteer: boolean }> = [];
+      for (const [sessionId, room] of rooms) {
+        const chatId = String(room?.chatId || '').trim();
+        if (!chatId) continue;
+        out.push({
+          chatId,
+          sessionId: String(sessionId || ''),
+          busy: !!room.busy || waitingForInput(room),
+          canSteer: typeof room.steerPrompt === 'function',
+        });
+      }
+      return out;
+    },
+    /** Inject a notice into the live turn. Rejects (throws) when the room cannot steer. */
+    async steerLiveRun({ chat, text }: { chat: Record<string, any>, text: string }) {
+      const room = rooms.get(String(chat?.cursorSessionId || ''));
+      if (!room || typeof room.steerPrompt !== 'function' || !room.busy) throw new Error('no_steerable_run');
+      await room.steerPrompt(text, undefined, '', null);
+    },
     getState({ chat, runId }: { chat: Record<string, any>, runId?: string }) {
       const room = rooms.get(String(chat?.cursorSessionId || ''));
       if (!room) return null;

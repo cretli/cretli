@@ -1230,10 +1230,34 @@ export function listAttempts(logicalRunId: string, store: Record<string, any> | 
  */
 export function getRunsFingerprint(store: Record<string, any> | null = defaultStore): string {
   const db = requireDb(store);
+  // The aggregate scans every run row, which costs milliseconds on a large registry and was paid once per
+  // cold chat in an archive sweep. `data_version` moves on a commit from another connection and
+  // `total_changes` on any change made through this one, so an unchanged pair proves no row was written
+  // (a changed pair only costs one recompute, never a stale answer).
+  const marker = writeMarker(db);
+  const cached = runsFingerprintCache.get(db);
+  if (cached && marker !== null && cached.marker === marker) return cached.value;
   const row = db.prepare(
     'SELECT COUNT(*) AS c, COALESCE(SUM(revision), 0) AS r, COALESCE(MAX(updated_at), 0) AS u FROM recovery_runs',
   ).get() as Record<string, any>;
-  return `${row.c}:${row.r}:${row.u}`;
+  const value = `${row.c}:${row.r}:${row.u}`;
+  if (marker !== null) runsFingerprintCache.set(db, { marker, value });
+  return value;
+}
+
+const runsFingerprintCache = new WeakMap<object, { marker: string, value: string }>();
+
+/** Cheap O(1) write marker for a connection; null when the pragmas are unreadable (forces a recompute). */
+function writeMarker(db: Record<string, any>): string | null {
+  try {
+    // A rollback does not reduce total_changes, so a marker taken inside a transaction is not trustworthy.
+    if (db.isTransaction !== false) return null;
+    const version = db.prepare('PRAGMA data_version').get() as Record<string, any>;
+    const changes = db.prepare('SELECT total_changes() AS n').get() as Record<string, any>;
+    return `${version.data_version}:${changes.n}`;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
  * Filter menu of the sidebar search row: per-browser checkboxes that narrow the
- * chat list. The button is lit while any filter is on.
+ * chat list. The button stays neutral: sort and filters always have some state, so "active" says nothing.
  */
 
 import { closeAllOpenDropdowns, initDropdown } from '../../lib/dropdown.js';
@@ -16,7 +16,6 @@ import {
 import {
   SIDEBAR_FAVORITES_FIRST_KEY,
   SIDEBAR_ONLY_FAVORITES_KEY,
-  SIDEBAR_SORT_MODE_KEY,
   SIDEBAR_SORT_MODES,
   readSidebarFavoritesFirstFlag,
   readSidebarOnlyFavoritesFlag,
@@ -82,14 +81,6 @@ export function initSidebarFilterMenu(deps = {}) {
   panel.appendChild(list);
   document.body.appendChild(panel);
 
-  function paintTrigger() {
-    trigger.classList.toggle(
-      'is-active',
-      FILTERS.some((filter) => filter.read()) || readSidebarSortMode() !== 'created'
-        || !readSidebarFavoritesFirstFlag(),
-    );
-  }
-
   function appendCheckboxRow(filter) {
       const row = document.createElement('div');
       row.className = 'todo-status-filter-row';
@@ -120,7 +111,12 @@ export function initSidebarFilterMenu(deps = {}) {
       item.dataset.sortMode = mode;
       item.setAttribute('role', 'menuitemradio');
       item.setAttribute('aria-checked', mode === current ? 'true' : 'false');
-      item.textContent = (mode === current ? '\u2713 ' : '\u2003 ') + t(SORT_LABEL_KEYS[mode]);
+      const mark = document.createElement('span');
+      mark.className = 'cr-radio-mark';
+      mark.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.textContent = t(SORT_LABEL_KEYS[mode]);
+      item.append(mark, text);
       list.appendChild(item);
     }
     appendCheckboxRow(FAVORITES_FIRST);
@@ -148,7 +144,6 @@ export function initSidebarFilterMenu(deps = {}) {
     const box = /** @type {any} */ (row?.querySelector('cr-checkbox'));
     if (!filter || !box) return;
     filter.write(box.checked === true);
-    paintTrigger();
     deps.onFilterChanged?.();
   });
 
@@ -159,7 +154,6 @@ export function initSidebarFilterMenu(deps = {}) {
     if (!item) return;
     writeSidebarSortMode(item.dataset.sortMode || '');
     renderRows();
-    paintTrigger();
     deps.onFilterChanged?.();
   });
 
@@ -169,10 +163,4 @@ export function initSidebarFilterMenu(deps = {}) {
     if (!dropdown.isOpen()) closeAllOpenDropdowns();
     dropdown.toggle();
   });
-
-  window.addEventListener('storage', (event) => {
-    if (event?.key === SIDEBAR_SORT_MODE_KEY || event?.key === SIDEBAR_FAVORITES_FIRST_KEY || FILTERS.some((filter) => filter.storageKey === event?.key)) paintTrigger();
-  });
-
-  paintTrigger();
 }

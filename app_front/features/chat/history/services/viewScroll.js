@@ -1,5 +1,6 @@
 import { normalizeSdkUiMode } from '../../../../../lib/sdk/sdk-ui-mode.ts';
-import { evaluateStickFromScroll } from '../../../../lib/scrollStickGeometry.js';
+import { SCROLL_STICK_THRESHOLD_PX } from '../../../../lib/scrollStickGeometry.js';
+import { createViewportController } from './viewportController.js';
 import { createViewportAnchorBatchController } from '../../../../lib/sdkRichViewViewportBatch.js';
 import { getChatSpeaker } from '../../../voice/chatSpeaker.js';
 import { getHistoryParkedNewerLocal } from '../../chatHistoryMountedParking.js';
@@ -79,7 +80,7 @@ export function installViewScroll(rv) {
   rv.renderedRecordEventStreamId = '';
   /** Mid-stream insert of a recovered hole: keep the visible card, skip autoscroll. */
   rv.preserveViewportAnchor = false;
-  /** @type {{ el: HTMLElement, top: number } | null} */
+  /** Shared visible-card snapshot captured before an ordered insert. */
   rv.pendingViewportAnchor = null;
   const viewportAnchorBatch = createViewportAnchorBatchController({
     capture: () => {},
@@ -119,10 +120,13 @@ export function installViewScroll(rv) {
   rv.timeoutProgressSeries = null;
   rv.timeoutProgressTickTimer = 0;
 
-  const SCROLL_STICK_THRESHOLD_PX = 64;
   rv.SCROLL_STICK_THRESHOLD_PX = SCROLL_STICK_THRESHOLD_PX;
   /** When false — the user scrolled up; do not autoscroll while streaming. */
-  rv.stickToBottom = true;
+  rv.viewportController = createViewportController(rv);
+  Object.defineProperty(rv, 'stickToBottom', {
+    get: () => rv.viewportController.state.following,
+    set: (value) => { rv.viewportController.setFollowing(value); },
+  });
   /** scrollTop at the previous scroll observation: stick follows the scroll direction. */
   rv.lastScrollTop = 0;
   rv.suppressScrollStickUpdate = false;
@@ -191,13 +195,6 @@ export function installViewScroll(rv) {
     });
   }
 
-  function isNearBottom() {
-    if (rv.suppressHistoryPersist) return rv.stickToBottom;
-    const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
-    if (maxScroll <= 0) return true;
-    return mountEl.scrollTop >= maxScroll - SCROLL_STICK_THRESHOLD_PX;
-  }
-
   /**
    * Autoscrolls a scrollable element (e.g. the thinking <pre>) to newly appended text,
    * but only while the user sits at the bottom — a manual scroll up must not be overridden.
@@ -224,7 +221,7 @@ export function installViewScroll(rv) {
     // A hidden pane measures no height and would read as "at the bottom", wiping the
     // reader's place before the chat is shown again.
     if (mountEl.clientHeight === 0) return;
-    evaluateStickFromScroll(mountEl, rv.scrollToBottomButton, rv, SCROLL_STICK_THRESHOLD_PX);
+    rv.viewportController.observe();
     // Not gated on a false→true transition: a forced scrollToBottom() sets stickToBottom
     // before this runs, which used to leave tail cards parked off-screen forever.
     if (rv.stickToBottom && getHistoryParkedNewerLocal(chat).length > 0) {
@@ -253,16 +250,11 @@ export function installViewScroll(rv) {
       () => {
         // Re-checked when the frame runs: the user may have scrolled up since this was
         // queued, and a stale write would pull them back down mid-scroll.
-        if (!rv.stickToBottom) return;
-        try {
-          rv.suppressScrollStickUpdate = true;
-          mountEl.scrollTop = mountEl.scrollHeight;
-        } catch (_) {
-          /* ignore */
-        } finally {
-          rv.suppressScrollStickUpdate = false;
-          updateStickFromScroll();
-        }
+        if (rv.viewDestroyed || mountEl.clientHeight === 0) return;
+        rv.viewportController.observe();
+        if (!rv.stickToBottom || (!force && (rv.suppressAutoScroll || rv.preserveViewportAnchor))) return;
+        rv.viewportController.write(mountEl.scrollHeight);
+        updateStickFromScroll();
       },
       scheduleFrame,
     );
@@ -285,16 +277,11 @@ export function installViewScroll(rv) {
       () => {
         // Re-checked when the frame runs: the user may have scrolled up since this was
         // queued, and a stale write would pull them back down mid-scroll.
-        if (!rv.stickToBottom) return;
-        try {
-          rv.suppressScrollStickUpdate = true;
-          mountEl.scrollTop = mountEl.scrollHeight;
-        } catch (_) {
-          /* ignore */
-        } finally {
-          rv.suppressScrollStickUpdate = false;
-          updateStickFromScroll();
-        }
+        if (rv.viewDestroyed || mountEl.clientHeight === 0) return;
+        rv.viewportController.observe();
+        if (!rv.stickToBottom || (!force && (rv.suppressAutoScroll || rv.preserveViewportAnchor))) return;
+        rv.viewportController.write(mountEl.scrollHeight);
+        updateStickFromScroll();
       },
       scheduleFrame,
     );
@@ -306,24 +293,27 @@ export function installViewScroll(rv) {
   // scrollToBottom() call: the mobile keyboard, the send bar growing, images, diagrams,
   // banners. Only while following; a reader keeps their place.
   rv.stickResizeObserver = null;
+  rv.viewportChildrenObserver = null;
   if (typeof ResizeObserver === 'function') {
     rv.stickResizeObserver = new ResizeObserver(() => {
-      // Paging older history (suppressAutoScroll) keeps its own anchor. Anything else
-      // that resizes a following view, a history replay included, stays pinned: the
-      // callback runs after layout, so pin now instead of a frame later, where the
-      // replay's viewport-anchor guard would skip it and leave the view mid-history.
-      if (rv.viewDestroyed || !rv.stickToBottom || rv.suppressAutoScroll) return;
-      // Resize observations run before that frame's scroll event: an upward scroll the
-      // scroll handler has not seen yet must release stick first, not get pinned over.
-      if (mountEl.scrollTop < rv.lastScrollTop - 1) {
-        updateStickFromScroll();
-        if (!rv.stickToBottom) return;
-      }
-      const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
-      if (maxScroll - mountEl.scrollTop > 1) mountEl.scrollTop = mountEl.scrollHeight;
+      rv.viewportController.reconcile();
     });
     rv.stickResizeObserver.observe(mountEl);
-    if (rv.realStream instanceof Element) rv.stickResizeObserver.observe(rv.realStream);
+    for (const child of mountEl.children) rv.stickResizeObserver.observe(child);
+    // Banners are siblings of the stream: their height does not resize either the
+    // stream or a fixed-height mount. Observe them too, including later additions.
+    rv.viewportChildrenObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (node instanceof Element) rv.stickResizeObserver?.unobserve(node);
+        }
+        for (const node of record.addedNodes) {
+          if (node instanceof Element) rv.stickResizeObserver?.observe(node);
+        }
+      }
+      rv.viewportController.reconcile();
+    });
+    rv.viewportChildrenObserver.observe(mountEl, { childList: true });
   }
   rv.scrollToBottomButton.addEventListener('click', () => scrollToBottom({ force: true }));
 

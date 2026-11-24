@@ -1,7 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { getDelegationSettingDef } from '../lib/delegation-settings-schema.js';

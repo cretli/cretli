@@ -6,8 +6,9 @@
   "dryRun": true,
   "changed": true,
   "commands": [],
+  "stopCommand": "'/home/user/node install/bin/node' '/home/user/my app/scripts/cretli-supervisor.mjs' request-stop",
   "warnings": [
-    "Termux: no manager restarts the supervisor itself; SIGTERM to it stops supervision."
+    "Termux: no manager restarts the supervisor itself. Stop it with: '/home/user/node install/bin/node' '/home/user/my app/scripts/cretli-supervisor.mjs' request-stop"
   ],
   "activation": "Activation at next boot/login; use --apply --start to start explicitly."
 }

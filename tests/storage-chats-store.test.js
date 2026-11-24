@@ -1,4 +1,5 @@
 import './helpers/isolated-data-dir.js';
+import { CHAT_PAGE_MAX_LIMIT } from '../lib/chat-page-limits.js';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -34,7 +35,7 @@ function allRecords(h) {
   const out = [];
   let cursor = null;
   do {
-    const page = h.page({ archived: 'all', limit: 500, cursor });
+    const page = h.page({ archived: 'all', limit: CHAT_PAGE_MAX_LIMIT, cursor });
     for (const item of page.items) out.push(h.get({ id: item.id }));
     cursor = page.nextCursor;
   } while (cursor);

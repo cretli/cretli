@@ -106,6 +106,7 @@ function chatChangedMs(chat) {
  */
 export function sortChatsForSidebar(chats, mode, isFavorite = () => false) {
   if (!Array.isArray(chats) || !chats.length) return [];
+  /** @type {(chat: any) => any} */
   const key = (chat) => {
     if (mode === 'updated') return chatChangedMs(chat);
     if (mode === 'title') return String(chat?.title || '');

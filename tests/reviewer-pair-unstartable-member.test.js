@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { loadDelegations } from '../lib/persist/delegations-persist.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { readReviewerPairMembers } from '../lib/persist/reviewer-pairs-persist.js';

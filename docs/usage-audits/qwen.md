@@ -88,3 +88,10 @@ Prompt occupancy for the window should come from the latest call's `input_tokens
 ## 8. Fixtures
 
 `tests/fixtures/usage/qwen/raw-stream-usage.json` (sanitized raw stream records) and `normalized-token-bag.json` (expected bags). Both pass `containsConversationContent` and contain no secrets or private paths.
+
+## 9. Cancel before result (`b575b71d`)
+
+`flushQwenPendingUsage` emits the usage of an assistant message cut short by
+abort/error before the run is finished, and a run that ends with output but no
+usage is flagged `usageMissingReason` (`aborted_before_usage`, `error_before_usage`
+or `provider_reported_no_usage`). Pinned per role by `tests/usage-capture-matrix.test.js`.

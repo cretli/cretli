@@ -76,7 +76,7 @@ export async function refreshDocsSettings() {
     anchor.after(section);
   }
   section.hidden = document.getElementById('settings-panel')?.dataset.activeSettingsTab !== 'workspace';
-  await section.querySelector('cr-docs-settings').refresh();
+  await /** @type {any} */ (section.querySelector('cr-docs-settings')).refresh();
 }
 window.addEventListener('cretli-view-context-changed', () => {
   if (document.getElementById('settings-panel')?.classList.contains('active') && document.getElementById('settings-panel')?.dataset.activeSettingsTab === 'workspace') void refreshDocsSettings();

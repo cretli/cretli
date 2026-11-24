@@ -7,6 +7,13 @@ import { useChatsBackendFromEnv, registerChatsBackendTeardown, seedChatRows } fr
 
 await useChatsBackendFromEnv();
 
+const initialSettings = loadSettings();
+initialSettings.workspaces = [{ id: 'cretli:ws:initial', kind: 'folders', label: 'Initial' }];
+initialSettings.workspaceSidebarConfig = {
+  'cretli:ws:initial': { folders: { [ISOLATED_DATA_DIR]: { enabled: true } } },
+};
+saveSettings(initialSettings);
+
 const routes = new Map();
 registerReviewLessonsRoutes({ get: (p, fn) => routes.set(`GET ${p}`, fn), post: (p, fn) => routes.set(`POST ${p}`, fn), patch: (p, fn) => routes.set(`PATCH ${p}`, fn), delete: (p, fn) => routes.set(`DELETE ${p}`, fn) }, { getCurrentWorkspace: () => ISOLATED_DATA_DIR });
 async function invoke(method, route, req) { let status = 200; let body; const res = { status(code) { status = code; return this; }, json(data) { body = data; return this; } }; await routes.get(`${method} ${route}`)(req, res); return { status, body }; }
@@ -53,6 +60,10 @@ const registeredFolder = await invoke('GET', '/api/review-lessons', {
   query: { workspaceFolder: `${ISOLATED_DATA_DIR}/registered` }, body: {},
 });
 assert.equal(registeredFolder.status, 200);
+const unregisteredFolder = await invoke('GET', '/api/review-lessons', {
+  query: { workspaceFolder: `${ISOLATED_DATA_DIR}/unregistered` }, body: {},
+});
+assert.equal(unregisteredFolder.status, 403);
 const registeredViaWrongChat = await invoke('GET', '/api/review-lessons', {
   query: { workspaceFolder: `${ISOLATED_DATA_DIR}/registered`, chatId: 'chat-here' }, body: {},
 });

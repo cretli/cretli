@@ -67,7 +67,7 @@ function createFakeRow(id, { archived = false, pending = false } = {}) {
   if (pending) {
     const badge = createFakeElement('span');
     badge.className = CHAT_LIST_PENDING_BADGE_CLASS;
-    badge.textContent = '●';
+    badge.textContent = '';
     title.appendChild(badge);
   }
   row.querySelector = (selector) => {
@@ -129,7 +129,7 @@ function createFakeDocument(byId) {
   assert.equal(list.listQuerySelectorCalls, 0, 'no per-id lookup over the list');
   assert.equal(findBadge(rowA)?.className, CHAT_LIST_PENDING_BADGE_CLASS);
   assert.equal(findBadge(rowA)?.title, 'New activity');
-  assert.equal(findBadge(rowA)?.textContent, '●');
+  assert.equal(findBadge(rowA)?.textContent, '');
   assert.equal(findBadge(rowA)?.parentNode, rowA._title, 'badge lives in the title span');
   assert.equal(findBadge(rowB), null, 'an untouched row stays untouched');
   assert.equal(findBadge(rowC), null, 'archived rows never carry the badge');
@@ -289,7 +289,7 @@ function createView(documentRef, { onModelRefresh } = {}) {
       removedIds: [],
     });
     assert.equal(list.querySelectorAllCalls, 1, 'open modal patches its rows');
-    assert.equal(findBadge(rowA)?.textContent, '●');
+    assert.equal(findBadge(rowA)?.textContent, '');
     assert.equal(modelRefreshes.count, 0, 'pending patch does not refresh model labels');
   });
 }

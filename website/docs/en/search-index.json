@@ -1,0 +1,440 @@
+[
+  {
+    "slug": "index",
+    "title": "Cretli documentation",
+    "description": "Start here to learn how to install and use Cretli, a browser terminal and agent chat for your own machine.",
+    "headings": [
+      {
+        "id": "where-to-go-next",
+        "text": "Where to go next"
+      }
+    ]
+  },
+  {
+    "slug": "getting-started",
+    "title": "Getting started",
+    "description": "Install Cretli, configure your first session, and update an existing installation.",
+    "headings": [
+      {
+        "id": "requirements-and-installation",
+        "text": "Requirements and installation"
+      },
+      {
+        "id": "first-session",
+        "text": "First session"
+      },
+      {
+        "id": "updating",
+        "text": "Updating"
+      }
+    ]
+  },
+  {
+    "slug": "install-docker",
+    "title": "Install with Docker",
+    "description": "Run Cretli with Docker Compose and persist its runtime data safely.",
+    "headings": []
+  },
+  {
+    "slug": "harness-opencode",
+    "title": "OpenCode",
+    "description": "Configure OpenCode authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-openrouter",
+    "title": "OpenRouter",
+    "description": "Configure OpenRouter authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-deepseek",
+    "title": "DeepSeek",
+    "description": "Configure DeepSeek authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-qwen",
+    "title": "Qwen Code",
+    "description": "Configure Qwen Code authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-mistral",
+    "title": "Mistral",
+    "description": "Configure Mistral authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-mimo",
+    "title": "Xiaomi MiMo",
+    "description": "Configure Xiaomi MiMo authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-zai",
+    "title": "Z.AI",
+    "description": "Configure Z.AI authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-codebuddy",
+    "title": "CodeBuddy",
+    "description": "Configure CodeBuddy authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-antigravity",
+    "title": "Antigravity",
+    "description": "Configure Antigravity authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-claude",
+    "title": "Claude Code",
+    "description": "Configure Claude Code authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-codex",
+    "title": "Codex",
+    "description": "Configure Codex authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "harness-cursor-sdk",
+    "title": "Cursor SDK",
+    "description": "Configure Cursor SDK authentication, choose models, and understand its limits.",
+    "headings": [
+      {
+        "id": "authentication-and-models",
+        "text": "Authentication and models"
+      },
+      {
+        "id": "known-limits",
+        "text": "Known limits"
+      }
+    ]
+  },
+  {
+    "slug": "workspaces",
+    "title": "Workspaces",
+    "description": "Save project folders, import a workspace file, and choose the right working directory.",
+    "headings": [
+      {
+        "id": "saved-workspaces-and-imports",
+        "text": "Saved workspaces and imports"
+      },
+      {
+        "id": "before-starting-work",
+        "text": "Before starting work"
+      }
+    ]
+  },
+  {
+    "slug": "settings",
+    "title": "Settings",
+    "description": "Find the main Cretli settings tabs and what each one controls.",
+    "headings": []
+  },
+  {
+    "slug": "chat-and-agents",
+    "title": "Working surfaces",
+    "description": "Use chat, terminal, files, Docs, and the built-in Browser in your project.",
+    "headings": [
+      {
+        "id": "chat-and-terminal",
+        "text": "Chat and terminal"
+      },
+      {
+        "id": "files-and-docs",
+        "text": "Files and Docs"
+      },
+      {
+        "id": "built-in-browser",
+        "text": "Built-in Browser"
+      }
+    ]
+  },
+  {
+    "slug": "todos",
+    "title": "Todo and plans",
+    "description": "Create tasks, approve plans, sequence work, and understand review results.",
+    "headings": [
+      {
+        "id": "status-and-approval",
+        "text": "Status and approval"
+      },
+      {
+        "id": "order-and-review",
+        "text": "Order and review"
+      }
+    ]
+  },
+  {
+    "slug": "workspace-watcher",
+    "title": "Workspace Watcher",
+    "description": "Choose Watcher modes and understand execution, integration, and restart.",
+    "headings": [
+      {
+        "id": "choose-a-mode",
+        "text": "Choose a mode"
+      },
+      {
+        "id": "what-a-cycle-does",
+        "text": "What a cycle does"
+      },
+      {
+        "id": "integration-and-restart",
+        "text": "Integration and restart"
+      }
+    ]
+  },
+  {
+    "slug": "delegation-review",
+    "title": "Delegation and independent review",
+    "description": "How Cretli splits work across harnesses and why a different model reviews the result.",
+    "headings": [
+      {
+        "id": "the-loop",
+        "text": "The loop"
+      },
+      {
+        "id": "how-a-reviewer-is-chosen",
+        "text": "How a reviewer is chosen"
+      },
+      {
+        "id": "limits-you-control",
+        "text": "Limits you control"
+      }
+    ]
+  },
+  {
+    "slug": "mcp",
+    "title": "MCP tools and external clients",
+    "description": "Use Cretli's built-in tools, add MCP servers, and connect outside clients such as Claude Code.",
+    "headings": [
+      {
+        "id": "built-in-tools",
+        "text": "Built-in tools"
+      },
+      {
+        "id": "add-mcp-servers",
+        "text": "Add MCP servers"
+      },
+      {
+        "id": "connect-an-outside-client",
+        "text": "Connect an outside client"
+      }
+    ]
+  },
+  {
+    "slug": "remote-access",
+    "title": "Remote access, PWA and notifications",
+    "description": "Open Cretli from a phone or another computer safely, and understand the defaults.",
+    "headings": [
+      {
+        "id": "enable-lan-access",
+        "text": "Enable LAN access"
+      },
+      {
+        "id": "https-and-the-pwa",
+        "text": "HTTPS and the PWA"
+      },
+      {
+        "id": "notifications",
+        "text": "Notifications"
+      },
+      {
+        "id": "expose-a-port",
+        "text": "Expose a port"
+      },
+      {
+        "id": "security-notes",
+        "text": "Security notes"
+      }
+    ]
+  },
+  {
+    "slug": "security-basics",
+    "title": "Security basics",
+    "description": "Keep a Cretli installation private, authenticated, and appropriately exposed.",
+    "headings": []
+  },
+  {
+    "slug": "backups-and-data",
+    "title": "Backups and data",
+    "description": "Where Cretli keeps its data, which backup tools exist, and how to restore safely.",
+    "headings": [
+      {
+        "id": "choose-a-tool",
+        "text": "Choose a tool"
+      },
+      {
+        "id": "automatic-local-backups",
+        "text": "Automatic local backups"
+      },
+      {
+        "id": "full-offline-backup",
+        "text": "Full offline backup"
+      },
+      {
+        "id": "habits-that-help",
+        "text": "Habits that help"
+      }
+    ]
+  },
+  {
+    "slug": "troubleshooting",
+    "title": "Troubleshooting",
+    "description": "Resolve common startup, browser, harness, and update issues.",
+    "headings": [
+      {
+        "id": "quick-symptom-guide",
+        "text": "Quick symptom guide"
+      }
+    ]
+  },
+  {
+    "slug": "faq",
+    "title": "FAQ",
+    "description": "Short answers to common questions about Cretli, agents, access, and data.",
+    "headings": [
+      {
+        "id": "is-cretli-a-hosted-service",
+        "text": "Is Cretli a hosted service?"
+      },
+      {
+        "id": "do-i-need-an-account-or-api-keys",
+        "text": "Do I need an account or API keys?"
+      },
+      {
+        "id": "which-agent-should-i-choose",
+        "text": "Which agent should I choose?"
+      },
+      {
+        "id": "can-i-use-it-from-my-phone",
+        "text": "Can I use it from my phone?"
+      },
+      {
+        "id": "is-it-safe-to-expose-it-to-the-internet",
+        "text": "Is it safe to expose it to the internet?"
+      },
+      {
+        "id": "does-watcher-change-my-repository-on-its-own",
+        "text": "Does Watcher change my repository on its own?"
+      },
+      {
+        "id": "where-is-my-data-and-can-i-move-it",
+        "text": "Where is my data and can I move it?"
+      },
+      {
+        "id": "why-does-an-agent-not-see-my-mcp-server",
+        "text": "Why does an agent not see my MCP server?"
+      },
+      {
+        "id": "where-do-i-get-help",
+        "text": "Where do I get help?"
+      }
+    ]
+  }
+]

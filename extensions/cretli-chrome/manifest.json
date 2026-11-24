@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Cretli",
+  "version": "0.1.0",
+  "description": "Lets your Cretli agent list and download PDF/CSV documents from sites you are signed in to, only on domains you approve.",
+  "minimum_chrome_version": "110",
+  "permissions": ["storage", "scripting", "alarms"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "action": { "default_title": "Cretli", "default_popup": "popup.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "web_accessible_resources": []
+}

@@ -1,3 +1,4 @@
+import { getViewContextRuntimeScope } from '../../app/appShell/viewContextBridge.js';
 /**
  * Panel rules/commands/skills: toggle, GET /api/cursor-context, render lists.
  */
@@ -45,7 +46,7 @@ export function initAgentsPanel() {
       panel.style.display = 'block';
       toggle.innerHTML =
         '<span class="mdi mdi-chevron-up" aria-hidden="true"></span> ' + escapeHtml(t('agents.rulesAndAgentsTitle'));
-      const workspaceFolder = document.getElementById('header-workspace-trigger')?.dataset?.workspaceFolder || '';
+      const workspaceFolder = getViewContextRuntimeScope().workspaceFolder || '';
       api.getCursorContext(workspaceFolder).then((data) => {
         if (!data.ok) return;
         renderNamedList(document.getElementById('agents-rules'), data.projectRules);

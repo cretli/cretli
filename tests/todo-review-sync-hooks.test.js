@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { addTodo, loadTodosData, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   createDelegationRecord,
   getDelegationById,

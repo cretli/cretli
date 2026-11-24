@@ -40,7 +40,7 @@ test('an ambiguous or unknown folder resolves to nothing', () => {
 import fs from 'node:fs';
 import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { loadChats, saveChats, migrateChatWorkspaceIds } from '../lib/persist/chats-persist.js';
+import { loadChats, saveChats, migrateChatWorkspaceIds } from '../lib/persist/chats-legacy-store.js';
 import { resolveTodoChatWorkspace } from '../lib/routes/todos-routes.js';
 
 const row = (id, extra) => ({ id, title: id, cursorSessionId: `s-${id}`, createdAt: '2026-01-01T00:00:00.000Z', ...extra });

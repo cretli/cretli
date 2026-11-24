@@ -12,10 +12,11 @@ if [ -z "${CRETLI_SETUP_TOKEN:-}" ]; then
   echo "[cretli] Paste this token on https://localhost:3011/login (first run)."
 fi
 
-cd /app
+APP_DIR="${CRETLI_APP_DIR:-/app}"
+cd "$APP_DIR"
 mkdir -p data
-if [ -f /app/.env ]; then
-  node --import ./lib/register-boot-env.js --env-file=/app/.env scripts/generate-ssl-cert.js --if-needed
+if [ -f "$APP_DIR/.env" ]; then
+  node --import ./lib/register-boot-env.js --env-file="$APP_DIR/.env" scripts/generate-ssl-cert.js --if-needed
 else
   node --import ./lib/register-boot-env.js scripts/generate-ssl-cert.js --if-needed
 fi
@@ -24,4 +25,8 @@ if [ ! -f public/dist/app/app.bundle.js ] && [ ! -f public/dist/app/index.bundle
   npm run build:front:prod
 fi
 
-exec npm start
+if [ "${CRETLI_DOCKER_SUPERVISOR:-0}" = "1" ]; then
+  exec node scripts/cretli-supervisor.mjs
+else
+  exec npm start
+fi

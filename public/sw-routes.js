@@ -19,6 +19,7 @@
     'terminal',
     'tasks',
     'apps',
+    'devices',
     'todo',
     'decisions',
     'plans',
@@ -29,6 +30,7 @@
     'github',
     'logs',
     'instances',
+    'fleet',
     'tests',
     'settings',
     // Legacy alias for /chat.

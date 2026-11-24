@@ -3,9 +3,16 @@
  */
 
 import { t } from '../../i18n/index.js';
+import { setSettingsScopeName } from './settingsScopeBadges.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getCurrentLang } from '../../i18n/index.js';
 export { refreshExternalMcpSettingsPanel } from './externalMcpSettings.js';
+
+/** @typedef {{ id: string, name: string, enabled?: boolean, revision?: number, transport: string, scope?: string[] | null, harnesses?: string[], secretKeys?: string[], oauth?: Record<string, any>, availableToAutomaticAgents?: boolean, connection?: Record<string, any> }} McpServer */
+/** @typedef {{ serverId: string, status?: string, message?: string, workspaceFile?: string, harness?: string, configState?: string, connectionState?: string, error?: string }} McpStatus */
+/** @typedef {{ id?: string, workspaceFile?: string, label?: string, folder?: string }} McpWorkspace */
+
+/** @typedef {HTMLElement & { value?: string, checked?: boolean, focus?: () => void }} McpControl */
 
 const HARNESSES = [
   ['sdk', 'Cursor SDK'],
@@ -115,7 +122,7 @@ async function runMcpRefresh(id) {
 
 /**
  * @param {HTMLElement} root
- * @param {{ revision: number, servers: object[], statuses: object[], workspaces: object[], oauthPresets: { id: string, label: string, clientIdKey: string, clientSecretKey: string }[] }} data
+ * @param {{ revision: number, servers: McpServer[], statuses: McpStatus[], workspaces: McpWorkspace[], oauthPresets: { id: string, label: string, clientIdKey: string, clientSecretKey: string }[] }} data
  */
 function renderMcpPanel(root, data) {
   const workspaceOptions = [
@@ -202,6 +209,8 @@ function renderMcpPanel(root, data) {
   if (scope) {
     scope.options = workspaceOptions;
     scope.value = 'all';
+    scope.addEventListener('cr-change', () => publishScopeBadge(root));
+    publishScopeBadge(root);
   }
   oauthPresets = data.oauthPresets || [];
   const presetSelect = /** @type {any} */ (root.querySelector('#mcp-form-oauth-preset'));
@@ -219,6 +228,17 @@ function renderMcpPanel(root, data) {
   root.querySelector('#mcp-form-save')?.addEventListener('click', () => saveServerForm(root, data));
   root.querySelector('#mcp-form-cancel')?.addEventListener('click', () => resetServerForm(root));
   root.querySelector('#mcp-form-reload')?.addEventListener('click', () => refreshMcpSettingsPanel({ force: true }));
+  root.querySelectorAll('[data-mcp-automatic]').forEach((el) => el.addEventListener('cr-change', () => {
+    const checkbox = /** @type {any} */ (el);
+    const server = /** @type {any} */ (data.servers).find((/** @type {any} */ row) => row.id === el.getAttribute('data-mcp-automatic'));
+    if (!server) return;
+    void mcpApi(`/api/mcp/servers/${encodeURIComponent(server.id)}`, {
+      method: 'PATCH', body: { expectedRevision: data.revision, availableToAutomaticAgents: checkbox.checked === true },
+    }).then((res) => {
+      if (!res.json?.ok) checkbox.checked = server.availableToAutomaticAgents === true;
+      void refreshMcpSettingsPanel({ force: true });
+    });
+  }));
   root.querySelectorAll('[data-mcp-test]').forEach((btn) => {
     btn.addEventListener('click', () => testServer(btn.getAttribute('data-mcp-test'), data.revision, root));
   });
@@ -265,7 +285,7 @@ function renderMcpPanel(root, data) {
  */
 async function toggleAccessLog(id, root) {
   if (!id) return;
-  const box = root.querySelector(`[data-access-log-for="${CSS.escape(id)}"]`);
+  const box = /** @type {HTMLElement | null} */ (root.querySelector(`[data-access-log-for="${CSS.escape(id)}"]`));
   if (!box) return;
   if (!box.hidden) {
     box.hidden = true;
@@ -334,7 +354,7 @@ function bindOAuthMessageListener() {
  */
 async function startOAuthLogin(id, root, options = {}) {
   if (!id) return;
-  const status = root.querySelector(`[data-oauth-status-for="${CSS.escape(id)}"]`);
+  const status = /** @type {HTMLElement | null} */ (root.querySelector(`[data-oauth-status-for="${CSS.escape(id)}"]`));
   const show = (text) => {
     if (!status) return;
     status.hidden = false;
@@ -372,9 +392,9 @@ async function startOAuthLogin(id, root, options = {}) {
  */
 async function submitOAuthPaste(id, root) {
   if (!id) return;
-  const box = root.querySelector(`[data-oauth-paste-for="${CSS.escape(id)}"]`);
-  const status = root.querySelector(`[data-oauth-status-for="${CSS.escape(id)}"]`);
-  const redirectUrl = String(box?.querySelector('[data-oauth-paste-input]')?.value || '').trim();
+  const box = /** @type {HTMLElement | null} */ (root.querySelector(`[data-oauth-paste-for="${CSS.escape(id)}"]`));
+  const status = /** @type {HTMLElement | null} */ (root.querySelector(`[data-oauth-status-for="${CSS.escape(id)}"]`));
+  const redirectUrl = String((/** @type {McpControl | null} */ (box?.querySelector('[data-oauth-paste-input]')))?.value || '').trim();
   if (!redirectUrl) return;
   const res = await mcpApi(`/api/mcp/servers/${encodeURIComponent(id)}/oauth/complete`, { method: 'POST', body: { redirectUrl } });
   if (!res.json?.ok) {
@@ -397,6 +417,7 @@ async function oauthLogout(id) {
 }
 
 /** Presets from the server (client-credential secret names), set on every render. */
+/** @type {{ id: string, label: string, clientIdKey: string, clientSecretKey: string }[]} */
 let oauthPresets = [];
 
 function syncTransportFields(root) {
@@ -430,7 +451,7 @@ function formatStatusLine(row) {
 
 /**
  * Identical status lines (one per chat) collapse into one line with a count.
- * @param {object[]} rows
+ * @param {McpStatus[]} rows
  * @returns {{ line: string, count: number, bad: boolean }[]}
  */
 function groupStatusLines(rows) {
@@ -453,8 +474,8 @@ function groupStatusLines(rows) {
  * Compact "where does this server work" chips: transport, workspaces, harnesses and
  * whether the Operator can use it (internal operator runs never see external servers).
  *
- * @param {Record<string, any>} server
- * @param {Record<string, any>[]} workspaces
+ * @param {McpServer} server
+ * @param {McpWorkspace[]} workspaces
  * @returns {string}
  */
 function renderScopeChips(server, workspaces) {
@@ -488,13 +509,14 @@ function renderScopeChips(server, workspaces) {
   </div>`;
 }
 
+/** @param {McpServer} server @param {McpStatus[]} statuses @param {McpWorkspace[]} [workspaces] */
 function renderServerCard(server, statuses, workspaces = []) {
   const related = statuses.filter((row) => row.serverId === server.id);
   const groups = groupStatusLines(related);
   const statusBlock = groups.length === 0
     ? `<p class="cr-hint">${escapeHtml(t('settings.mcpStatusUnknown'))}</p>`
     : `<details class="mcp-status-details">
-        <summary>${escapeHtml(t('settings.mcpStatusSummary', { count: related.length }))}${groups.some((g) => g.bad) ? ' ⚠' : ''}</summary>
+        <summary>${escapeHtml(t('settings.mcpStatusSummary', { count: related.length }))}${groups.some((g) => g.bad) ? ' <span class="mdi mdi-alert-outline" aria-hidden="true"></span>' : ''}</summary>
         ${groups.map((g) => (
     `<p class="cr-hint"${g.bad ? ' data-tone="warning"' : ''}>${escapeHtml(g.line)}${g.count > 1 ? ` <span class="mcp-status-count">×${g.count}</span>` : ''}</p>`
   )).join('')}
@@ -527,6 +549,7 @@ function renderServerCard(server, statuses, workspaces = []) {
         <span class="mcp-badge" data-tone="${enabled ? 'success' : 'muted'}">${escapeHtml(enabled ? t('settings.mcpBadgeEnabled') : t('settings.mcpBadgeDisabled'))}</span>
       </div>
       ${renderScopeChips(server, workspaces)}
+      <cr-checkbox data-mcp-automatic="${id}" ${server.availableToAutomaticAgents === true ? 'checked' : ''}>${escapeHtml(t('settings.mcpAutomaticAgents'))}</cr-checkbox>
       <p class="cr-hint">${escapeHtml(secrets)}</p>
       ${statusBlock}
       <div class="cr-row mcp-server-actions">
@@ -554,8 +577,20 @@ function renderServerCard(server, statuses, workspaces = []) {
 /** Id of the server loaded into the form; null while the form adds a new one. */
 let editingId = null;
 
+/**
+ * Publishes the scope badge name from the picker's current value. Call after any
+ * programmatic change of the picker, which does not fire cr-change.
+ * @param {HTMLElement} root
+ */
+export function publishScopeBadge(root) {
+  const scope = /** @type {any} */ (root.querySelector('#mcp-form-scope'));
+  if (!scope) return;
+  const row = (scope.options || []).find((/** @type {any} */ option) => option.value === scope.value);
+  setSettingsScopeName(root, row?.label || '');
+}
+
 /** @param {HTMLElement} root */
-function resetServerForm(root) {
+export function resetServerForm(root) {
   editingId = null;
   const set = (sel, value) => {
     const el = /** @type {any} */ (root.querySelector(sel));
@@ -576,6 +611,7 @@ function resetServerForm(root) {
   root.querySelectorAll('#mcp-form-harnesses cr-checkbox').forEach((el) => { /** @type {any} */ (el).checked = false; });
   syncTransportFields(root);
   syncFormMode(root, null);
+  publishScopeBadge(root);
 }
 
 /**
@@ -598,7 +634,8 @@ function syncFormMode(root, server) {
  * @param {HTMLElement} root
  * @param {Record<string, any>} server
  */
-function startEdit(root, server) {
+/** @param {HTMLElement} root @param {McpServer} server */
+export function startEdit(root, server) {
   resetServerForm(root);
   editingId = server.id;
   const set = (sel, value) => {
@@ -632,6 +669,7 @@ function startEdit(root, server) {
   });
   syncTransportFields(root);
   syncFormMode(root, server);
+  publishScopeBadge(root);
   const form = root.querySelector('#mcp-form');
   form?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   /** @type {any} */ (root.querySelector('#mcp-form-name'))?.focus?.();
@@ -640,22 +678,22 @@ function startEdit(root, server) {
 /**
  * Creates a server, or patches the one loaded by {@link startEdit}.
  * @param {HTMLElement} root
- * @param {{ revision: number, servers: object[] }} data
+ * @param {{ revision: number, servers: McpServer[] }} data
  */
 async function saveServerForm(root, data) {
   const revision = data.revision;
-  const status = root.querySelector('#mcp-form-status');
+  const status = /** @type {HTMLElement | null} */ (root.querySelector('#mcp-form-status'));
   const expected = Number(root.dataset.mcpRevision || revision);
-  const name = root.querySelector('#mcp-form-name')?.value?.trim() || '';
+  const name = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-name')))?.value?.trim() || '';
   if (!name) {
     if (status) status.textContent = t('settings.mcpNameRequired');
-    root.querySelector('#mcp-form-name')?.focus?.();
+    (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-name')))?.focus?.();
     return;
   }
-  const transport = root.querySelector('#mcp-form-transport')?.value || 'stdio';
-  const harnesses = [...root.querySelectorAll('#mcp-form-harnesses cr-checkbox')].filter((el) => el.checked).map((el) => el.getAttribute('data-harness'));
-  const scopeValue = root.querySelector('#mcp-form-scope')?.value || 'all';
-  const secret = root.querySelector('#mcp-form-secret')?.value || '';
+  const transport = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-transport')))?.value || 'stdio';
+  const harnesses = [...root.querySelectorAll('#mcp-form-harnesses cr-checkbox')].filter((el) => /** @type {McpControl} */ (el).checked).map((el) => el.getAttribute('data-harness'));
+  const scopeValue = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-scope')))?.value || 'all';
+  const secret = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-secret')))?.value || '';
   const existing = editingId ? data.servers.find((row) => row.id === editingId) : null;
   /** @type {Record<string, unknown>} */
   const body = {
@@ -672,7 +710,7 @@ async function saveServerForm(root, data) {
   if (!existing || root.dataset.mcpInitialScope !== 'multi') {
     body.scope = scopeValue === 'all' ? 'all' : [scopeValue];
   }
-  const secretName = String(root.querySelector('#mcp-form-secret-name')?.value || '').trim()
+  const secretName = String((/** @type {McpControl | null} */ (root.querySelector('#mcp-form-secret-name')))?.value || '').trim()
     || (transport === 'http' ? 'Authorization' : 'MCP_TOKEN');
   /** Plain entries and secret references of the stored bag survive; the API only returns { set } for secrets. */
   const keepEntries = (bag) => Object.fromEntries(
@@ -682,30 +720,30 @@ async function saveServerForm(root, data) {
     ]),
   );
   if (transport === 'http') {
-    body.connection = { url: root.querySelector('#mcp-form-url')?.value?.trim() || '' };
+    body.connection = { url: (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-url')))?.value?.trim() || '' };
     if (secret) {
-      body.connection.headers = {
+      (/** @type {{ headers?: Record<string, any> }} */ (body.connection)).headers = {
         ...keepEntries(existing?.connection?.headers),
         [secretName]: { secret: secretName, value: secret },
       };
     }
   } else {
-    const command = root.querySelector('#mcp-form-command')?.value?.trim() || '';
-    const args = String(root.querySelector('#mcp-form-args')?.value || '').trim().split(/\s+/).filter(Boolean);
+    const command = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-command')))?.value?.trim() || '';
+    const args = String((/** @type {McpControl | null} */ (root.querySelector('#mcp-form-args')))?.value || '').trim().split(/\s+/).filter(Boolean);
     body.connection = { command, args };
     if (secret) {
-      body.connection.env = {
+      (/** @type {{ env?: Record<string, any> }} */ (body.connection)).env = {
         ...keepEntries(existing?.connection?.env),
         [secretName]: { secret: secretName, value: secret },
       };
     }
   }
-  const presetId = transport === 'stdio' ? (root.querySelector('#mcp-form-oauth-preset')?.value || '') : '';
+  const presetId = transport === 'stdio' ? ((/** @type {McpControl | null} */ (root.querySelector('#mcp-form-oauth-preset')))?.value || '') : '';
   const preset = oauthPresets.find((row) => row.id === presetId);
   if (preset) {
-    body.oauth = { preset: preset.id, loginHint: root.querySelector('#mcp-form-oauth-hint')?.value?.trim() || '' };
-    const clientId = root.querySelector('#mcp-form-oauth-client-id')?.value?.trim() || '';
-    const clientSecret = root.querySelector('#mcp-form-oauth-client-secret')?.value?.trim() || '';
+    body.oauth = { preset: preset.id, loginHint: (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-oauth-hint')))?.value?.trim() || '' };
+    const clientId = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-oauth-client-id')))?.value?.trim() || '';
+    const clientSecret = (/** @type {McpControl | null} */ (root.querySelector('#mcp-form-oauth-client-secret')))?.value?.trim() || '';
     // Blank fields keep the stored credentials.
     body.secrets = {
       ...(clientId ? { [preset.clientIdKey]: clientId } : {}),
@@ -751,7 +789,7 @@ async function duplicateServer(id, revision, root) {
   const copyId = res.json.server?.id;
   const card = copyId ? root.querySelector(`[data-server-id="${CSS.escape(copyId)}"]`) : null;
   card?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-  const hint = card?.querySelector('[data-oauth-status-for]');
+  const hint = /** @type {HTMLElement | null | undefined} */ (card?.querySelector('[data-oauth-status-for]'));
   if (hint) {
     hint.hidden = false;
     hint.textContent = t('settings.mcpDuplicated');
@@ -761,9 +799,10 @@ async function duplicateServer(id, revision, root) {
 /**
  * Swaps the card heading for an input; Enter saves, Escape cancels.
  * @param {string | null} id
- * @param {{ revision: number, servers: object[] }} data
+ * @param {{ revision: number, servers: McpServer[] }} data
  * @param {HTMLElement} root
  */
+/** @param {string} id @param {{ revision: number, servers: McpServer[] }} data @param {HTMLElement} root */
 function startRename(id, data, root) {
   if (!id) return;
   const heading = /** @type {HTMLElement | null} */ (root.querySelector(`[data-mcp-name-for="${CSS.escape(id)}"]`));

@@ -7,7 +7,7 @@ import test from 'node:test';
 import { createJobQueue, createQueuedVerifyRunner, getJobQueueMetricsSnapshot, REVIEW_VERIFY_JOB_KIND } from '../lib/job-queue/index.js';
 import { createLoadSnapshotProvider } from '../lib/server-health/load-snapshot.js';
 import { createTempRepo } from './helpers/temp-git-repo.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, getDelegationById } from '../lib/persist/delegations-persist.js';
 import { startAutoVerifyAfterImplement } from '../lib/delegation-service.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';

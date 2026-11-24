@@ -1,7 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { saveChats, updateChat, loadChats } from '../lib/persist/chats-persist.js';
+import { saveChats, updateChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 
 function seed() {
   saveChats([

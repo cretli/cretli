@@ -3,6 +3,7 @@
  */
 
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.ts';
+import { isOperatorChat } from './operatorChat.js';
 import { normalizeSdkUiMode } from '../../../lib/sdk/sdk-ui-mode.ts';
 import {
   isBlockingPersistedLocalChatHarnessState,
@@ -13,19 +14,21 @@ import {
   forEachInTimeSlices,
 } from '../../lib/schedulerYield.js';
 
+/** @typedef {Record<string, any>} ServerChat */
+
 /** Reconcile with yields when the server payload exceeds this row count. */
 export const CHAT_LIST_SERVER_RECONCILE_SLICE_THRESHOLD = 64;
 
 /**
- * @param {object | null | undefined} existing
- * @param {object} serverChat
+ * @param {ServerChat | null | undefined} existing
+ * @param {ServerChat} serverChat
  * @param {{
  *   readChatBufferForChatRestore: (id: string, flag: boolean) => unknown[] | null | undefined,
  *   chatBufferMax: number,
- *   blockedTransitions: object[],
- *   restoredTransitions: object[],
+ *   blockedTransitions: ServerChat[],
+ *   restoredTransitions: ServerChat[],
  * }} ctx
- * @returns {object}
+ * @returns {ServerChat}
  */
 export function mergeExistingChatFromServerRow(existing, serverChat, ctx) {
   delete existing._fromBootCache;
@@ -91,6 +94,11 @@ export function mergeExistingChatFromServerRow(existing, serverChat, ctx) {
   } else {
     delete existing.watcherPinned;
   }
+  if (isOperatorChat(serverChat)) {
+    Object.assign(existing, { operatorChat: true });
+  } else {
+    Reflect.deleteProperty(existing, 'operatorChat');
+  }
   if (typeof serverChat.forkParentChatId === 'string' && serverChat.forkParentChatId.trim()) {
     existing.forkParentChatId = serverChat.forkParentChatId.trim();
   } else {
@@ -134,14 +142,14 @@ export function mergeExistingChatFromServerRow(existing, serverChat, ctx) {
 }
 
 /**
- * @param {object} serverChat
+ * @param {ServerChat} serverChat
  * @param {{
  *   readChatBufferForChatRestore: (id: string, flag: boolean) => unknown[] | null | undefined,
  *   chatBufferMax: number,
- *   hydratePresenceChat: (chat: object) => boolean,
+ *   hydratePresenceChat: (chat: ServerChat) => boolean,
  *   presenceDirtyIds: string[],
  * }} ctx
- * @returns {object}
+ * @returns {ServerChat}
  */
 export function createRuntimeChatFromServerRow(serverChat, ctx) {
   const created = {
@@ -184,6 +192,9 @@ export function createRuntimeChatFromServerRow(serverChat, ctx) {
   if (serverChat.watcherPinned === true) {
     created.watcherPinned = true;
   }
+  if (isOperatorChat(serverChat)) {
+    Object.assign(created, { operatorChat: true });
+  }
   if (typeof serverChat.forkParentChatId === 'string' && serverChat.forkParentChatId.trim()) {
     created.forkParentChatId = serverChat.forkParentChatId.trim();
   }
@@ -212,10 +223,10 @@ export function createRuntimeChatFromServerRow(serverChat, ctx) {
 }
 
 /**
- * @param {object} serverChat
- * @param {Map<string, object>} runtimeById
+ * @param {ServerChat} serverChat
+ * @param {Map<string, ServerChat>} runtimeById
  * @param {object} ctx
- * @returns {object}
+ * @returns {ServerChat}
  */
 export function reconcileOneServerChatRow(serverChat, runtimeById, ctx) {
   const existing = runtimeById.get(serverChat.id);
@@ -224,10 +235,10 @@ export function reconcileOneServerChatRow(serverChat, runtimeById, ctx) {
 }
 
 /**
- * @param {object[]} serverChats
- * @param {Map<string, object>} runtimeById
+ * @param {ServerChat[]} serverChats
+ * @param {Map<string, ServerChat>} runtimeById
  * @param {object} ctx
- * @returns {object[]}
+ * @returns {ServerChat[]}
  */
 export function reconcileServerChatsSync(serverChats, runtimeById, ctx) {
   const list = Array.isArray(serverChats) ? serverChats : [];
@@ -235,8 +246,8 @@ export function reconcileServerChatsSync(serverChats, runtimeById, ctx) {
 }
 
 /**
- * @param {object[]} serverChats
- * @param {Map<string, object>} runtimeById
+ * @param {ServerChat[]} serverChats
+ * @param {Map<string, ServerChat>} runtimeById
  * @param {object} ctx
  * @param {{
  *   isApplyFresh?: () => boolean,
@@ -244,7 +255,7 @@ export function reconcileServerChatsSync(serverChats, runtimeById, ctx) {
  *   budgetMs?: number,
  *   session?: ReturnType<typeof createSliceSession>,
  * }} [options]
- * @returns {Promise<{ rows: object[], cancelled: boolean }>}
+ * @returns {Promise<{ rows: ServerChat[], cancelled: boolean }>}
  */
 export async function reconcileServerChatsInTimeSlices(
   serverChats,
@@ -258,7 +269,7 @@ export async function reconcileServerChatsInTimeSlices(
     return { rows: reconcileServerChatsSync(list, runtimeById, ctx), cancelled: false };
   }
   const session = options.session || createSliceSession();
-  /** @type {object[]} */
+  /** @type {ServerChat[]} */
   const rows = [];
   const result = await forEachInTimeSlices(list, {
     session,

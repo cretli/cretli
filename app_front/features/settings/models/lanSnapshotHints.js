@@ -74,10 +74,12 @@ export function applyClaudeApiKeyHint(data) {
 export function applyClaudeCacheSettings(data) {
   const cachingCheckbox = document.getElementById('claude-prompt-caching-1h-checkbox');
   const disableCompactCheckbox = document.getElementById('claude-disable-auto-compact-checkbox');
+  const suggestionCheckbox = /** @type {any} */ (document.getElementById('claude-prompt-suggestion-enabled-checkbox'));
   const pctInput = document.getElementById('claude-autocompact-pct-input');
   const statusEl = document.getElementById('claude-cache-save-status');
   if (cachingCheckbox) cachingCheckbox.checked = data?.claudePromptCaching1h === true;
   if (disableCompactCheckbox) disableCompactCheckbox.checked = data?.claudeDisableAutoCompact === true;
+  if (suggestionCheckbox) suggestionCheckbox.checked = data?.claudePromptSuggestionEnabled !== false;
   if (pctInput) {
     const pct = Number(data?.claudeAutocompactPctOverride);
     pctInput.value = Number.isFinite(pct) && pct > 0 ? String(pct) : '';

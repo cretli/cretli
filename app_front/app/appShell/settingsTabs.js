@@ -1,3 +1,5 @@
+import { initSettingsCategoryNavigation } from '../../features/settings/settingsCategoryNavigation.js';
+import { initSettingsHarnessPicker } from '../../features/settings/settingsHarnessPicker.js';
 /** Settings panel tabs: heavy-module init, tab bar state, per-tab refresh and click wiring. */
 import { applySettingsFooters } from '../../features/settings/settingsFooters.js';
 import { initLanSettings } from '../../features/settings/models/lanSettings.js';
@@ -83,7 +85,7 @@ export function ensureSettingsTabsVisible() {
   tabBar.style.visibility = 'visible';
   tabBar.style.opacity = '1';
   tabBar.querySelectorAll('.settings-tab').forEach((btn) => {
-    btn.hidden = false;
+    if (!tabBar.dataset.categoriesReady) btn.hidden = false;
     btn.style.display = 'inline-flex';
     btn.style.visibility = 'visible';
     btn.style.opacity = '1';
@@ -184,7 +186,10 @@ export function applySettingsTabButtonState(root, tabId, inMainBar) {
   root?.querySelectorAll('.settings-tab').forEach((btn) => {
     const isActive = isSettingsTabButtonActive(btn, tabId, inMainBar);
     btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    if (inMainBar) {
+      if (isActive) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
+    } else btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
     if (isActive) activeBtn = btn;
   });
   return activeBtn;
@@ -278,6 +283,8 @@ export function initSettingsTabs() {
   const tabBar = document.getElementById('settings-tabs');
   if (!tabBar) return;
   ensureSettingsTabsVisible();
+  initSettingsCategoryNavigation();
+  initSettingsHarnessPicker();
 
   let initialTab = 'workspace';
   const requestedTab = remapSettingsTab(readRequestedSettingsTab());

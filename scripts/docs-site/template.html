@@ -1,24 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{title}}</title>
 <meta name="description" content="{{description}}">
 <link rel="canonical" href="{{canonical}}">
+{{alternates}}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{canonical}}">
+<meta property="og:title" content="{{title}}">
+<meta property="og:description" content="{{description}}">
 <script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
-<link rel="stylesheet" href="assets/docs.css">
+<link rel="stylesheet" href="../assets/docs.css">
 </head>
 <body>
-<a class="skip-link" href="#content">Skip to content</a>
+<a class="skip-link" href="#content">{{skip}}</a>
 <header class="site-header">
-  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">Menu</button>
-  <a class="brand" href="index.html">Cretli docs</a>
-  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
-  <button class="theme-toggle" type="button" aria-label="Toggle light and dark theme">Theme</button>
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · {{docs}}</a>
+  <a href="{{languageHref}}" hreflang="{{otherLang}}">{{languageName}}</a>
+  <a href="{{homeHref}}" class="home-link">{{home}}</a>
+  <input class="search" type="search" placeholder="{{search}}" aria-label="{{search}}" hidden>
+  <button class="theme-toggle" type="button" aria-label="{{theme}}">{{theme}}</button>
 </header>
 <div class="layout">
-  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+  <nav id="site-nav" class="site-nav" aria-label="{{docs}}">
     <ul class="search-results" hidden></ul>
 {{nav}}
   </nav>
@@ -28,11 +35,11 @@
     </article>
 {{prevNext}}
   </main>
-  <aside class="toc" aria-label="On this page">
+  <aside class="toc" aria-label="{{onPage}}">
 {{toc}}
   </aside>
 </div>
-<footer class="site-footer">Cretli documentation</footer>
-<script src="assets/docs.js" defer></script>
+<footer class="site-footer">Cretli · {{docs}}</footer>
+<script src="../assets/docs.js" defer></script>
 </body>
 </html>

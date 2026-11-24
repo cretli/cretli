@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backups and data</title>
+<meta name="description" content="Where Cretli keeps its data, which backup tools exist, and how to restore safely.">
+<link rel="canonical" href="https://cretli.com/docs/en/backups-and-data.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/backups-and-data.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/backups-and-data.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/backups-and-data.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/en/backups-and-data.html">
+<meta property="og:title" content="Backups and data">
+<meta property="og:description" content="Where Cretli keeps its data, which backup tools exist, and how to restore safely.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Documentation</a>
+  <a href="../pl/backups-and-data.html" hreflang="pl">Polski</a>
+  <a href="/" class="home-link">Home</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Getting started</h2><ul><li><a href="index.html">Cretli documentation</a></li><li><a href="getting-started.html">Getting started</a></li><li><a href="install-docker.html">Install with Docker</a></li></ul></section>
+<section class="nav-section"><h2>Harnesses</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Workspaces</h2><ul><li><a href="workspaces.html">Workspaces</a></li><li><a href="settings.html">Settings</a></li></ul></section>
+<section class="nav-section"><h2>Working surfaces</h2><ul><li><a href="chat-and-agents.html">Working surfaces</a></li></ul></section>
+<section class="nav-section"><h2>Todo and plans</h2><ul><li><a href="todos.html">Todo and plans</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Workspace Watcher</a></li></ul></section>
+<section class="nav-section"><h2>Delegation and review</h2><ul><li><a href="delegation-review.html">Delegation and independent review</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">MCP tools and external clients</a></li></ul></section>
+<section class="nav-section"><h2>Remote access</h2><ul><li><a href="remote-access.html">Remote access, PWA and notifications</a></li><li><a href="security-basics.html">Security basics</a></li></ul></section>
+<section class="nav-section"><h2>Backups and data</h2><ul><li><a href="backups-and-data.html" aria-current="page">Backups and data</a></li></ul></section>
+<section class="nav-section"><h2>Troubleshooting and FAQ</h2><ul><li><a href="troubleshooting.html">Troubleshooting</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Backups and data</h1>
+<p>Cretli stores everything it creates in the <code>data/</code> folder inside the installation: chats, tasks, settings, certificates, and credentials. That folder is private runtime state. <strong>Never commit it</strong>, copy it into a repository, or paste its files into chats. The project's git ignore rules already exclude it.</p>
+<h2 id="choose-a-tool">Choose a tool</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Tool</th>
+<th>Server</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Move non-secret settings</td>
+<td>Settings → Data and backups, portable settings export</td>
+<td>running</td>
+</tr>
+<tr>
+<td>Copy or archive chats</td>
+<td>Conversations export; import creates <strong>new</strong> chats</td>
+<td>running</td>
+</tr>
+<tr>
+<td>Hourly local snapshots</td>
+<td>Automatic backups in <code>data/backups/auto/</code></td>
+<td>running</td>
+</tr>
+<tr>
+<td>Disaster recovery of all data</td>
+<td><code>node scripts/cretli-offline-data.mjs</code></td>
+<td><strong>stopped</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="automatic-local-backups">Automatic local backups</h2>
+<p>The server writes a snapshot at startup and hourly. It keeps recent hourly, daily, and weekly copies, each with a manifest of sizes and checksums. These stay on the same disk, so they do not protect you from losing the machine. List them with <code>node scripts/backup-restore.mjs --list</code>. A restore is a dry run until you add <code>--apply</code>; stop Cretli and pause Watchers first.</p>
+<h2 id="full-offline-backup">Full offline backup</h2>
+<p>With the server stopped, <code>backup --dest DIR</code> writes a verified copy of every managed file. Add <code>--encrypt</code> for a single encrypted <code>.cretlibak</code> file. Secrets are left out unless you also pass <code>--include-secrets</code>, so protect that file and its passphrase. Check any backup with <code>verify</code> before relying on it, and restore with <code>restore --backup PATH --yes</code>. A restore leaves the dataset paused: inspect the result, then run <code>node scripts/cretli-offline-data.mjs finalize</code> followed by <code>node scripts/cretli-offline-data.mjs resume</code>. Until you resume, automatic work such as Watchers stays off.</p>
+<h2 id="habits-that-help">Habits that help</h2>
+<ul>
+<li>Copy backups to another machine or drive regularly.</li>
+<li>Take a backup before updating or changing configuration.</li>
+<li>Test a restore on a spare copy occasionally.</li>
+<li>Never share exported archives publicly; chats can contain private code and tokens.</li>
+</ul>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="security-basics.html">&larr; Security basics</a>
+      <a rel="next" href="troubleshooting.html">Troubleshooting &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>
+      <li><a href="#choose-a-tool">Choose a tool</a></li>
+      <li><a href="#automatic-local-backups">Automatic local backups</a></li>
+      <li><a href="#full-offline-backup">Full offline backup</a></li>
+      <li><a href="#habits-that-help">Habits that help</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Documentation</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

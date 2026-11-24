@@ -67,13 +67,16 @@ async function startServer(scope = {}) {
   app.use(express.json());
   app.use((req, _res, next) => {
     if (req.headers['x-test-widget'] === '1') req.widgetAccess = { installationId: 'w' };
+    // Per-workspace routes need an explicit scope: the test tab names its folder like the panel does.
+    const folder = String(req.headers['x-test-workspace'] || cwd);
+    const bodyHasScope = req.body && ['workspaceId', 'workspaceFile', 'workspaceFolder', 'chatId'].some((key) => req.body[key]);
+    const queryHasScope = ['workspaceId', 'workspaceFile', 'workspaceFolder', 'chatId'].some((key) => req.query[key]);
+    if (folder && !bodyHasScope && !queryHasScope) Object.defineProperty(req, 'query', { value: { ...req.query, workspaceFolder: folder }, writable: true, configurable: true });
     next();
   });
   registerBrowserRoutes(app, {
     browserManager: manager,
     dataDir,
-    getCurrentCwd: (req) => String(req?.headers?.['x-test-workspace'] || cwd),
-    getCurrentWorkspaceFile: (req) => String(req?.headers?.['x-test-workspace'] || workspaceFile),
     getOwnerSessionId: (req) => String(req.headers['x-test-owner'] || ''),
     loadSettings: () => scope.settings || { workspaces: [] },
   });
@@ -176,8 +179,8 @@ test('an empty workspace cannot create or list Browser sessions', async () => {
   try {
     const owner = { 'x-test-owner': 'owner-a' };
     const listed = await fetch(`${ctx.base}/api/browser/sessions`, { headers: owner });
-    assert.equal(listed.status, 200);
-    assert.deepEqual((await listed.json()).sessions, []);
+    assert.equal(listed.status, 400);
+    assert.equal((await listed.json()).code, 'workspace-scope-required');
 
     const create = await fetch(`${ctx.base}/api/browser/sessions`, {
       method: 'POST',
@@ -185,7 +188,7 @@ test('an empty workspace cannot create or list Browser sessions', async () => {
       body: JSON.stringify({ mode: 'agent' }),
     });
     assert.equal(create.status, 400);
-    assert.equal((await create.json()).code, 'no-workspace');
+    assert.equal((await create.json()).code, 'workspace-scope-required');
   } finally {
     await ctx.close();
   }
@@ -232,7 +235,7 @@ test('a session cannot be read, bound or deleted from another workspace', async 
       headers: foreign,
       body: JSON.stringify({ chatId: 'chat-1', mode: 'agent' }),
     });
-    assert.equal(bind.status, 403);
+    assert.equal(bind.status, 404);
 
     const del = await fetch(`${ctx.base}/api/browser/sessions/${session.browserSessionId}?mode=agent`, {
       method: 'DELETE',
@@ -296,25 +299,46 @@ test('policy endpoint edits the workspace named by the tab, not the global one',
     });
     const written = await write.json();
     assert.equal(written.workspaceKey, '/ws/acme.code-workspace');
+    setWorkspacePolicy(ctx.dataDir, '/work/acme', { allowedOrigins: ['http://localhost:4000'] });
 
     const global = await (await fetch(`${ctx.base}/api/browser/policy`, { headers: owner })).json();
-    assert.equal(global.workspaceKey, '/ws/global.code-workspace');
+    assert.equal(global.workspaceKey, '/ws/global');
     assert.deepEqual(global.policy.allowedOrigins, []);
 
-    // A folder-only tab (e.g. a Watcher chat) inherits its registry workspace.
+    // A folder-only request keeps its own policy key despite file-workspace membership.
     const folderOnly = await (await fetch(
       `${ctx.base}/api/browser/policy?workspaceFolder=${encodeURIComponent('/work/acme')}`,
       { headers: owner },
     )).json();
-    assert.equal(folderOnly.workspaceKey, '/ws/acme.code-workspace');
-    assert.deepEqual(folderOnly.policy.allowedOrigins, ['http://localhost:3010']);
+    assert.equal(folderOnly.effectiveKey, '/work/acme');
+    assert.deepEqual(folderOnly.policy.allowedOrigins, ['http://localhost:4000']);
+
+    const folderWrite = await fetch(`${ctx.base}/api/browser/policy?mode=agent`, {
+      method: 'PUT',
+      headers: owner,
+      body: JSON.stringify({
+        workspaceFolder: '/work/acme',
+        policy: { allowedOrigins: ['http://localhost:4001'] },
+      }),
+    });
+    assert.equal(folderWrite.status, 200);
+    const folderUpdated = await folderWrite.json();
+    assert.equal(folderUpdated.effectiveKey, '/work/acme');
+    assert.deepEqual(folderUpdated.policy.allowedOrigins, ['http://localhost:4001']);
+
+    const fileOnly = await (await fetch(
+      `${ctx.base}/api/browser/policy?workspaceFile=${encodeURIComponent('/ws/acme.code-workspace')}`,
+      { headers: owner },
+    )).json();
+    assert.equal(fileOnly.effectiveKey, '/ws/acme.code-workspace');
+    assert.deepEqual(fileOnly.policy.allowedOrigins, ['http://localhost:3010']);
 
     // An unregistered file is ignored rather than creating a stray policy key.
     const stray = await (await fetch(
       `${ctx.base}/api/browser/policy?workspaceFile=${encodeURIComponent('/tmp/other.code-workspace')}`,
       { headers: owner },
     )).json();
-    assert.equal(stray.workspaceKey, '/ws/global.code-workspace');
+    assert.equal(stray.code, 'workspace-unknown');
   } finally {
     await ctx.close();
   }
@@ -372,24 +396,28 @@ test('folder override can be deleted from a folder-only panel scope', async () =
   }
 });
 
-test('Browser session reads use the tab workspace and keep folder-only scope separate from the global file', async () => {
-  const ctx = await startServer({ workspaceFile: '/ws/global.code-workspace', cwd: '/ws/global' });
+test('Browser session reads use the tab workspace and keep folder-only scope separate from the file workspace', async () => {
+  const settings = {
+    workspaces: [{ kind: 'file', workspaceFile: '/ws/acme.code-workspace' }],
+    workspaceSidebarConfig: {
+      '/ws/acme.code-workspace': { folders: { '/ws/acme': { enabled: true } } },
+    },
+  };
+  const ctx = await startServer({ workspaceFile: '/ws/global.code-workspace', cwd: '/ws/global', settings });
   const scopes = [];
   ctx.manager.listSessions = (_owner, scope) => { scopes.push(scope); return []; };
   try {
     const headers = { 'x-test-owner': 'owner-a' };
     for (const query of [
-      new URLSearchParams({ workspaceFile: 'cretli:ws:acme', workspaceFolder: '/ws/acme' }),
+      new URLSearchParams({ workspaceFile: '/ws/acme.code-workspace', workspaceFolder: '/ws/acme' }),
       new URLSearchParams({ workspaceFolder: '/ws/acme' }),
-      new URLSearchParams(),
     ]) {
       const response = await fetch(`${ctx.base}/api/browser/sessions?${query}`, { headers });
       assert.equal(response.status, 200);
     }
     assert.deepEqual(scopes.map(({ workspaceFile, cwd }) => ({ workspaceFile, cwd })), [
-      { workspaceFile: 'cretli:ws:acme', cwd: '/ws/acme' },
+      { workspaceFile: '/ws/acme.code-workspace', cwd: '/ws/acme' },
       { workspaceFile: '', cwd: '/ws/acme' },
-      { workspaceFile: '/ws/global.code-workspace', cwd: '/ws/global' },
     ]);
   } finally {
     await ctx.close();

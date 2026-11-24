@@ -45,6 +45,8 @@
     "store.approval-audit",
     "store.harness-usage-limits",
     "store.apps-state",
+    "store.devices",
+    "store.deviceRuns",
     "store.port-exposures",
     "store.browser-policy",
     "store.docs-state"
@@ -1067,6 +1069,63 @@
         "unknownGaps": []
       }
     },
+    {
+      "id": "store.devices",
+      "domainOwner": "lib/devices/store.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "devices.json" },
+      "bootstrapMarker": { "path": "devices.json", "detect": "file-exists" },
+      "managedPaths": ["devices.json"],
+      "retainedPaths": [],
+      "lockOrderRank": 275,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "devices array of registered test devices, including boolean separateProfile (default false)",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "none"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "devices service (lib/devices/service.js)" }
+        ],
+        "unknownGaps": []
+      }
+    },
+    {
+      "id": "store.deviceRuns",
+      "domainOwner": "lib/devices/run-history.js",
+      "backend": { "kind": "json-document", "schemaVersion": 1, "file": "device-runs.json" },
+      "bootstrapMarker": { "path": "device-runs.json", "detect": "file-exists" },
+      "managedPaths": ["device-runs.json", "device-run-screenshots/"],
+      "retainedPaths": [],
+      "lockOrderRank": 276,
+      "locks": ["in-process"],
+      "buffers": { "inMemoryCache": true, "flushStrategy": "atomic rename" },
+      "secrets": { "classification": "operational", "exportBoundary": "include" },
+      "rawValidator": "runs array with workspace, device, hash, metrics and owned screenshot filenames; at most 200 records and 200 MB screenshots, paired oldest eviction",
+      "adapters": {
+        "export": "logical-json",
+        "snapshot": "stop-server-copy",
+        "flush": "atomic-rename",
+        "restore": "atomic-replace",
+        "migration": "none"
+      },
+      "durability": { "mode": "atomic-rename" },
+      "ackClasses": ["post-commit"],
+      "writers": {
+        "known": [
+          { "channel": "http", "module": "device runs service (lib/devices/runs.js)" }
+        ],
+        "unknownGaps": []
+      }
+    },
+
     {
       "id": "store.port-exposures",
       "domainOwner": "lib/port-exposure/ledger.js",

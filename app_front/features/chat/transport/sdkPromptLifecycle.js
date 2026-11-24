@@ -1,4 +1,13 @@
 export function handleSdkPromptLifecycleMessage(chat, msg, helpers) {
+  if (msg.type === 'promptSuggestion') {
+    chat._promptSuggestionChip?.set(msg.text
+      ? { text: msg.text, turnRunId: msg.turnRunId }
+      : null);
+    return true;
+  }
+  if (msg.type === 'sdkRoomState' && Object.prototype.hasOwnProperty.call(msg, 'promptSuggestion')) {
+    chat._promptSuggestionChip?.set(msg.promptSuggestion);
+  }
   const text = msg.text || '';
   if (msg.type === 'sdkQueued') {
     chat._sdkLastLiveEventAt = Date.now();
@@ -17,6 +26,10 @@ export function handleSdkPromptLifecycleMessage(chat, msg, helpers) {
     }
     helpers.appendSdkQueuedPromptLine(chat, text, msg.position || 1);
     helpers.renderChatTerminalState(chat);
+    return true;
+  }
+  if (msg.type === 'sdkQueueReordered') {
+    chat._sdkRichView?.reorderQueuedPrompts?.(Array.isArray(msg.order) ? msg.order : []);
     return true;
   }
   if (msg.type === 'sdkQueueRemoved') {

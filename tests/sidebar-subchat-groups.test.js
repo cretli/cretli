@@ -10,6 +10,7 @@ import {
   getAncestorContinuationLevels,
   formatSubchatParentBadge,
   formatSubchatSummary,
+  formatSubchatSummaryText,
   groupSettledChildren,
   readChatAgeMs,
   readSubchatOutcome,
@@ -293,7 +294,8 @@ test('summarizeGroup and formatSubchatSummary report completed, failed and inter
     { _serverRunState: { state: 'attention', delegationStatus: 'failed' } },
   ]);
   assert.deepEqual(summary, { total: 5, completed: 2, failed: 2, interrupted: 1, idle: 0 });
-  assert.equal(formatSubchatSummary(summary), '2 ✓, 2 ✗, 1 ⏸');
+  assert.equal(formatSubchatSummary(summary), '2 \u{F012C}, 2 \u{F0156}, 1 \u{F03E4}');
+  assert.equal(formatSubchatSummaryText(summary, (key, vars) => `${vars.count}:${key}`), '2:sidebar.subchatCountOk, 2:sidebar.subchatCountFailed, 1:sidebar.subchatCountPaused');
   assert.equal(formatSubchatSummary({ completed: 0, failed: 0, interrupted: 0, idle: 0 }), '');
 });
 
@@ -348,6 +350,9 @@ function translate(key, vars = {}) {
     'sidebar.subchatSummary': 'Podsumowanie zakończonych subczatów: {summary}',
     'sidebar.subchatParentSummary': 'Zakończone subczaty w tym czacie: {summary}',
     'sidebar.archiveSettled': 'Archiwizuj zakończone subczaty',
+    'sidebar.subchatCountOk': '{count} gotowe',
+    'sidebar.subchatCountFailed': '{count} z błędem',
+    'sidebar.subchatCountPaused': '{count} wstrzymane',
   };
   let value = dict[key];
   if (value === undefined) return key;
@@ -456,7 +461,7 @@ test('renderSubchatGroupHtml labels the toggle with its parent and escapes it', 
   });
   assert.match(expanded, /aria-expanded="true"/);
   assert.ok(expanded.includes('Zwiń 3 zakończone subczaty (Rodzic)'));
-  assert.ok(expanded.includes('2 ✓, 1 ✗'), 'summary stays on the group row');
+  assert.ok(expanded.includes('2 \u{F012C}, 1 \u{F0156}'), 'summary stays on the group row');
 });
 
 test('formatSubchatParentBadge summarizes collapsed children only when present', () => {
@@ -467,8 +472,8 @@ test('formatSubchatParentBadge summarizes collapsed children only when present',
     translate,
   );
   assert.deepEqual(badge, {
-    label: '2 ✓, 1 ✗',
-    title: 'Zakończone subczaty w tym czacie: 2 ✓, 1 ✗',
+    label: '2 \u{F012C}, 1 \u{F0156}',
+    title: 'Zakończone subczaty w tym czacie: 2 gotowe, 1 z błędem',
   });
 });
 

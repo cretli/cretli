@@ -87,7 +87,7 @@ export function resolveVoiceWorkAction(value) {
  * Picks a todo by exact id or by a spoken title fragment (case- and
  * diacritic-insensitive). Several matches never pick one silently.
  *
- * @param {object[]} items
+ * @param {any[]} items
  * @param {{ id?: unknown, query?: unknown }} input
  * @returns {{ todo?: object, ambiguous?: string[], missing?: true }}
  */

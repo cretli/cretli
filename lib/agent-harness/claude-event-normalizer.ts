@@ -619,6 +619,10 @@ export function createClaudeEventNormalizer(): { normalize: (message: unknown) =
       const notice = buildClaudeRateLimitNotice(rec);
       return notice ? [notice] : [];
     }
+    if (type === 'prompt_suggestion') {
+      const suggestion = typeof rec.suggestion === 'string' ? rec.suggestion.trim().slice(0, 500) : '';
+      return suggestion ? [{ kind: 'prompt_suggestion', suggestion }] : [];
+    }
     if (type === 'stream_event') {
       const parentToolUseId = readParentToolUseId(rec);
       // Subagent stream chunks never touch the main answer (text/thinking

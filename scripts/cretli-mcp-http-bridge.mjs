@@ -10,7 +10,8 @@
  * Environment:
  *   CRETLI_MCP_URL          Endpoint, e.g. https://your-pc:3011/mcp (required)
  *   CRETLI_MCP_TOKEN        Client token (or use CRETLI_MCP_TOKEN_FILE)
- *   CRETLI_MCP_TOKEN_FILE   File holding the token; re-read on every request
+ *   CRETLI_MCP_TOKEN_FILE   File holding the token; re-read on every request (Cretli
+ *                           renews it for clients connected from Settings)
  *   CRETLI_MCP_CA_FILE      PEM certificate to trust (self-signed Cretli)
  *   CRETLI_MCP_INSECURE_TLS Set to 1 to skip TLS verification (local networks only)
  *   CRETLI_MCP_RETRY_MS     Give up on one request after this long (default 120000)
@@ -22,6 +23,8 @@ import https from 'node:https';
 import readline from 'node:readline';
 
 const RETRY_MS = Math.max(1000, Number(process.env.CRETLI_MCP_RETRY_MS) || 120000);
+/** How long a 401 is retried while waiting for Cretli to refresh the token file. */
+const TOKEN_FILE_WAIT_MS = 15000;
 
 /** Token from the file when configured (so rotation needs no restart), else the environment. */
 function readToken() {
@@ -91,12 +94,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function forward(url, line) {
   let id = null;
   try { id = JSON.parse(line)?.id ?? null; } catch { /* reported below */ }
-  const deadline = Date.now() + RETRY_MS;
+  const started = Date.now();
+  const deadline = started + RETRY_MS;
   let delay = 500;
   for (;;) {
     try {
       const res = await post(url, line);
-      const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+      // With a token file, Cretli rewrites the file itself (managed clients): a 401 right
+      // after a restart or renewal clears up once the file holds the fresh token.
+      const awaitingToken = res.status === 401 && Boolean(String(process.env.CRETLI_MCP_TOKEN_FILE || '').trim())
+        && Date.now() < Math.min(deadline, started + TOKEN_FILE_WAIT_MS);
+      const retryable = res.status === 502 || res.status === 503 || res.status === 504 || awaitingToken;
       if (!retryable || Date.now() > deadline) return { res, id };
     } catch (err) {
       if (Date.now() > deadline) return { error: err instanceof Error ? err.message : String(err), id };
@@ -143,7 +151,9 @@ function main() {
     const task = handle(url, line).catch(() => {}).finally(() => pending.delete(task));
     pending.add(task);
   });
-  lines.on('close', () => { Promise.all(pending).then(() => process.exit(0)); });
+  // Exit only after stdout is flushed: writes to a pipe are asynchronous and
+  // process.exit() would cut off a large response (e.g. tools/list).
+  lines.on('close', () => { Promise.all(pending).then(() => process.stdout.write('', () => process.exit(0))); });
 }
 
 main();

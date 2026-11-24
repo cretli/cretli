@@ -32,7 +32,7 @@
   }
 
   .mdi {
-    font-size: 1.15rem;
+    font-size: var(--cr-font-size-legacy-115);
     line-height: 1;
     transition: transform 0.15s ease;
   }
@@ -48,7 +48,7 @@
   border-radius: var(--cr-radius-sm);
   color: var(--cr-text);
   background: var(--cr-surface-2);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   overflow-wrap: anywhere;
 }
 
@@ -63,7 +63,7 @@
   border: 1px solid var(--cr-border);
   border-radius: var(--cr-radius-sm);
   background: var(--cr-surface);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   color: var(--cr-text);
 }
 
@@ -93,7 +93,7 @@
   padding: 0.1rem 0.45rem;
   border: 1px solid var(--cr-border-strong);
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--harness-health-muted);
@@ -122,7 +122,7 @@
   background: var(--cr-surface);
   color: var(--cr-text);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   cursor: pointer;
 
   &:hover {
@@ -142,7 +142,7 @@
 }
 
 .harness-health-notice {
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--harness-health-muted);
 
   &:empty {
@@ -177,7 +177,7 @@
 .harness-health-subtitle {
   display: block;
   margin-bottom: 0.15rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -211,7 +211,7 @@
 }
 
 .harness-health-plan-status {
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--harness-health-muted);
 }
 
@@ -232,14 +232,14 @@
 }
 
 .harness-health-bar-value {
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-variant-numeric: tabular-nums;
   color: var(--harness-health-muted);
 }
 
 .harness-health-plan-meta {
   margin-top: 0.15rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--harness-health-muted);
 }
 
@@ -265,7 +265,7 @@
 }
 
 .harness-health-daily summary {
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--harness-health-muted);
   cursor: pointer;
 }
@@ -274,7 +274,7 @@
   width: 100%;
   margin-top: var(--cr-space-1);
   border-collapse: collapse;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-variant-numeric: tabular-nums;
 
   caption {
@@ -308,7 +308,7 @@
   min-width: 0;
 
   dt {
-    font-size: 0.7rem;
+    font-size: var(--cr-font-size-legacy-07);
     color: var(--harness-health-muted);
   }
 
@@ -329,7 +329,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
 
   li {
     display: flex;
@@ -379,7 +379,7 @@
 
 .harness-health-details {
   align-self: flex-start;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
 }
 
 @media (max-width: 599px) {
@@ -439,7 +439,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 0.875rem;
+  font-size: var(--cr-font-size-legacy-0875);
 
   .harness-health-body {
     gap: 1rem;
@@ -454,7 +454,7 @@
   }
 
   .harness-health-badge {
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     padding: 0.35rem 0.65rem;
   }
 
@@ -463,7 +463,7 @@
   .harness-health-retry {
     min-height: 2.75rem;
     padding: 0.4rem 0.75rem;
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
   }
 
   .harness-health-lockout {
@@ -478,11 +478,11 @@
   }
 
   .harness-health-lockout-title {
-    font-size: 0.95rem;
+    font-size: var(--cr-font-size-legacy-095);
   }
 
   .harness-health-diagnostic {
-    font-size: 0.75rem;
+    font-size: var(--cr-font-size-legacy-075);
     color: var(--harness-health-muted);
     order: 1;
 
@@ -509,7 +509,7 @@
 
   .harness-health-subtitle {
     margin-bottom: 0.65rem;
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     text-transform: none;
     letter-spacing: normal;
     color: var(--cr-text);
@@ -525,13 +525,13 @@
     padding: 0.2rem 0.45rem;
     border-radius: var(--cr-radius-sm);
     background: var(--cr-surface-2);
-    font-size: 0.75rem;
+    font-size: var(--cr-font-size-legacy-075);
   }
 
   .harness-health-plan-meta {
     margin: 0.5rem 0 0;
     line-height: 1.5;
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
   }
 
   .harness-health-metrics {
@@ -547,12 +547,12 @@
     background: var(--cr-surface);
 
     dt {
-      font-size: 0.75rem;
+      font-size: var(--cr-font-size-legacy-075);
       line-height: 1.4;
     }
 
     dd {
-      font-size: 1.25rem;
+      font-size: var(--cr-font-size-legacy-125);
       font-weight: 600;
       line-height: 1.2;
     }
@@ -571,7 +571,7 @@
   }
 
   .harness-health-daily summary {
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     padding: 0.35rem 0;
   }
 
@@ -584,7 +584,7 @@
       gap: 0.3rem 0.75rem;
       padding: 0.6rem 0;
       border-bottom: 1px solid var(--cr-border);
-      font-size: 0.8rem;
+      font-size: var(--cr-font-size-sm);
     }
 
     li:last-child {
@@ -605,7 +605,7 @@
   }
 
   .harness-health-details {
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     min-height: 2.75rem;
     display: inline-flex;
     align-items: center;
@@ -633,17 +633,17 @@
 
 .harness-version-title {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--cr-font-size-legacy-095);
   font-weight: 600;
 }
 
 .harness-version-subtitle {
   color: var(--cr-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-version-badge {
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   padding: 0.1rem 0.45rem;
   border-radius: var(--cr-radius-sm);
   background: var(--cr-primary);
@@ -651,14 +651,20 @@
 }
 
 #settings-harness-tabs [data-settings-tab='harness'][data-harness-updates='true']::after {
-  content: ' •';
-  color: var(--cr-success);
+  content: '';
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-left: 0.3rem;
+  border-radius: 50%;
+  background: var(--cr-success);
+  vertical-align: middle;
 }
 
 .harness-version-packages {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   margin: var(--cr-space-2) 0;
 
   th,
@@ -684,13 +690,13 @@
 .harness-version-hint,
 .harness-version-meta,
 .harness-version-loading {
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   color: var(--cr-text-muted);
 }
 
 .harness-version-error {
   color: var(--cr-error);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-version-actions {
@@ -738,7 +744,7 @@
   gap: var(--cr-space-2);
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--cr-border-strong);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-version-overview-status.is-behind {
@@ -751,7 +757,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--cr-space-3);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-diagnostics-meta {
@@ -765,7 +771,7 @@
   border: 1px solid var(--cr-border-strong);
   border-radius: var(--cr-radius-sm);
   color: var(--cr-text-muted);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   line-height: 1.5;
 
   &[data-tone='selected'],
@@ -804,7 +810,7 @@
 
 .harness-diagnostics-heading {
   margin: var(--cr-space-2) 0 0;
-  font-size: 0.9rem;
+  font-size: var(--cr-font-size-legacy-09);
   font-weight: 600;
 }
 
@@ -829,7 +835,7 @@
 .harness-diagnostics-sub {
   display: block;
   color: var(--cr-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
 }
 
 .harness-diagnostics-table-wrap {
@@ -872,7 +878,7 @@
 .harness-diagnostics-canonical-totals {
   margin: 0 0 0.35rem;
   color: var(--cr-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-diagnostics-unknowns {
@@ -900,7 +906,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--cr-space-3);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-benchmark-source-card {
@@ -918,7 +924,7 @@
   dt {
     margin: 0;
     color: var(--cr-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--cr-font-size-legacy-075);
   }
 
   dd {
@@ -933,7 +939,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--cr-space-2);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-model-stats-scroll {
@@ -955,7 +961,7 @@
 
   th {
     color: var(--cr-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--cr-font-size-legacy-075);
     font-weight: 600;
   }
 }
@@ -968,13 +974,13 @@
 .harness-model-stats-meta {
   display: block;
   color: var(--cr-text-muted);
-  font-size: 0.7rem;
+  font-size: var(--cr-font-size-legacy-07);
 }
 
 .harness-model-stats-attribution {
   margin: 0;
   color: var(--cr-text-muted);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
 }
 
 .harness-benchmark-store-invalid {
@@ -986,7 +992,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--cr-space-3);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .harness-model-role-meta {
@@ -1046,7 +1052,7 @@
 .harness-model-role-sub {
   margin: 0;
   color: var(--cr-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
 }
 
 cr-collapsible.harness-model-role-group > :not([slot]) {

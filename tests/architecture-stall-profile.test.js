@@ -85,7 +85,8 @@ test('smoke profile runs in an isolated dir and reports owners, reasons and no e
     assert.equal(busy.status, 'not measured');
     assert.ok(busy.reason && busy.owner === 'A2');
     const probe = report.sites.find((site) => site.id === 'AW-owner-lock-socket-probe');
-    assert.ok(probe.callMs.p50 >= 70, 'socket probe blocks for its full Atomics.wait window');
+    assert.equal(probe.group, 'async-socket');
+    assert.equal(probe.observed.reportedLive, probe.observed.listeningSocketCalls);
     assert.ok(Number.isInteger(probe.observed.reportedLive), 'liveness result of the listening socket is recorded');
   } finally {
     rmSync(path.dirname(out), { recursive: true, force: true });

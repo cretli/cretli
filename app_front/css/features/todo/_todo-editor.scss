@@ -45,7 +45,7 @@
   background: transparent;
   color: var(--cr-text-muted);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   cursor: pointer;
 }
 
@@ -77,14 +77,14 @@
 }
 
 .todo-overview-card-sub {
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
   overflow-wrap: anywhere;
 }
 
 .todo-overview-details {
   flex: 1 1 100%;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 
 .todo-overview-details summary {
@@ -125,11 +125,11 @@
 }
 
 .todo-attention {
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 
 .todo-attention strong {
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 }
 
 .todo-plan-approval-banner {
@@ -151,7 +151,7 @@
 
 .todo-attention p {
   margin: 0.15rem 0 0;
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   color: var(--cr-text-muted);
   overflow-wrap: anywhere;
 }
@@ -168,12 +168,12 @@
 }
 
 .todo-overview-card-head strong {
-  font-size: 0.88rem;
+  font-size: var(--cr-font-size-legacy-088);
   font-weight: 600;
 }
 
 .todo-overview-card p {
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
 }
 
 /* The panel already scrolls; a nested scroll box inside it traps swipes. */
@@ -185,7 +185,7 @@
 @media (max-width: 640px) {
   .todo-editor-dialog .todo-item-title::part(control) {
     padding: 0.15rem 0.4rem;
-    font-size: 0.85rem;
+    font-size: var(--cr-font-size-md);
     line-height: 1.25;
   }
 
@@ -251,7 +251,7 @@
 
 .todo-editor-dialog .todo-item-info {
   color: var(--cr-text-subtle);
-  font-size: 1.1rem;
+  font-size: var(--cr-font-size-legacy-11);
   cursor: help;
 }
 
@@ -362,7 +362,7 @@
   padding: 0 0.55rem;
   border: 1px solid var(--cr-border-control);
   border-radius: var(--cr-radius-sm);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   line-height: 1;
 }
 
@@ -468,7 +468,7 @@
 /* Save feedback inside the editor modal. */
 .todo-save-state {
   margin-left: auto;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-subtle);
 }
 

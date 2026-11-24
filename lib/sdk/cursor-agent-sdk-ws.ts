@@ -6,7 +6,7 @@ import { SDK_START_PROMPT_ARGS } from '../chat-run/start-prompt-args.ts';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'node:crypto';
-import { rejectArchivedRoomPrompt } from '../chat-message-guard.js';
+import { rejectArchivedRoomPromptAsync } from '../chat-message-guard.js';
 import { subscribeChatHistoryUpdates } from './sdk-history-updates.ts';
 import { subscribeChatListUpdates } from '../chat-list-updates.js';
 import { initAgentPresenceBus } from '../agent-presence-bus.js';
@@ -194,7 +194,7 @@ import {
 } from './sdk-context-advisory.ts';
 import { getServerInstanceId } from './sdk-instance-id.ts';
 import { resolveExecutionFolderForChat } from '../execution-folder.js';
-import { handleQueueSteer } from '../agent-harness/queue-controls.ts';
+import { handleQueueSteer, moveQueuedPrompt } from '../agent-harness/queue-controls.ts';
 import {
   isQueuedPromptText,
   readClientDisplayText,
@@ -2425,7 +2425,7 @@ function bindSdkPromptRunner(room: SdkRoom, chat: SdkChatRow, roomDeps: SdkRoomD
     origin?: { kind: string, subtype?: string, clientId?: string, clientName?: string, sourceChatId?: string, sourceChatTitle?: string },
     requestId?: string,
   ) {
-    if (rejectArchivedRoomPrompt(room, broadcastRoom as (room: object, payload: object) => void)) return;
+    if (await rejectArchivedRoomPromptAsync(room, broadcastRoom as (room: object, payload: object) => void)) return;
     if (!text.trim()) {
       return;
     }
@@ -2969,6 +2969,8 @@ function bindSdkPromptRunner(room: SdkRoom, chat: SdkChatRow, roomDeps: SdkRoomD
         ) {
           return;
         }
+        // Tokens spent before the failure still belong in the ledger (run.usage snapshot, if exposed).
+        try { recordSdkRunUsageFallback(room, room.currentRun as { usage?: unknown } | null); } catch { /* capture must not mask the run error */ }
         const message = err && typeof err === 'object' && 'message' in err ? String(err.message) : String(err);
         const runId =
           room.currentRun &&
@@ -3559,6 +3561,10 @@ export async function handleAgentSdkWebSocket(ws: SdkWs, sessionKey: string, dep
         room.pendingPrompts.splice(idx, 1);
         broadcastRoom(room, { type: 'sdkQueueRemoved', text: target });
       }
+      return;
+    }
+    if (msg.type === 'queueMove' && typeof msg.text === 'string') {
+      moveQueuedPrompt(room, msg.text, msg.direction, { broadcast: broadcastRoom });
       return;
     }
     if (msg.type === 'queueSteer' && typeof msg.text === 'string') {

@@ -21,6 +21,9 @@ import { createOpsToolHandlers } from './voiceOpsTools.js';
 import { canSteerSdkChat } from '../chat/services/sdkPendingSteer.js';
 import { ORCHESTRATOR_PAGE_SIZE, resolveAgent, summarizeAgents } from '../car/orchestratorModel.js';
 
+/** @typedef {import('./voiceCommandTypes.js').VoiceCommandResult} VoiceCommandResult */
+/** @typedef {import('./voiceCommandTypes.js').VoiceChatModule} VoiceChatModule */
+
 const DEFAULT_IDEMPOTENCY_TTL_MS = 4000;
 const SEND_WINDOW_MS = 4000;
 const STOP_WINDOW_MS = 1500;
@@ -28,12 +31,12 @@ const SWITCH_WINDOW_MS = 1000;
 
 /**
  * @param {{ now?: () => number, ttlMs?: number }} [options]
- * @returns {(key: string, run: () => Promise<object>, ttl?: number) => Promise<object>}
+ * @returns {(key: string, run: () => Promise<VoiceCommandResult>, ttl?: number) => Promise<VoiceCommandResult>}
  */
 export function createIdempotentRunner(options = {}) {
   const now = options.now || (() => Date.now());
   const ttlMs = options.ttlMs ?? DEFAULT_IDEMPOTENCY_TTL_MS;
-  /** @type {Map<string, { at: number, ttl: number, result: Promise<object> }>} */
+  /** @type {Map<string, { at: number, ttl: number, result: Promise<VoiceCommandResult> }>} */
   const seen = new Map();
   return (key, run, ttl = ttlMs) => {
     const at = now();
@@ -55,8 +58,8 @@ export function createIdempotentRunner(options = {}) {
 }
 
 /**
- * @param {object} chatModule
- * @returns {object|null}
+ * @param {VoiceChatModule} chatModule
+ * @returns {import('./voiceCommandTypes.js').VoiceChat|null}
  */
 function findActiveChat(chatModule) {
   const activeId = chatModule.getActiveChatIdValue();
@@ -67,8 +70,8 @@ function findActiveChat(chatModule) {
 /**
  * Chats that can be stepped through with "next / previous agent".
  *
- * @param {object} chatModule
- * @returns {object[]}
+ * @param {VoiceChatModule} chatModule
+ * @returns {import('./voiceCommandTypes.js').VoiceChat[]}
  */
 function listCyclableChats(chatModule) {
   return chatModule.getChatsList().filter((chat) => chat && chat.id && !chat.archived);
@@ -77,8 +80,8 @@ function listCyclableChats(chatModule) {
 /**
  * Real dependencies of the `chat_ops` handlers: the chat list, with the archive loaded on demand.
  *
- * @param {any} chatModule
- * @param {{ submit: (input: { text: string, steer: boolean }) => Promise<object> }} options
+ * @param {VoiceChatModule} chatModule
+ * @param {{ submit: (input: { text: string, steer: boolean }) => Promise<VoiceCommandResult> }} options
  * @returns {import('./voiceChatOpsTools.js').ChatOpsDeps}
  */
 export function buildChatOpsDeps(chatModule, options) {
@@ -126,7 +129,7 @@ export function buildChatOpsDeps(chatModule, options) {
     // Content hits of one workspace; a failed or slow search degrades to title matches only.
     searchContent: async ({ query, workspaceFile }) => {
       const { getChatContentSearch } = await import('../../core/api/index.js');
-      const body = await getChatContentSearch({ q: query, workspaceFile, archived: true });
+      const body = /** @type {{ results?: import('./voiceChatOpsTools.js').ChatContentHit[], truncated?: boolean, timedOut?: boolean }} */ (await getChatContentSearch({ q: query, workspaceFile, archived: true }));
       // The server stops at its time / size budget: that partial scan must reach the spoken answer.
       return { results: Array.isArray(body?.results) ? body.results : [], truncated: body?.truncated === true || body?.timedOut === true };
     },
@@ -154,12 +157,12 @@ function carErrorText(code) {
 }
 
 /**
- * @param {{ loadChatModule?: () => Promise<object>, runOnce?: ReturnType<typeof createIdempotentRunner>, loadCarService?: () => Promise<any>, loadOpsDeps?: () => Promise<import('./voiceOpsTools.js').OpsToolDeps>, loadInboxDeps?: () => Promise<import('./voiceInboxTools.js').InboxToolDeps> }} [deps]
+ * @param {{ loadChatModule?: () => Promise<VoiceChatModule>, runOnce?: ReturnType<typeof createIdempotentRunner>, loadCarService?: () => Promise<any>, loadOpsDeps?: () => Promise<import('./voiceOpsTools.js').OpsToolDeps>, loadInboxDeps?: () => Promise<import('./voiceInboxTools.js').InboxToolDeps> }} [deps]
  */
 export function createCommandHandlers(deps = {}) {
-  const loadChatModule = deps.loadChatModule || (() => import('../chat/index.js'));
+  const loadChatModule = deps.loadChatModule || (() => /** @type {Promise<VoiceChatModule>} */ (import('../chat/index.js')));
   const runOnce = deps.runOnce || createIdempotentRunner();
-  /** @type {Map<string, Promise<object>>} */
+  /** @type {Map<string, Promise<VoiceCommandResult>>} */
   const cyclesInFlight = new Map();
   /** @type {ReturnType<typeof createOpsToolHandlers>|null} */
   let opsTools = null;
@@ -180,7 +183,7 @@ export function createCommandHandlers(deps = {}) {
      *   bar's Steer action (inject into the running turn) instead of queueing. `expectChatId`: refuse when another
      *   chat is active now (the undo window remembers the chat the words were meant for; the send bar belongs
      *   to the active one). `isCurrent`: false once the voice session ended, so a send already in flight is dropped.
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async sendPrompt(text, options = {}) {
       const prompt = String(text || '').trim();
@@ -227,9 +230,9 @@ export function createCommandHandlers(deps = {}) {
      * Chat search / restore / queue / steer (`chat_ops`). The caller supplies `submit`, the path a queued or
      * steered message takes (the shared voice send gate), so every voice source keeps its own send safety.
      *
-     * @param {object} args
-     * @param {{ submit: (input: { text: string, steer: boolean }) => Promise<object> }} options
-     * @returns {Promise<object>}
+     * @param {any} args
+     * @param {{ submit: (input: { text: string, steer: boolean }) => Promise<VoiceCommandResult> }} options
+     * @returns {Promise<VoiceCommandResult>}
      */
     async chatOps(args, options) {
       const chatModule = await loadChatModule();
@@ -240,9 +243,9 @@ export function createCommandHandlers(deps = {}) {
      * Git status / commit, task stop and quick commands (`ops`). One instance per handler set: the two-step
      * confirmations keep their binding between calls.
      *
-     * @param {object} args
+     * @param {any} args
      * @param {{ driverConfirm?: { ask: (action: string, target: string) => void, consume: (action: string, target: string) => boolean } }} [options]
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async ops(args, options) {
       if (!opsTools) {
@@ -260,9 +263,9 @@ export function createCommandHandlers(deps = {}) {
      * Notifications and Scout proposals (`inbox`). One instance per handler set: the proposals read in this
      * session and the two-step Scout confirmations live in it.
      *
-     * @param {object} args
+     * @param {any} args
      * @param {{ driverConfirm?: { ask: (action: string, target: string) => void, consume: (action: string, target: string) => boolean } }} [options]
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async inbox(args, options) {
       const session = inboxSession;
@@ -303,7 +306,7 @@ export function createCommandHandlers(deps = {}) {
      * socket (`sendSequenceToTerminalState` in `terminal/services/inputDispatch.js`), the same call
      * the chat toolbar's stop item makes. A closed socket returns false, reported as "nothing to stop".
      *
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async stopAgent() {
       const chatModule = await loadChatModule();
@@ -317,7 +320,7 @@ export function createCommandHandlers(deps = {}) {
 
     /**
      * @param {{ chat_id?: unknown, title?: unknown }} args
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async switchChat(args) {
       const chatModule = await loadChatModule();
@@ -334,7 +337,7 @@ export function createCommandHandlers(deps = {}) {
           return { ok: true, chatId: target.id, title: String(target.title || '').trim() };
         }, SWITCH_WINDOW_MS);
       }
-      const result = matchChatBySpokenTitle(chats, args?.title);
+      const result = matchChatBySpokenTitle(chats, /** @type {string} */ (args?.title));
       if (result.ambiguous) {
         return {
           ok: false,
@@ -350,7 +353,7 @@ export function createCommandHandlers(deps = {}) {
      * Steps to the next or previous open chat; wraps around.
      *
      * @param {1|-1} direction
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async cycleChat(direction) {
       const chatModule = await loadChatModule();
@@ -379,14 +382,14 @@ export function createCommandHandlers(deps = {}) {
 
     /**
      * @param {{ workspace?: unknown, folder?: unknown }} args
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async switchWorkspace(args) {
       const chatModule = await loadChatModule();
       if (typeof chatModule.switchVoiceWorkspace !== 'function') {
         return { ok: false, error: t('car.err.workspace_unavailable') };
       }
-      return chatModule.switchVoiceWorkspace({ workspace: args?.workspace, folder: args?.folder });
+      return chatModule.switchVoiceWorkspace({ workspace: /** @type {string} */ (args?.workspace), folder: /** @type {string} */ (args?.folder) });
     },
 
     /**
@@ -395,7 +398,7 @@ export function createCommandHandlers(deps = {}) {
      * ambiguous instead of guessing.
      *
      * @param {string} spoken
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async switchTo(spoken) {
       const name = String(spoken || '').trim();
@@ -411,7 +414,7 @@ export function createCommandHandlers(deps = {}) {
      * Opens or closes the car view. Idempotent.
      *
      * @param {boolean} [enable]
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async setCarMode(enable = true) {
       const car = await loadCarService();
@@ -423,14 +426,14 @@ export function createCommandHandlers(deps = {}) {
      * Opens the agents screen (every workspace) or returns to the decision screen.
      *
      * @param {boolean} [enable]
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async setOrchestrator(enable = true) {
       const car = await loadCarService();
       return car.setOrchestratorScreen(enable);
     },
 
-    /** @returns {Promise<object>} agents of all workspaces, needs-decision first */
+    /** @returns {Promise<VoiceCommandResult>} agents of all workspaces, needs-decision first */
     async listAgents() {
       const car = await loadCarService();
       const rows = await car.loadAgentRows();
@@ -453,7 +456,7 @@ export function createCommandHandlers(deps = {}) {
      * with a workspace), or "the one that waits for me".
      *
      * @param {{ chat_id?: unknown, name?: unknown, workspace?: unknown, waiting?: unknown, announced?: unknown }} args
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async switchAgent(args) {
       const car = await loadCarService();
@@ -461,12 +464,12 @@ export function createCommandHandlers(deps = {}) {
       const announcedId = announced ? car.getLastAnnouncedChatId() : '';
       if (announced && !announcedId) return { ok: false, code: 'nothing_announced', error: t('car.announce.nothing') };
       const rows = await car.loadAgentRows();
-      const found = resolveAgent(rows, {
+      const found = /** @type {ReturnType<typeof resolveAgent> & { code?: string, candidates?: string[] }} */ (resolveAgent(rows, {
         chatId: announcedId || String(args?.chat_id || '').trim() || undefined,
         name: String(args?.name || '').trim() || undefined,
         workspace: String(args?.workspace || '').trim() || undefined,
         waiting: args?.waiting === true || args?.waiting === 'true',
-      });
+      }));
       if (!found.ok) {
         return {
           ok: false,
@@ -484,7 +487,7 @@ export function createCommandHandlers(deps = {}) {
         : { ...result, workspace: found.row.workspaceLabel, status: found.row.status };
     },
 
-    /** @returns {Promise<object>} "What's new / repeat": the newest car-mode announcement, spoken again */
+    /** @returns {Promise<VoiceCommandResult>} "What's new / repeat": the newest car-mode announcement, spoken again */
     async whatsNew() {
       const car = await loadCarService();
       return car.repeatLastAnnouncement();
@@ -494,7 +497,7 @@ export function createCommandHandlers(deps = {}) {
      * First step of answering a decision card: remember the pick, ask for a yes.
      *
      * @param {{ option?: unknown, card_id?: unknown }} args
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async chooseOption(args) {
       const car = await loadCarService();
@@ -524,7 +527,7 @@ export function createCommandHandlers(deps = {}) {
      * Steps the car view to the next/previous decision card ("next card").
      *
      * @param {number} direction 1 = next, -1 = previous
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async cycleCard(direction) {
       const car = await loadCarService();
@@ -545,7 +548,7 @@ export function createCommandHandlers(deps = {}) {
      * Second step: send the pick (or drop it with `confirm: false`).
      *
      * @param {{ confirm?: unknown }} args
-     * @returns {Promise<object>}
+     * @returns {Promise<VoiceCommandResult>}
      */
     async confirmChoice(args) {
       const car = await loadCarService();
@@ -561,8 +564,8 @@ export function createCommandHandlers(deps = {}) {
 
     /**
      * @param {string} key idempotency key
-     * @param {() => Promise<object>} run
-     * @returns {Promise<object>}
+     * @param {() => Promise<VoiceCommandResult>} run
+     * @returns {Promise<VoiceCommandResult>}
      */
     once(key, run) {
       return runOnce(key, run);

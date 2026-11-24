@@ -19,7 +19,6 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import {
   ACCEPTANCE_CUTOFF,
@@ -277,8 +276,8 @@ test('scenario 2: dedup/replay/restart, identity classes, crash and torn tail', 
 
   // Cross-process concurrent writers commit one logical key exactly once.
   const concDir = tempDir();
-  const moduleUrl = pathToFileURL(path.resolve('lib/persist/usage-persist.js')).href;
-  const eventUrl = pathToFileURL(path.resolve('lib/usage/usage-event.js')).href;
+  const moduleUrl = new URL('../lib/persist/usage-persist.js', import.meta.url).href;
+  const eventUrl = new URL('../lib/usage/usage-event.js', import.meta.url).href;
   const worker = `
     import { commitUsageEvent } from ${JSON.stringify(moduleUrl)};
     import { createUsageEvent } from ${JSON.stringify(eventUrl)};

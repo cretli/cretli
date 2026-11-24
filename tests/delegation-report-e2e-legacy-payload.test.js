@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import os from 'os';
 import path from 'path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { loadChatHistory } from '../lib/persist/chat-history-persist.js';
 import { getDelegationById } from '../lib/persist/delegations-persist.js';
 import { findMailboxReplyForDelegation, loadMailboxMessages } from '../lib/persist/delegation-mailbox-persist.js';

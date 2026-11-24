@@ -10,6 +10,11 @@ import { FATAL_VOICE_ERRORS, isSecure, mapSpeechError } from './voiceDiagnostics
  * (`browserVoiceMode.js`, which needs the whole controller below).
  */
 
+/**
+ * @typedef {{ continuous: boolean, interimResults: boolean, lang: string, start: () => void, stop: () => void, onresult: ((event: any) => void) | null, onerror: ((event: { error?: string }) => void) | null, onend: (() => void) | null }} BrowserRecognizer
+ * @typedef {new () => BrowserRecognizer} BrowserRecognizerCtor
+ * @typedef {{ SpeechRecognition?: BrowserRecognizerCtor, webkitSpeechRecognition?: BrowserRecognizerCtor }} SpeechRecognitionWindow
+ */
 export const DICTATION_LANGS = { en: 'en-US', pl: 'pl-PL' };
 
 /** Silence after the last result that ends an utterance. */
@@ -21,11 +26,11 @@ const LATE_FINAL_MS = 4000;
 
 /**
  * @param {Window|object|undefined} [win]
- * @returns {Function|null} the recognizer constructor, or null where the API is missing
+ * @returns {BrowserRecognizerCtor|null} the recognizer constructor, or null where the API is missing
  */
 export function getSpeechRecognitionCtor(win = typeof window === 'undefined' ? undefined : window) {
   if (!win) return null;
-  return win.SpeechRecognition || win.webkitSpeechRecognition || null;
+  return /** @type {SpeechRecognitionWindow} */ (win).SpeechRecognition || /** @type {SpeechRecognitionWindow} */ (win).webkitSpeechRecognition || null;
 }
 
 /**

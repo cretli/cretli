@@ -7,9 +7,9 @@ import { t } from '../../../i18n/index.js';
 import { applyOpenAiApiKeyHint, applyAzureSpeechHint, applyGeminiApiKeyHint } from './lanSnapshotHints.js';
 
 export function initProviderKeySettings() {
-  const openaiApiKeyInput = document.getElementById('openai-api-key-input');
-  const openaiApiKeySaveBtn = document.getElementById('openai-api-key-save-btn');
-  const openaiApiKeyClearBtn = document.getElementById('openai-api-key-clear-btn');
+  const openaiApiKeyInput = /** @type {HTMLInputElement | null} */ (document.getElementById('openai-api-key-input'));
+  const openaiApiKeySaveBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('openai-api-key-save-btn'));
+  const openaiApiKeyClearBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('openai-api-key-clear-btn'));
   const openaiApiKeyStatusEl = document.getElementById('openai-api-key-save-status');
 
   if (openaiApiKeySaveBtn && openaiApiKeyInput) {
@@ -59,7 +59,7 @@ export function initProviderKeySettings() {
     });
   }
 
-  const openaiApiKeyTestBtn = document.getElementById('openai-api-key-test-btn');
+  const openaiApiKeyTestBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('openai-api-key-test-btn'));
   if (openaiApiKeyTestBtn) {
     openaiApiKeyTestBtn.addEventListener('click', () => {
       if (openaiApiKeyTestBtn.disabled) return;
@@ -84,10 +84,10 @@ export function initProviderKeySettings() {
     });
   }
 
-  const azureSpeechKeyInput = document.getElementById('azure-speech-key-input');
-  const azureSpeechRegionInput = document.getElementById('azure-speech-region-input');
-  const azureSpeechSaveBtn = document.getElementById('azure-speech-save-btn');
-  const azureSpeechClearBtn = document.getElementById('azure-speech-clear-btn');
+  const azureSpeechKeyInput = /** @type {HTMLInputElement | null} */ (document.getElementById('azure-speech-key-input'));
+  const azureSpeechRegionInput = /** @type {HTMLInputElement | null} */ (document.getElementById('azure-speech-region-input'));
+  const azureSpeechSaveBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('azure-speech-save-btn'));
+  const azureSpeechClearBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('azure-speech-clear-btn'));
   const azureSpeechStatusEl = document.getElementById('azure-speech-save-status');
 
   if (azureSpeechSaveBtn && azureSpeechKeyInput && azureSpeechRegionInput) {
@@ -139,7 +139,7 @@ export function initProviderKeySettings() {
     });
   }
 
-  const azureSpeechTestBtn = document.getElementById('azure-speech-test-btn');
+  const azureSpeechTestBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('azure-speech-test-btn'));
   if (azureSpeechTestBtn) {
     azureSpeechTestBtn.addEventListener('click', () => {
       if (azureSpeechTestBtn.disabled) return;
@@ -165,10 +165,10 @@ export function initProviderKeySettings() {
     });
   }
 
-  const geminiApiKeyInput = document.getElementById('gemini-api-key-input');
-  const geminiApiKeySaveBtn = document.getElementById('gemini-api-key-save-btn');
-  const geminiApiKeyTestBtn = document.getElementById('gemini-api-key-test-btn');
-  const geminiApiKeyClearBtn = document.getElementById('gemini-api-key-clear-btn');
+  const geminiApiKeyInput = /** @type {HTMLInputElement | null} */ (document.getElementById('gemini-api-key-input'));
+  const geminiApiKeySaveBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('gemini-api-key-save-btn'));
+  const geminiApiKeyTestBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('gemini-api-key-test-btn'));
+  const geminiApiKeyClearBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('gemini-api-key-clear-btn'));
   const geminiApiKeyStatusEl = document.getElementById('gemini-api-key-save-status');
 
   if (geminiApiKeySaveBtn && geminiApiKeyInput) {

@@ -63,7 +63,13 @@ function startStaticServer() {
 /**
  * @template T
  * @param {(ctx: { viewUrl: string, parkingUrl: string, args: any }) => Promise<T>} scenario runs in the page
- * @param {{ args?: any, viewport?: { width: number, height: number } }} [opts]
+ * @param {{
+ *   args?: any,
+ *   viewport?: { width: number, height: number },
+ *   hasTouch?: boolean,
+ *   beforeScenario?: (page: import('playwright-core').Page) => Promise<void>,
+ *   interact?: (page: import('playwright-core').Page, result: T) => Promise<T>,
+ * }} [opts]
  * @returns {Promise<{ result: T, pageErrors: string[] }>}
  */
 export async function runRichViewScenario(scenario, opts = {}) {
@@ -72,13 +78,14 @@ export async function runRichViewScenario(scenario, opts = {}) {
   const { server, baseUrl } = await startStaticServer();
   const browser = await chromium.launch({ headless: true, executablePath });
   try {
-    const page = await browser.newPage(opts.viewport ? { viewport: opts.viewport } : {});
+    const page = await browser.newPage({ viewport: opts.viewport, hasTouch: opts.hasTouch });
     /** @type {string[]} */
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)));
     await page.goto(`${baseUrl}/tests/chat-history-view-dom-shell.html`, { waitUntil: 'load' });
+    if (opts.beforeScenario) await opts.beforeScenario(page);
     const source = `(${scenario.toString()})`;
-    const result = await page.evaluate(
+    let result = await page.evaluate(
       async ({ source, ctx }) => {
         // eslint-disable-next-line no-eval
         const fn = (0, eval)(source);
@@ -93,6 +100,7 @@ export async function runRichViewScenario(scenario, opts = {}) {
         },
       },
     );
+    if (opts.interact) result = await opts.interact(page, result);
     return { result, pageErrors };
   } finally {
     await browser.close();

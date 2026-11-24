@@ -47,7 +47,7 @@
     });
     if (!results.firstChild) {
       var none = document.createElement('li');
-      none.textContent = 'No results';
+      none.textContent = root.lang === 'pl' ? 'Brak wyników' : 'No results';
       results.appendChild(none);
     }
   }

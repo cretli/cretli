@@ -193,13 +193,29 @@ live only in `.env` and still apply to certificate generation and the server.
 
 ## Docker
 
-`restart: unless-stopped` restarts exited containers but does not detect hangs; container hang detection is tracked separately in todo `175e216e-0a49-4579-ba7a-662351d58788`.
+The default Compose configuration starts Cretli with `npm start`:
 
 ```bash
 export CRETLI_SETUP_TOKEN="$(openssl rand -hex 16)"
 echo "Setup token: $CRETLI_SETUP_TOKEN"
 docker compose up --build
 ```
+
+`restart: unless-stopped` restarts exited containers but does not detect hangs. To enable the existing Cretli supervisor under Docker’s init process, use the optional override instead:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.supervisor.yml up --build
+```
+
+The override sets `CRETLI_DOCKER_SUPERVISOR=1`, `init: true`, a 60-second stop grace period and an HTTP healthcheck. The supervisor replaces an unresponsive server inside the container; healthcheck status is for visibility and does not restart containers. Without the override the image still runs `npm start`. Use the same `-f` pair for subsequent Compose operations.
+
+`docker stop <container>` is an intended stop: the supervisor exits 0 and `unless-stopped` leaves the container stopped. Server output is written to `/app/data/supervisor.log`; state is in `/app/data/supervisor-state.json`. After repeated crashes the supervisor stays in `crash_loop` with unhealthy HTTP status. Investigate the logs, fix the cause, then request a server restart from the running container:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.supervisor.yml exec cretli node scripts/cretli-supervisor.mjs request-restart
+```
+
+See [Docker supervision](server-diagnostics.md#docker-supervision) for recovery timing, safe-mode limitations and verification steps.
 
 The compose file publishes `127.0.0.1:3011` on the host. To reach it from another
 device, put a reverse proxy or VPN in front — do not publish `0.0.0.0:3011` to the
@@ -286,22 +302,33 @@ user's `Microsoft/Windows/Start Menu/Programs/Startup` folder. It invokes
 `wsl.exe -d <distro> --cd <checkout> --exec` with the absolute Node executable,
 PATH and supervisor command, without a console window or administrator rights.
 Systemd is not required. Activation is at Windows login, or explicit `--start`.
-WSL does not restart the supervisor itself if it crashes; SIGTERM to the
-supervisor stops supervision and the server. The running supervisor keeps its
-WSL distribution alive. Removing the Startup entry does not stop it: the running
-supervisor continues until it receives SIGTERM or the session ends. Native Windows
-without WSL is unsupported.
+WSL does not restart the supervisor itself if it crashes. To stop supervision and
+the server, run in the WSL terminal (the installer and the Settings message print
+the exact command with your paths):
+
+    '<node>' '<checkout>/scripts/cretli-supervisor.mjs' request-stop
+
+Exit 0 means SIGTERM was delivered (the supervisor then waits up to its stop
+timeout for the server), 3 means no supervisor is running, 4 means the signal
+failed. The running supervisor keeps its WSL distribution alive. Removing the
+Startup entry does not stop it: the supervisor continues until you run the
+command above or the session ends. Native Windows without WSL is unsupported.
 
 ### Termux
 
 Install Termux:Boot and open it once. The installer writes `~/.termux/boot/cretli`
 and warns if the Boot package is missing or cannot be verified. The entry takes
 a `termux-wake-lock` when available. Reboot (with Termux:Boot enabled), or use
-explicit `--start`. Termux does not restart the supervisor itself if it crashes;
-SIGTERM to the supervisor stops supervision and the server. If you no longer
-need a wake lock, release it separately with `termux-wake-unlock`. Removing the
-boot entry does not stop the running supervisor: it continues until it receives
-SIGTERM or the session ends.
+explicit `--start`. Termux does not restart the supervisor itself if it crashes.
+To stop supervision and the server, run in a Termux shell (the installer and the
+Settings message print the exact command with your paths):
+
+    '<node>' '<checkout>/scripts/cretli-supervisor.mjs' request-stop
+
+Exit codes are the same as for WSL (0 delivered, 3 no supervisor, 4 failure).
+If you no longer need a wake lock, release it separately with
+`termux-wake-unlock`. Removing the boot entry does not stop the running
+supervisor: it continues until you run the command above or the session ends.
 
 Real boot/login behavior must be checked on the target platform. Unsupported
 platforms, including Linux without a working user systemd, return a clear status

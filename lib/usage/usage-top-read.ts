@@ -3,7 +3,7 @@
  * the MCP tools so both return identical numbers.
  */
 
-import { readUsageEvents } from '../persist/usage-persist.js';
+import { readUsageEvents, readUsageLedgerState, deriveRunKey } from '../persist/usage-persist.js';
 import { loadDelegations } from '../persist/delegations-persist.js';
 import { peekChatsAsync } from '../persist/chats-persist.js';
 import { filterUsageEvents } from './usage-insights.ts';
@@ -11,6 +11,8 @@ import { describeUsageWindow, filterEventsByWindow, resolveUsageWindow } from '.
 import { buildUsageTop, explainUsage } from './usage-top.ts';
 import { attributeLimitBurn } from './usage-limit-burn.ts';
 import { buildUsageAdvice } from './usage-advice.ts';
+import { buildUsageCoverage } from './usage-coverage.ts';
+import { loadWorkspaceWatcherCycleMetrics } from '../workspace-watcher-cycle-metrics.js';
 
 /**
  * @param {Record<string, any>} query
@@ -133,6 +135,64 @@ export async function loadUsageAdvice(query: Record<string, any> = {}, ctx: Reco
     chats: top('chat', labels),
     burn: attributeLimitBurn({ events: read.events, labels }),
     resume: top('resume'),
+    coverage: coverageOf(read, ctx),
   });
   return { ok: true, window: describeUsageWindow(read.window), findings };
+}
+
+/**
+ * @param {Record<string, any>} read `readWindowEvents` result
+ * @param {Record<string, any>} ctx
+ * @returns {Record<string, any>}
+ */
+export function coverageOf(read, ctx) {
+  let cycles = [];
+  try {
+    const records = (ctx.loadCycleMetrics || loadWorkspaceWatcherCycleMetrics)({ dataDir: ctx.dataDir });
+    cycles = (Array.isArray(records) ? records : []).map((r) => ({
+      cycleId: String(r?.cycleId || ''),
+      harness: String(r?.harness || r?.orchestrator?.harness || ''),
+      // Cycle metric records close with `closedAt` (normalizeWorkspaceWatcherCycleMetric).
+      finishedAt: String(r?.closedAt || r?.finishedAt || r?.endedAt || ''),
+      closeOutcome: String(r?.closeOutcome || ''),
+      closeSource: String(r?.closeSource || ''),
+    }));
+  } catch {
+    cycles = [];
+  }
+  // Late coverage corrections live only in the ledger index run record, not in the
+  // journal run event: overlay the indexed completeness before computing coverage.
+  let states = new Map();
+  try {
+    const ledger = (ctx.loadRunStates || ((query) => readUsageLedgerState({ ...query, persistIndex: false }).runs))({ dataDir: ctx.dataDir });
+    states = new Map((Array.isArray(ledger) ? ledger : []).map((run) => [run.runKey, run]));
+  } catch {
+    states = new Map();
+  }
+  const events = read.events.map((e) => {
+    if (e?.eventType !== 'run') return e;
+    const state = states.get(deriveRunKey(e));
+    return state?.completeness ? { ...e, completeness: state.completeness, measurementPresent: state.measurementPresent === true || e.measurementPresent } : e;
+  });
+  return buildUsageCoverage({
+    events,
+    delegations: read.delegations,
+    cycles,
+    fromMs: read.window.fromMs,
+    toMs: read.window.toMs,
+    now: ctx.now,
+  });
+}
+
+/**
+ * Capture coverage per harness x role over the window.
+ *
+ * @param {Record<string, any>} query window + filter fields
+ * @param {Record<string, any>} [ctx]
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function loadUsageCoverage(query: Record<string, any> = {}, ctx: Record<string, any> = {}) {
+  const read = readWindowEvents(query, ctx);
+  if (!read.ok) return read;
+  return { ok: true, window: describeUsageWindow(read.window), ...coverageOf(read, ctx) };
 }

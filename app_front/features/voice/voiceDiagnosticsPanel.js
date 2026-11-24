@@ -126,7 +126,7 @@ async function testMic() {
   }
   const run = coordinator.start('mic');
   if (!run.ok) {
-    view.micResult = { ok: false, blocked: run.code };
+    view.micResult = { ok: false, blocked: (/** @type {{ ok: false, code: import('./voiceDiagnostics.js').VoiceDiagBlock }} */ (run)).code };
     update();
     return;
   }
@@ -159,7 +159,7 @@ async function testMic() {
 async function testRecognition() {
   const run = coordinator.start('recognition');
   if (!run.ok) {
-    view.recResult = { ok: false, blocked: run.code };
+    view.recResult = { ok: false, blocked: (/** @type {{ ok: false, code: import('./voiceDiagnostics.js').VoiceDiagBlock }} */ (run)).code };
     update();
     return;
   }
@@ -192,7 +192,7 @@ function testSpeaker() {
   }
   const run = coordinator.start('speaker');
   if (!run.ok) {
-    view.speakerMessage = blockMessage(run.code);
+    view.speakerMessage = blockMessage((/** @type {{ ok: false, code: import('./voiceDiagnostics.js').VoiceDiagBlock }} */ (run)).code);
     update();
     return;
   }

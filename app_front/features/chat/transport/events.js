@@ -51,3 +51,11 @@ export function dispatchPortExposeConsentEvent(msg) {
   window.dispatchEvent(new CustomEvent('cretli:port-expose-consent', { detail: { chatId } }));
   return true;
 }
+
+export function dispatchDeviceRunConsentEvent(msg) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+  const chatId = typeof msg?.chatId === 'string' ? msg.chatId.trim() : '';
+  if (!chatId) return false;
+  window.dispatchEvent(new CustomEvent('cretli:device-run-consent', { detail: { chatId } }));
+  return true;
+}

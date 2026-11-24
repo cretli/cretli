@@ -368,7 +368,7 @@ function makeApp() {
   const routes = new Map();
   const add = (method) => (route, handler) => routes.set(`${method} ${route}`, handler);
   const app = { get: add('GET'), patch: add('PATCH'), post: add('POST') };
-  async function call(method, route, { params = {}, body, flags = {} } = {}) {
+  async function call(method, route, { params = {}, body, flags = {}, workspaceFolder = '/ws' } = {}) {
     const handler = routes.get(`${method} ${route}`);
     assert.ok(handler, `route ${method} ${route} is registered`);
     const out = { status: 200, json: null };
@@ -376,7 +376,7 @@ function makeApp() {
       status(code) { out.status = code; return res; },
       json(payload) { out.json = payload; return res; },
     };
-    await handler({ params, query: {}, body, ...flags }, res);
+    await handler({ params, query: {}, body: body && { workspaceFolder, ...body }, workspaceFolder, ...flags }, res);
     return out;
   }
   return { app, call };

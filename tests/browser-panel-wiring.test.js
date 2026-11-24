@@ -7,6 +7,7 @@
  * translations.
  */
 
+import './helpers/isolated-data-dir.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -174,7 +175,7 @@ test('REST screenshot force never bypasses the per-tab frame cap', async () => {
     const created = await manager.createSession({ ownerSessionId: 'owner-f', workspaceFile: '/ws/f' });
     const sessionId = created.browserSessionId;
     const tabId = created.tabs[0].browserTabId;
-    const url = `${base}/api/browser/sessions/${sessionId}/tabs/${tabId}/screenshot`;
+    const url = `${base}/api/browser/sessions/${sessionId}/tabs/${tabId}/screenshot?workspaceFolder=${encodeURIComponent("/ws/f")}`;
 
     const first = await fetch(url, { headers: { 'x-test-owner': 'owner-f' } });
     assert.equal(first.status, 200);
@@ -185,12 +186,12 @@ test('REST screenshot force never bypasses the per-tab frame cap', async () => {
     assert.equal(capped.status, 429);
 
     // ...and `force` is not a public bypass either.
-    const forcedTooSoon = await fetch(`${url}?force=1`, { headers: { 'x-test-owner': 'owner-f' } });
+    const forcedTooSoon = await fetch(`${url}&force=1`, { headers: { 'x-test-owner': 'owner-f' } });
     assert.equal(forcedTooSoon.status, 429);
 
     // ...after the interval elapses a manual refresh succeeds.
     clock += BROWSER_LIMITS.SCREENSHOT_FORCE_MIN_INTERVAL_MS + 1;
-    const forced = await fetch(`${url}?force=1`, { headers: { 'x-test-owner': 'owner-f' } });
+    const forced = await fetch(`${url}&force=1`, { headers: { 'x-test-owner': 'owner-f' } });
     assert.equal(forced.status, 200);
     assert.equal((await forced.json()).ok, true);
   } finally {

@@ -59,6 +59,7 @@ export interface ClaudeSession {
   startedAt: number;
   turns: number;
   mode: string;
+  promptSuggestionsEnabled?: boolean;
   permissionMode: string;
   model: string;
   abortController: AbortController | null;
@@ -515,6 +516,7 @@ export function createClaudeStreamingSession(params: CreateClaudeStreamingSessio
     startedAt: Date.now(),
     turns: 0,
     mode: String(params.mode || ''),
+    promptSuggestionsEnabled: params.options.promptSuggestions === true,
     permissionMode: String(params.permissionMode || ''),
     model: String(params.model || ''),
     abortController: (params.options?.abortController as AbortController | undefined) || null,
@@ -555,7 +557,13 @@ export function createClaudeStreamingSession(params: CreateClaudeStreamingSessio
 export function closeClaudeSession(
   room: ClaudeRoomLike | null | undefined,
   sessionOverride?: ClaudeSession | null,
+  broadcast?: (payload: Record<string, unknown>) => void,
 ): void {
+  const closesCurrentSession = !sessionOverride || room?._claudeSession === sessionOverride;
+  if (closesCurrentSession && room?.promptSuggestion) {
+    room.promptSuggestion = null;
+    broadcast?.({ type: 'promptSuggestion', chatId: room.chatId, text: '', turnRunId: '' });
+  }
   const session = sessionOverride || room?._claudeSession;
   if (!session || typeof session !== 'object') return;
   clearClaudeSessionIdleTimer(session);

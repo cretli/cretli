@@ -7,7 +7,7 @@ import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-dat
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { getDelegationById, loadDelegations, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { snapshotDelegationAttempt } from '../lib/delegation-attempt.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';

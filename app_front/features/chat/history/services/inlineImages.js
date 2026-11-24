@@ -215,7 +215,7 @@ function ensureSdkImageLightbox() {
   host.innerHTML =
     '<div class="sdk-image-lightbox-backdrop"></div>' +
     `<div class="sdk-image-lightbox-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(t('sdkView.imagePreview'))}">` +
-    `<button type="button" class="sdk-image-lightbox-close" aria-label="${escapeHtml(t('sdkView.closePreview'))}">×</button>` +
+    `<button type="button" class="sdk-image-lightbox-close" aria-label="${escapeHtml(t('sdkView.closePreview'))}"><span class="mdi mdi-close" aria-hidden="true"></span></button>` +
     '<div class="sdk-image-lightbox-viewport"><img class="sdk-image-lightbox-img" alt="" draggable="false" /></div>' +
     '<div class="sdk-image-lightbox-caption"></div>' +
     '</div>';

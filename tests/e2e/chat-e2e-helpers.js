@@ -693,3 +693,15 @@ export async function maybeResolveOpenCodePermission(page, timeoutMs = 20_000) {
   await allowOnce.click();
   return true;
 }
+
+/**
+ * Click a control of the sidebar footer (settings, voice, car view, fullscreen). The drawer may be
+ * closed on a narrow viewport, so it is opened through the hamburger first.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} selector
+ */
+export async function clickSidebarFooterButton(page, selector) {
+  if (!(await page.locator('#app-sidebar').isVisible())) await page.locator('#header-menu-btn').click();
+  await page.locator(selector).click();
+}

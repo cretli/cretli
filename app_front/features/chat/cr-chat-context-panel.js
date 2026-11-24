@@ -1,11 +1,20 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { t } from '../../i18n/index.js';
 import '../../components/ui/cr-bar-select.js';
+import '../../components/ui/cr-bar-button.js';
+import '../../components/ui/cr-collapsible.js';
 import {
   compareSendWithPreview,
+  describeContextEntry,
+  formatContextEntryReason,
   formatContextSize,
   groupContextEntries,
+  splitContextEntriesByReason,
+  sumInlinedContextBytes,
 } from './chatContextPanelModel.js';
+
+/** Groups that start expanded; the rest open on demand. */
+const OPEN_GROUPS = new Set(['selected', 'delivered', 'error']);
 
 /**
  * "Context of this chat": what the last real send delivered and what the next
@@ -27,14 +36,42 @@ class CrChatContextPanel extends LitElement {
   };
 
   static styles = css`
-    :host { display: block; font-size: var(--cr-font-size-sm, 0.8rem); color: var(--cr-text); }
+    :host { display: block; container-type: inline-size; font-size: var(--cr-font-size-sm, 0.8rem); color: var(--cr-text); }
     h4 { margin: var(--cr-space-3, 0.75rem) 0 var(--cr-space-1, 0.25rem); font-size: var(--cr-font-size-md, 0.85rem); }
-    .row { display: flex; gap: var(--cr-space-2, 0.5rem); align-items: baseline; padding: 0.15rem 0; }
+    p { margin: var(--cr-space-1, 0.25rem) 0; }
+    .row { display: flex; flex-wrap: wrap; gap: var(--cr-space-2, 0.5rem); align-items: baseline; padding: 0.15rem 0; }
     .name { font-family: var(--cr-font-mono); overflow-wrap: anywhere; }
     .meta { color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); }
     .warn { color: var(--cr-error); }
-    .toolbar { display: flex; gap: var(--cr-space-2, 0.5rem); align-items: center; }
     .hint { color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: var(--cr-space-2, 0.5rem) var(--cr-space-3, 0.75rem); align-items: center; }
+    .toolbar .hint { flex: 1 1 14rem; margin: 0; }
+    .sends { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--cr-space-2, 0.5rem); margin: var(--cr-space-3, 0.75rem) 0; }
+    .send { border: 1px solid var(--cr-border-strong); border-radius: var(--cr-radius-lg, 8px); padding: var(--cr-space-2, 0.5rem) var(--cr-space-3, 0.75rem); min-width: 0; }
+    .send-head { display: flex; align-items: center; justify-content: space-between; gap: var(--cr-space-2, 0.5rem); }
+    .send-title { font-weight: 600; }
+    .send-size { font-size: var(--cr-font-size-xl, 1.125rem); font-weight: 600; margin: var(--cr-space-1, 0.25rem) 0; }
+    .ids { font-family: var(--cr-font-mono); color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); overflow-wrap: anywhere; }
+    .badge { border-radius: 999px; padding: 0 var(--cr-space-2, 0.5rem); font-size: var(--cr-font-size-xs, 0.72rem); border: 1px solid var(--cr-border-strong); color: var(--cr-text-muted); white-space: nowrap; }
+    .badge[data-tone="changed"] { color: var(--cr-warn); border-color: var(--cr-warn-border); background: var(--cr-warn-bg); }
+    .badge[data-tone="same"] { color: var(--cr-success); }
+    .notice { border: 1px solid var(--cr-warn-border); background: var(--cr-warn-bg); color: var(--cr-warn); border-radius: var(--cr-radius-sm, 4px); padding: var(--cr-space-2, 0.5rem) var(--cr-space-3, 0.75rem); margin: var(--cr-space-2, 0.5rem) 0; }
+    .notice p { margin: 0; }
+    .notice .detail { color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); margin-top: var(--cr-space-1, 0.25rem); }
+    .groups { display: flex; flex-direction: column; gap: var(--cr-space-2, 0.5rem); }
+    .group-title { font-weight: 600; }
+    .group-meta { color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); white-space: nowrap; }
+    .empty { color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); margin: var(--cr-space-1, 0.25rem) 0 0; }
+    ul.entries { list-style: none; margin: 0; padding: 0; }
+    .reason-head { margin: var(--cr-space-2, 0.5rem) 0 0; color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); font-weight: 600; }
+    .reason-head:first-child { margin-top: 0; }
+    li.entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 var(--cr-space-3, 0.75rem); padding: var(--cr-space-1, 0.25rem) 0; border-top: 1px solid var(--cr-border); }
+    li.entry:first-child { border-top: 0; }
+    .entry-label { font-weight: 500; overflow-wrap: anywhere; }
+    .entry-folder { grid-column: 1 / -1; font-family: var(--cr-font-mono); color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); overflow-wrap: anywhere; }
+    .entry-side { color: var(--cr-text-muted); font-size: var(--cr-font-size-xs, 0.72rem); white-space: nowrap; }
+    .kind { display: inline-block; border: 1px solid var(--cr-border-strong); border-radius: var(--cr-radius-sm, 4px); padding: 0 0.3rem; margin-right: var(--cr-space-1, 0.25rem); }
+    .config { margin-top: var(--cr-space-3, 0.75rem); }
   `;
 
   constructor() {
@@ -117,7 +154,6 @@ class CrChatContextPanel extends LitElement {
       label: value ? t(`chat.ctxCfgMode_${value}`) : t('chat.ctxCfgModeInherit'),
     }));
     return html`
-      <h4>${t('chat.ctxCfgTitle')}</h4>
       <p class="hint">${settings.repoConfig.active ? t('chat.ctxCfgRepoActive', { keys: settings.repoConfig.changes.join(', ') || '—' }) : t('chat.ctxCfgRepoInactive')}</p>
       ${settings.repoConfig.error ? html`<p class="warn">${settings.repoConfig.error}</p>` : nothing}
       ${Object.entries(settings.effective).map(([key, value]) => html`
@@ -138,37 +174,115 @@ class CrChatContextPanel extends LitElement {
       ${config.globs.length ? html`<p class="hint">${t('chat.ctxCfgGlobs', { count: String(config.globs.length) })} ${t('chat.ctxCfgGlobsNote')}</p>` : nothing}`;
   }
 
-  _renderSummary(title, snapshot) {
-    if (!snapshot) return html`<p class="hint">${t('chat.ctxPanelNoSend')}</p>`;
-    return html`<div class="row"><strong>${title}</strong>
-      <span class="meta">${t('chat.ctxPanelRevision')}: ${snapshot.revision}</span>
-      <span class="meta">${t('chat.ctxPanelHash')}: ${String(snapshot.payloadHash || '').slice(0, 12)}</span>
-      <span class="meta">${formatContextSize(snapshot.payloadLength)}</span></div>`;
+  /**
+   * One send as a card: size first, identifiers small underneath.
+   * @param {string} title
+   * @param {Record<string, any> | null} snapshot
+   * @param {import('lit').TemplateResult | typeof nothing} [badge]
+   */
+  _renderSendCard(title, snapshot, badge = nothing) {
+    if (!snapshot) {
+      return html`<div class="send"><div class="send-head"><span class="send-title">${title}</span></div>
+        <p class="hint">${t('chat.ctxPanelNoSend')}</p></div>`;
+    }
+    const bytes = snapshot.payloadBytes ?? snapshot.payloadLength;
+    return html`<div class="send">
+      <div class="send-head"><span class="send-title">${title}</span>${badge}</div>
+      <div class="send-size">${formatContextSize(bytes)}</div>
+      <div class="ids">${t('chat.ctxPanelRevision')} ${String(snapshot.revision || '—').slice(0, 12)}
+        · ${t('chat.ctxPanelHash')} ${String(snapshot.payloadHash || '—').slice(0, 12)}</div>
+    </div>`;
+  }
+
+  /** Diagnostics about the last send; informational, never an error state. */
+  _renderSendNotices() {
+    const latest = this._latest;
+    const notices = [];
+    if (latest?.delivery?.matchesAssembler === false) {
+      notices.push(html`<div class="notice" role="note"><p>${t('chat.ctxPanelDrift')}</p>
+        <p class="detail">${t('chat.ctxPanelDriftDetail', {
+          sent: formatContextSize(latest.delivery.sentPayloadBytes ?? latest.delivery.sentPayloadLength),
+          assembled: formatContextSize(latest.payloadBytes ?? latest.payloadLength),
+        })}</p></div>`);
+    }
+    if (latest?.preview?.changedSincePreview) {
+      notices.push(html`<div class="notice" role="note"><p>${t('chat.ctxPanelChangedSincePreview')}</p></div>`);
+    }
+    return notices;
+  }
+
+  /** @param {Record<string, any>} row */
+  _renderEntry(row) {
+    const { label, folder } = describeContextEntry(row);
+    const kindKey = `chat.ctxPanelKind_${row.kind}`;
+    const kind = t(kindKey) === kindKey ? String(row.kind || '') : t(kindKey);
+    return html`<li class="entry" title=${row.relPath || ''}>
+      <span class="entry-label">${label}</span>
+      <span class="entry-side">${kind ? html`<span class="kind">${kind}</span>` : nothing}${formatContextSize(row.sizeBytes)}</span>
+      ${folder ? html`<span class="entry-folder">${folder}</span>` : nothing}
+    </li>`;
+  }
+
+  /**
+   * Rows of one category, under a reason sub-heading when the reasons differ.
+   * @param {Record<string, any>[]} entries
+   */
+  _renderEntryList(entries) {
+    const parts = splitContextEntriesByReason(entries);
+    return parts.map((part) => html`
+      ${part.reason ? html`<p class="reason-head">${formatContextEntryReason(t, part.reason)} (${part.entries.length})</p>` : nothing}
+      <ul class="entries">${part.entries.map((row) => this._renderEntry(row))}</ul>`);
+  }
+
+  /** Count, plus what the delivered entries really add to the message. */
+  _groupMeta(group) {
+    const count = String(group.entries.length);
+    if (group.id !== 'delivered') return count;
+    return `${count} · ${t('chat.ctxPanelInlined', { size: formatContextSize(sumInlinedContextBytes(group.entries)) })}`;
   }
 
   _renderGroups(snapshot) {
     if (!snapshot) return nothing;
-    return groupContextEntries(snapshot).map((group) => html`
-      <h4>${t(`chat.ctxPanelCat_${group.id}`)} (${group.entries.length})</h4>
-      ${group.entries.length ? group.entries.map((row) => html`
-        <div class="row"><span class="name">${row.relPath}</span>
-          <span class="meta">${row.kind} · ${formatContextSize(row.sizeBytes)} · ${t(`chat.ctxPanelReason_${row.reason}`) === `chat.ctxPanelReason_${row.reason}` ? row.reason : t(`chat.ctxPanelReason_${row.reason}`)}</span></div>`)
-        : html`<p class="hint">—</p>`}`);
+    const groups = groupContextEntries(snapshot);
+    const filled = groups.filter((group) => group.entries.length);
+    const empty = groups.filter((group) => !group.entries.length);
+    return html`<div class="groups">
+      ${filled.map((group) => html`
+        <cr-collapsible ?open=${OPEN_GROUPS.has(group.id)}>
+          <span slot="heading" class="group-title">${t(`chat.ctxPanelCat_${group.id}`)}</span>
+          <span slot="meta" class="group-meta">${this._groupMeta(group)}</span>
+          ${this._renderEntryList(group.entries)}
+        </cr-collapsible>`)}
+      ${empty.length ? html`<p class="empty">${t('chat.ctxPanelEmptyGroups', { groups: empty.map((group) => t(`chat.ctxPanelCat_${group.id}`)).join(', ') })}</p>` : nothing}
+    </div>`;
   }
 
   render() {
     const verdict = compareSendWithPreview(this._latest, this._preview);
+    const badge = verdict === 'no_send' ? nothing
+      : html`<span class="badge" data-tone=${verdict}>${t(verdict === 'same' ? 'chat.ctxPanelSameAsLast' : 'chat.ctxPanelChangedBadge')}</span>`;
     return html`
-      <div class="toolbar"><cr-bar-button @click=${() => this.refresh()} ?disabled=${this._loading}>${t('chat.ctxPanelRefresh')}</cr-bar-button></div>
-      <p class="hint">${t('chat.ctxPanelNoReadEvidence')}</p>
+      <div class="toolbar">
+        <cr-bar-button @click=${() => this.refresh()} ?disabled=${this._loading}>${t('chat.ctxPanelRefresh')}</cr-bar-button>
+        <p class="hint">${t('chat.ctxPanelNoReadEvidence')}</p>
+      </div>
       ${this._error ? html`<p class="warn">${this._error}</p>` : nothing}
-      ${this._renderSummary(t('chat.ctxPanelLastSend'), this._latest)}
-      ${this._latest?.delivery?.matchesAssembler === false ? html`<p class="warn">${t('chat.ctxPanelDrift')}</p>` : nothing}
-      ${this._latest?.preview?.changedSincePreview ? html`<p class="warn">${t('chat.ctxPanelChangedSincePreview')}</p>` : nothing}
-      ${this._renderSummary(t('chat.ctxPanelNextSend'), this._preview)}
-      ${verdict === 'changed' ? html`<p class="warn">${t('chat.ctxPanelChangedFromLast')}</p>` : nothing}
+      <div class="sends">
+        ${this._renderSendCard(t('chat.ctxPanelLastSend'), this._latest)}
+        ${this._renderSendCard(t('chat.ctxPanelNextSend'), this._preview, badge)}
+      </div>
+      ${this._renderSendNotices()}
+      ${verdict === 'changed' ? html`<p class="hint">${t('chat.ctxPanelChangedFromLast')}</p>` : nothing}
       ${this._renderGroups(this._preview)}
-      ${this._renderConfig()}`;
+      ${this._renderConfigSection()}`;
+  }
+
+  _renderConfigSection() {
+    if (!this._config && !this._configError) return nothing;
+    return html`<cr-collapsible class="config">
+      <span slot="heading" class="group-title">${t('chat.ctxCfgTitle')}</span>
+      ${this._renderConfig()}
+    </cr-collapsible>`;
   }
 }
 

@@ -2,6 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleSdkPromptLifecycleMessage } from '../app_front/features/chat/transport/sdkPromptLifecycle.js';
 
+test('room state hydration restores the prompt suggestion chip', () => {
+  const received = [];
+  const chat = { _promptSuggestionChip: { set: (suggestion) => received.push(suggestion) } };
+  const handled = handleSdkPromptLifecycleMessage(chat, {
+    type: 'sdkRoomState',
+    promptSuggestion: { text: 'Continue with a test', turnRunId: 'run-2' },
+  }, {});
+  assert.equal(handled, false);
+  assert.deepEqual(received, [{ text: 'Continue with a test', turnRunId: 'run-2' }]);
+});
+
 test('live origin prompt carries its identity to the rich history view', () => {
   const chat = { id: 'chat-1' };
   const calls = [];

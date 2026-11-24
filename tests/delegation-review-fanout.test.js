@@ -6,7 +6,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import {

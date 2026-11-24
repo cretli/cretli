@@ -250,6 +250,8 @@ async function runWriteStatsScenario() {
   await populateFixture({ dir: path.join(work, 'data'), size: P.fixtureChats, profile: P.fixtureProfile, seed });
   const atomic = await import('../lib/persist/atomic-write.js');
   const chatsPersist = await import('../lib/persist/chats-persist.js');
+  // The profile measures the synchronous legacy-store write cost, which is no longer on the facade.
+  const legacyChats = await import('../lib/persist/chats-legacy-store.js');
   const todosStore = await import('../lib/persist/todos-store.js');
   const mailbox = await import('../lib/persist/delegation-mailbox-persist.js');
   const workflows = await import('../lib/persist/delegation-workflows-persist.js');
@@ -269,7 +271,7 @@ async function runWriteStatsScenario() {
   let todoSeq = 0;
   for (let i = 0; i < n; i += 1) {
     // A third of the chat updates re-send the value that is already stored (title echo / idempotent PATCH).
-    timed('updateChat', () => chatsPersist.updateChat(chats[1].id, { title: `Fixture chat renamed ${Math.floor(i / 3) % 7}` }));
+    timed('updateChat', () => legacyChats.updateChat(chats[1].id, { title: `Fixture chat renamed ${Math.floor(i / 3) % 7}` }));
     todoSeq += 1;
     try { await todosStore.addTodo(dataDir, hotFolder, { title: `Profile todo ${todoSeq}`, body: 'b', status: 'ready' }); } catch { /* cap reached */ }
     if (i % 3 === 0) {
@@ -435,19 +437,19 @@ async function runChild() {
       }), usageCtx);
     }, P.fs);
 
-    // owner lock socket probe (R3): Atomics.wait blocks while the connect callback can never run.
+    // Diagnostic owner socket probe (R3); acquisition uses PID/start-time metadata.
     const sockPath = path.join(work, 'probe.sock');
     trackHelper(await startHolder(`
       const net = require('net'); const s = net.createServer(() => {}); s.listen(process.argv[1], () => process.stdout.write('ready\\n')); setInterval(() => {}, 1e6);`, [sockPath]));
     liveReturns = 0;
     await profileSite({
       id: 'AW-owner-lock-socket-probe',
-      group: 'atomics-wait',
-      site: 'lib/delegation-owner-lock.js:159 (isLockSocketLive, 80 ms Atomics.wait)',
+      group: 'async-socket',
+      site: 'lib/delegation-owner-lock.js (isLockSocketLive, asynchronous diagnostic)',
       owner: 'R3',
       requestPath: 'startup',
-      note: 'READ-ONLY (recovery R3). Probed against a socket that IS listening in another process.',
-    }, () => { if (ownerLock.isLockSocketLive(sockPath)) liveReturns += 1; }, P.heavy);
+      note: 'Diagnostic only, outside acquisition. Awaited socket probe with an 80 ms timeout; listening peer is in another process.',
+    }, async () => { if (await ownerLock.isLockSocketLive(sockPath)) liveReturns += 1; }, P.heavy);
   } finally {
     for (const proc of helperProcs) { try { proc.kill(); } catch { /* already exited */ } }
   }
@@ -534,6 +536,8 @@ async function runChild() {
 
   // ---- C. Hot sync fs on request paths (fixture with chats/todos/usage) ----
   const chatsPersist = await import('../lib/persist/chats-persist.js');
+  // The profile measures the synchronous legacy-store write cost, which is no longer on the facade.
+  const legacyChats = await import('../lib/persist/chats-legacy-store.js');
   const { writeJsonAtomic } = await import('../lib/persist/atomic-write.js');
   const todosStore = await import('../lib/persist/todos-store.js');
   const delegations = await import('../lib/persist/delegations-persist.js');
@@ -551,11 +555,11 @@ async function runChild() {
   await profileSite({
     id: 'FS-chats-update-one',
     group: 'sync-fs',
-    site: `lib/persist/chats-persist.js updateChat() (read copy + write of the full chat collection, ${chatList.length} chats)`,
+    site: `lib/persist/chats-legacy-store.js updateChat() (read copy + write of the full chat collection, ${chatList.length} chats)`,
     owner: 'A3b',
     requestPath: 'yes',
     note: 'Writer is owned by storage A3b (metadata migration); measured only to attribute the stall.',
-  }, () => { chatToggle += 1; chatsPersist.updateChat(chatList[1].id, { title: `Fixture chat renamed ${chatToggle % 7}` }); }, Math.min(P.fs, 300));
+  }, () => { chatToggle += 1; legacyChats.updateChat(chatList[1].id, { title: `Fixture chat renamed ${chatToggle % 7}` }); }, Math.min(P.fs, 300));
   const bigDoc = { chats: chatList };
   await profileSite({
     id: 'FS-write-json-atomic-large',
@@ -607,11 +611,11 @@ async function runChild() {
   await profileSite({
     id: 'CP-chats-remove-copy',
     group: 'sync-fs',
-    site: `lib/persist/chats-persist.js removeChat() of an unknown id (copyChats + whole-file write, ${chatList.length} chats)`,
+    site: `lib/persist/chats-legacy-store.js removeChat() of an unknown id (copyChats + whole-file write, ${chatList.length} chats)`,
     owner: 'stage-6',
     requestPath: 'yes',
     note: 'Leaf 9f36e26e. Isolates the copyChats cost of a filter-only writer; the whole-file write dominates the wall time.',
-  }, () => { removeSeq += 1; chatsPersist.removeChat(`profile-missing-${removeSeq}`); }, Math.min(P.fs, 100));
+  }, () => { removeSeq += 1; legacyChats.removeChat(`profile-missing-${removeSeq}`); }, Math.min(P.fs, 100));
   const verdictLib = await import('../lib/delegation-verdict.js');
   const findingsLib = await import('../lib/review-findings-parse.js');
   const profileReport = [

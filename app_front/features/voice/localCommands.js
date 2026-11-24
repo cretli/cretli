@@ -297,7 +297,7 @@ export function matchSendWindowCommand(text) {
  *
  * @param {typeof commandHandlers} handlers
  * @param {{ getGate?: () => ReturnType<typeof getVoiceSendGate> }} [options] send gate for queued / steered text
- * @returns {Record<string, (args: any) => Promise<object>>}
+ * @returns {Record<string, (args: any) => Promise<import('./voiceCommandTypes.js').VoiceCommandResult>>}
  */
 export function createLocalExecutors(handlers = commandHandlers, options = {}) {
   const getGate = options.getGate || getVoiceSendGate;
@@ -332,8 +332,8 @@ export function createLocalExecutors(handlers = commandHandlers, options = {}) {
 
 /**
  * @param {{ action: string, args: object }} command
- * @param {Record<string, (args: any) => Promise<object>>} [executors]
- * @returns {Promise<object>}
+ * @param {Record<string, (args: any) => Promise<import('./voiceCommandTypes.js').VoiceCommandResult>>} [executors]
+ * @returns {Promise<import('./voiceCommandTypes.js').VoiceCommandResult>}
  */
 export async function runLocalCommand(command, executors = createLocalExecutors()) {
   const executor = executors[command.action];

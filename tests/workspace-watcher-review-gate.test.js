@@ -53,7 +53,7 @@ import {
 } from '../lib/workspace-watcher-review-gate.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 import { buildWorkspaceWatcherCyclePromptPlan } from '../lib/workspace-watcher-prompt.js';
 import { classifyWorkspaceDoingTodo } from '../lib/workspace-watcher-recovery.js';

@@ -10,7 +10,9 @@ import {
 } from '../chatDelegations.js';
 import { t } from '../../../i18n/index.js';
 import { readNewChatLocationFavorites } from '../newChatLocationOptions.js';
-import { readLastNewChatExecutor, readLastNewChatLocation } from '../services/newChatLastSelection.js';
+import { buildNewChatRecency, sortWorkspacesByRecency } from '../newChatRecency.js';
+import { resolveWorkspaceDefaultFolder } from '../newChatDefaultFolder.js';
+import { readLastNewChatExecutor } from '../services/newChatLastSelection.js';
 import {
   getSelectedNewChatHarness,
   localChatHarnessIds,
@@ -38,6 +40,45 @@ import {
 import { newChatModalState } from '../state/newChatModalState.js';
 import { chatRuntime, chats } from '../state/chatRuntimeState.js';
 import { chatHost } from '../services/chatHost.js';
+
+/**
+ * Quick workspace chooser (swipe / tap) at the top of the Workspace section. Hidden when the
+ * chat is anchored to a source chat (fork, monitor, delegation) or only one workspace exists.
+ *
+ * @param {boolean} anchored true when the workspace must stay the source chat's
+ */
+function syncNewChatWorkspacePicker(anchored) {
+  const row = document.getElementById('chat-new-workspace-row');
+  const picker = /** @type {any} */ (document.getElementById('chat-new-workspace-picker'));
+  if (!(row instanceof HTMLElement) || !picker) return;
+  const workspaces = sortWorkspacesByRecency(
+    (chatRuntime.workspaces || []).filter((w) => w && w.workspaceFile), buildNewChatRecency(chats));
+  row.hidden = anchored || workspaces.length < 2;
+  if (row.hidden) return;
+  picker.items = workspaces.map((w) => ({
+    value: w.workspaceFile,
+    label: w.name || w.workspaceFile,
+    color: w.color || '',
+    icon: w.icon || '',
+  }));
+  picker.value = chatRuntime.selectedWorkspaceFile || '';
+  if (picker.dataset.wired === '1') return;
+  picker.dataset.wired = '1';
+  picker.addEventListener('cr-change', (event) => {
+    const file = String(event.detail?.value || '');
+    const workspace = (chatRuntime.workspaces || []).find((w) => w.workspaceFile === file);
+    if (!workspace) return;
+    chatRuntime.selectedWorkspaceFile = file;
+    chatRuntime.selectedWorkspaceFolder = resolveWorkspaceDefaultFolder(workspace);
+    // A worktree target belongs to the previous workspace.
+    newChatModalState.newChatWorktreeTarget = null;
+    newChatModalState.newChatLocationUserTouched = false;
+    chatHost.chatController.renderWorkspacesSelects();
+    chatHost.ensureEmbedNewChatFolderSelect();
+    void chatHost.syncNewChatWorktreeRow();
+    newChatModalState.chatNewFolderDropdownApi?.refresh?.();
+  });
+}
 
 export function openNewChatModal(options = {}) {
   ++newChatModalState.newChatLocationGeneration;
@@ -171,8 +212,6 @@ export function openNewChatModal(options = {}) {
   const preferredWorkspaceFolder =
     options && typeof options.workspaceFolder === 'string' ? options.workspaceFolder.trim() : '';
   const ctx = chatHost.getWorkspaceContextForChat();
-  // Fall back to the last location the user picked when nothing else points anywhere.
-  const lastLocation = !sourceChat && !preferredWorkspaceFolder ? readLastNewChatLocation() : null;
   // The active chat's worktree is the default target; it only applies when no
   // explicit workspace points elsewhere.
   const worktreeChat = sourceChat ? null : findActiveWorktreeChat();
@@ -181,9 +220,7 @@ export function openNewChatModal(options = {}) {
     normalizeFolderForCompare(preferredWorkspaceFolder) ===
       normalizeFolderForCompare(worktreeChat.workspaceFolder)
   );
-  newChatModalState.newChatWorktreeTarget = lastLocation
-    ? { todoId: lastLocation.todoId, workspaceFolder: lastLocation.folder }
-    : worktreeMatches
+  newChatModalState.newChatWorktreeTarget = worktreeMatches
     ? {
       todoId: chatWorktreeTodoId(worktreeChat),
       workspaceFile: String(worktreeChat.workspaceFile || ''),
@@ -197,11 +234,15 @@ export function openNewChatModal(options = {}) {
     ctx?.workspaceFile ||
     (chatRuntime.workspaces[0] && chatRuntime.workspaces[0].workspaceFile) ||
     null;
+  // Without an explicit target (fork source, caller folder, active worktree) the folder is
+  // always the workspace's configured default, never the last one picked.
   chatRuntime.selectedWorkspaceFolder =
     preferredWorkspaceFolder ||
     sourceChat?.workspaceFolder ||
-    lastLocation?.folder ||
     (worktreeMatches ? worktreeChat.workspaceFolder : '') ||
+    resolveWorkspaceDefaultFolder(
+      (chatRuntime.workspaces || []).find((w) => w.workspaceFile === chatRuntime.selectedWorkspaceFile),
+    ) ||
     ctx?.workspaceFolder ||
     null;
   void chatHost.syncNewChatWorktreeRow();
@@ -217,6 +258,7 @@ export function openNewChatModal(options = {}) {
   }
   syncNewChatAgentModelPicker();
   newChatModalState.chatNewFolderDropdownApi?.refresh?.();
+  syncNewChatWorkspacePicker(Boolean(sourceChat));
   const titleInput = document.getElementById('chat-new-title-input');
   if (titleInput) {
     titleInput.value = monitorChat
@@ -237,10 +279,6 @@ export function openNewChatModal(options = {}) {
   newChatModalState.newChatModalReturnFocus = activeBeforeOpen instanceof HTMLElement ? activeBeforeOpen : null;
   newChatModalState.chatNewModalApi.open();
   void refreshNewChatUsageLimits();
-  // The name is optional. Focus the first required choice so opening the dialog
-  // does not emphasize an empty field the user may never need to fill in.
-  const modelPickerForFocus = document.getElementById('chat-new-agent-model');
-  void modelPickerForFocus?.updateComplete?.then(() => modelPickerForFocus.shadowRoot?.querySelector('button')?.focus());
   void chatHost.loadWorkspaces().then(() => {
     if (locationGeneration !== newChatModalState.newChatLocationGeneration) return;
     chatRuntime.selectedWorkspaceFile =
@@ -255,6 +293,7 @@ export function openNewChatModal(options = {}) {
       chatRuntime.selectedWorkspaceFolder;
     chatHost.chatController.renderWorkspacesSelects();
     chatHost.ensureEmbedNewChatFolderSelect();
+    syncNewChatWorkspacePicker(Boolean(getNewChatModalSourceChat()));
     void chatHost.syncNewChatWorktreeRow({ keepSelection: true });
     if (!newChatModalState.newChatModelUserTouched) {
       const m = document.getElementById('chat-new-model-select');

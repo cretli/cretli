@@ -1,3 +1,6 @@
+/** Shared distance at which downward navigation resumes following. */
+export const SCROLL_STICK_THRESHOLD_PX = 64;
+
 /**
  * Stick-to-bottom evaluation with all layout reads before any write, so a
  * single call forces at most one layout instead of read/write/read thrash.
@@ -38,8 +41,8 @@ export function evaluateStickFromScroll(mountEl, button, state, thresholdPx) {
   return stick;
 }
 
-/** Below this many px from the bottom the view counts as at the very bottom. */
-const AT_BOTTOM_EPSILON_PX = 2;
+/** Geometry tolerance at the physical bottom, separate from the follow-resume distance. */
+export const AT_BOTTOM_EPSILON_PX = 2;
 
 /**
  * Pure stick transition for one scroll observation.

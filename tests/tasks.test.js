@@ -29,6 +29,18 @@ test('loadTasks reads shell tasks and substitutes workspaceFolder', async () => 
   assert.equal(actual.tasks[0].folderName, path.basename(dir));
 });
 
+test('loadTasks preserves string and array dependsOn declarations', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'cretli-tasks-deps-'));
+  await mkdir(path.join(dir, '.vscode'));
+  await writeFile(path.join(dir, '.vscode', 'tasks.json'), JSON.stringify({ tasks: [
+    { label: 'one', type: 'shell', command: 'echo one', dependsOn: 'prep' },
+    { label: 'two', type: 'process', command: 'echo', args: ['two'], dependsOn: ['prep', 'build'] },
+  ] }));
+  const { tasks } = loadTasks(dir);
+  assert.equal(tasks[0].dependsOn, 'prep');
+  assert.deepEqual(tasks[1].dependsOn, ['prep', 'build']);
+});
+
 test('loadTasksFromDirectories merges every folder and prefixes duplicate labels', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'cretli-tasks-multi-'));
   const first = path.join(root, 'one');

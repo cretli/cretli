@@ -9,7 +9,7 @@
  *   node scripts/pin-chat-url.js --url http://host/page --chat-id <uuid> --no-navigate
  */
 
-import { getChatByCursorSessionId, loadChats, updateChat } from '../lib/persist/chats-persist.js';
+import { getChatByCursorSessionIdAsync, loadChatsAsync, updateChatAsync } from '../lib/persist/chats-persist.js';
 
 function parseArgs(argv) {
   const out = {
@@ -48,12 +48,12 @@ function parseArgs(argv) {
   return out;
 }
 
-function resolveChat({ chatId, cursorSessionId }) {
+async function resolveChat({ chatId, cursorSessionId }) {
   if (chatId) {
-    return loadChats().find((item) => item.id === chatId) || null;
+    return (await loadChatsAsync()).find((item) => item.id === chatId) || null;
   }
   if (cursorSessionId) {
-    return getChatByCursorSessionId(cursorSessionId);
+    return getChatByCursorSessionIdAsync(cursorSessionId);
   }
   return null;
 }
@@ -77,12 +77,12 @@ async function main() {
     console.error('Usage: node scripts/pin-chat-url.js --url <url> (--chat-id <uuid> | --cursor-session-id <uuid>)');
     process.exit(1);
   }
-  const chat = resolveChat(args);
+  const chat = await resolveChat(args);
   if (!chat?.id) {
     console.error('Chat not found — pass --chat-id or --cursor-session-id');
     process.exit(1);
   }
-  const updated = updateChat(chat.id, { widgetPinnedUrl: args.url });
+  const updated = await updateChatAsync(chat.id, { widgetPinnedUrl: args.url });
   console.log(JSON.stringify({
     ok: true,
     chatId: chat.id,

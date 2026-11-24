@@ -51,6 +51,10 @@ export function ensurePanelReady(panelKey) {
       initPanelOnce(panelKey, () => /** @type {any} */ (mod).initAppsPanel());
       return;
     }
+    if (panelKey === 'devices') {
+      initPanelOnce(panelKey, () => /** @type {any} */ (mod).initDevicesPanel());
+      return;
+    }
     if (panelKey === 'agentsSettings') {
       initPanelOnce(panelKey, () => mod.initAgentsPanel());
       return;
@@ -88,6 +92,10 @@ export function ensurePanelReady(panelKey) {
     }
     if (panelKey === 'instances') {
       initPanelOnce(panelKey, () => mod.initInstancesPanel());
+      return;
+    }
+    if (panelKey === 'fleet') {
+      initPanelOnce(panelKey, () => /** @type {any} */ (mod).initFleetPanel());
       return;
     }
     if (panelKey === 'browser') {

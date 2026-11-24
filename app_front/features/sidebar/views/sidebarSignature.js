@@ -8,7 +8,7 @@ import { readChatOrder } from '../sidebarChatOrder.js';
 import { readSidebarFavoritesFirstFlag, readSidebarOnlyFavoritesFlag, readSidebarSortMode } from '../sidebarListSort.js';
 import { readSidebarOnlyActiveWorkspaceFlag, readSidebarOnlyLiveChatsFlag } from '../sidebarOnlyActiveFilter.js';
 import { readWorkspaceOrder } from '../sidebarWorkspaceOrder.js';
-import { readPinActiveWorkspaceFlag, readWatcherShowAllFlag, normalizePath } from '../state/sidebarPersistence.js';
+import { readPinActiveWorkspaceFlag, normalizePath } from '../state/sidebarPersistence.js';
 import { archiveWindowChatIds } from '../sidebarArchiveVirtualizer.js';
 
 /**
@@ -16,6 +16,8 @@ import { archiveWindowChatIds } from '../sidebarArchiveVirtualizer.js';
  */
 export function createSidebarSignature(ctx) {
   const { getWorkspaces, getActiveWorkspaceFile, getActiveWorkspaceFolder, getActiveChatId, getPreferredWorkspaceFolder, chatFavorites, state, showAllChatsBySidebarKey, collapsed, archiveOpen, subchatExpanded } = ctx;
+  // Mode-aware list (the flat view swaps in one virtual workspace); plain registry otherwise.
+  const listWorkspaces = () => (typeof ctx.getListWorkspaces === 'function' ? ctx.getListWorkspaces() : getWorkspaces());
   const isWorkspaceCollapsed = (...args) => ctx.isWorkspaceCollapsed(...args);
   const isArchiveSectionOpen = (...args) => ctx.isArchiveSectionOpen(...args);
   const archiveCollapsedForChatId = (...args) => ctx.archiveCollapsedForChatId(...args);
@@ -41,7 +43,7 @@ export function createSidebarSignature(ctx) {
     if (activeChatId) ids.add(activeChatId);
     let cappedWorkspaces = 0;
     const naturalVisible = new Set();
-    for (const workspace of getWorkspaces()) {
+    for (const workspace of listWorkspaces()) {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       const isCollapsed = !searching && isWorkspaceCollapsed(sidebarKey);
       if (!shouldSerializeWorkspaceChatList(isCollapsed, searching)) continue;
@@ -85,7 +87,7 @@ export function createSidebarSignature(ctx) {
   function collectSubchatGroupSignature() {
     const parts = [];
     const searching = isSearchActive();
-    for (const workspace of getWorkspaces()) {
+    for (const workspace of listWorkspaces()) {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       const isCollapsed = !searching && isWorkspaceCollapsed(sidebarKey);
       if (!shouldSerializeWorkspaceChatList(isCollapsed, searching)) continue;
@@ -156,8 +158,14 @@ export function createSidebarSignature(ctx) {
         String(archived.length > 0 ? archived[archived.length - 1]?.id || '' : ''),
       ].join(':')
       : '';
+    // Flat view rows show each chat's workspace marker and name, so those belong here.
+    const rowMarkers = workspace.isAllChats
+      ? (ctx.getWorkspaces() || []).map((w) => (w.name || '') + (w.color || '') + (w.icon || '')).join(',')
+      : '';
     return [
       workspace.name || '',
+      (workspace.color || '') + (workspace.icon || ''),
+      rowMarkers,
       workspace.workspaceFile || '',
       workspace.isClone ? '1' : '0',
       isActive ? 'A' : '',
@@ -200,7 +208,7 @@ export function createSidebarSignature(ctx) {
     const ownsPass = !state.renderPass;
     if (ownsPass) beginRenderPass();
     try {
-      const wsList = getWorkspaces();
+      const wsList = listWorkspaces();
       const activeWs = normalizePath(getActiveWorkspaceFile());
       const collapsedKey = [...collapsed].sort().join('|');
       const visibleIds = collectRenderableChatIds();
@@ -212,6 +220,10 @@ export function createSidebarSignature(ctx) {
           return [
             sidebarKey,
             workspace.name || '',
+            (workspace.color || '') + (workspace.icon || ''),
+            workspace.isAllChats
+              ? (ctx.getWorkspaces() || []).map((w) => (w.name || '') + (w.color || '') + (w.icon || '')).join(',')
+              : '',
             workspace.isClone ? '1' : '0',
             isWorkspaceCollapsed(sidebarKey) ? 'C' : 'O',
             live
@@ -259,7 +271,6 @@ export function createSidebarSignature(ctx) {
         '||' +
         (readPinActiveWorkspaceFlag() ? '1' : '0') +
         '||' +
-        (readWatcherShowAllFlag() ? '1' : '0') +
         '||' +
         (readSidebarOnlyActiveWorkspaceFlag() ? '1' : '0') +
         '||' +

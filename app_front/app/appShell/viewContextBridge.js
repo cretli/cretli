@@ -172,3 +172,14 @@ export function withViewContextQuery(basePath) {
   if (!query) return basePath;
   return `${pathOnly}?${query}`;
 }
+
+/**
+ * Wait until the tab has applied runtime workspace paths. A route-only boot
+ * pass can finish before the default settings arrive, so whenReady is not enough.
+ * No store (embed/tests) resolves immediately.
+ * @returns {Promise<object | null>}
+ */
+export function whenViewContextRuntimeReady() {
+  if (!store || typeof store.whenRuntimeReady !== 'function') return Promise.resolve(null);
+  return store.whenRuntimeReady();
+}

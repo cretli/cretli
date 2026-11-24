@@ -3,7 +3,7 @@
 import { probeSync } from '../../../lib/perfProbe.js';
 import { getCurrentLang, t } from '../../../i18n/index.js';
 import { setRenderedSidebarChatIds, getRenderedSidebarChatIds } from '../sidebarVisibleChats.js';
-import { formatSubchatParentBadge, formatSubchatSummary } from '../sidebarSubchatGroups.js';
+import { formatSubchatParentBadge, formatSubchatSummary, formatSubchatSummaryText } from '../sidebarSubchatGroups.js';
 import { dropWorkspacesWithoutLiveChats, filterWorkspacesByActiveWorkspace, readSidebarOnlyActiveWorkspaceFlag } from '../sidebarOnlyActiveFilter.js';
 import { readWorkspaceOrder } from '../sidebarWorkspaceOrder.js';
 import { sortSidebarWorkspaces } from '../sidebarWorkspaceSort.js';
@@ -16,6 +16,8 @@ import { setSingleBindingText } from './sidebarLitText.js';
  */
 export function createSidebarPatch(ctx) {
   const { getWorkspaces, getActiveWorkspaceFile, getActiveWorkspaceFolder, getActiveChatId, getPreferredWorkspaceFolder, state, updateScheduler } = ctx;
+  // Mode-aware list (the flat view swaps in one virtual workspace); plain registry otherwise.
+  const listWorkspaces = () => (typeof ctx.getListWorkspaces === 'function' ? ctx.getListWorkspaces() : getWorkspaces());
   const getContainer = (...args) => ctx.getContainer(...args);
   const workspaceModel = (...args) => ctx.workspaceModel(...args);
   const cssEscape = (...args) => ctx.cssEscape(...args);
@@ -34,7 +36,7 @@ export function createSidebarPatch(ctx) {
   function refreshLitWorkspaceHostsOnSignatureMatch(body) {
     const ul = body.querySelector('.sidebar-workspaces');
     if (!ul) return;
-    const wsList = getWorkspaces();
+    const wsList = listWorkspaces();
     if (!wsList.length) return;
     const activeWorkspaceFile = getActiveWorkspaceFile();
     const activeWorkspaceFolder = getActiveWorkspaceFolder();
@@ -189,7 +191,7 @@ export function createSidebarPatch(ctx) {
     // Only workspaces that have a group on screen need a model.
     const onScreenKeys = new Set();
     groupEls.forEach((el) => onScreenKeys.add(el.getAttribute('data-sidebar-key') || ''));
-    for (const workspace of getWorkspaces()) {
+    for (const workspace of listWorkspaces()) {
       const sidebarKey = workspace.sidebarKey || workspace.workspaceFile || '';
       if (!onScreenKeys.has(sidebarKey)) continue;
       const { grouped } = workspaceModel(workspace);
@@ -211,7 +213,7 @@ export function createSidebarPatch(ctx) {
       if ((el.getAttribute('data-group-summary') || '') === summaryLabel) return;
       el.setAttribute('data-group-summary', summaryLabel);
       const summaryEl = el.querySelector('.sidebar-subchat-group-summary');
-      const summaryTitle = summaryLabel ? t('sidebar.subchatSummary', { summary: summaryLabel }) : '';
+      const summaryTitle = summaryLabel ? t('sidebar.subchatSummary', { summary: formatSubchatSummaryText(group.summary, t) }) : '';
       if (summaryEl) {
         // Lit owns this span's text binding; textContent= would drop its part markers.
         setSingleBindingText(summaryEl, summaryLabel);

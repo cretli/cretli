@@ -12,8 +12,8 @@ export function normalizeWorkspacePath(pathValue) {
   return pathValue.replace(/\\/g, '/').replace(/\/$/, '').trim();
 }
 
-/** Name a watcher by its selected folder, never by a shared workspace-file parent. */
-export function workspaceDisplayNameForFolder(workspaces, folder, getPreferredFolder = () => '') {
+/** Resolve the workspace row that owns a folder (configured folder first, then its directory). */
+export function findWorkspaceForFolder(workspaces, folder, getPreferredFolder = () => '') {
   const wanted = normalizeWorkspacePath(folder);
   const rows = Array.isArray(workspaces) ? workspaces : [];
   const primary = rows.find((workspace) => {
@@ -28,7 +28,13 @@ export function workspaceDisplayNameForFolder(workspaces, folder, getPreferredFo
     return normalizeWorkspacePath(workspace.workspaceFolder) === wanted
       || normalizeWorkspacePath(workspace.workspaceDir) === wanted;
   });
-  return (primary || fallback)?.name
+  return primary || fallback || null;
+}
+
+/** Name a watcher by its selected folder, never by a shared workspace-file parent. */
+export function workspaceDisplayNameForFolder(workspaces, folder, getPreferredFolder = () => '') {
+  const wanted = normalizeWorkspacePath(folder);
+  return findWorkspaceForFolder(workspaces, folder, getPreferredFolder)?.name
     || wanted.split('/').filter(Boolean).pop()
     || folder;
 }

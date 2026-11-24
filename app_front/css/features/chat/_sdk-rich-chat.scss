@@ -3,6 +3,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overflow-anchor: none;
   background: var(--cr-bg);
   padding: 0 0.55rem calc(0.45rem + 3px);
 }
@@ -235,7 +236,7 @@ cr-sdk-block.sdk-rich-block--queued {
 .sdk-rich-opencode-question-item {
   display: flex;
   flex-direction: column;
-  gap: var(--cr-space-2);
+  gap: 0.4rem;
 }
 
 .sdk-rich-opencode-question-header {
@@ -534,6 +535,17 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
  * under the stream's overflow-x: hidden. Stretch the card and keep prose
  * on the surface color instead of the success wash.
  */
+// One inset for every card-like block (same as the block headers: 0.5rem on all sides).
+.sdk-rich-delegation,
+.sdk-rich-mailbox,
+.sdk-rich-related-chat {
+  --sdk-rich-card-pad: 0.5rem;
+}
+
+.sdk-rich-related-chat {
+  padding: var(--sdk-rich-card-pad);
+}
+
 .sdk-rich-delegation,
 .sdk-rich-mailbox {
   display: grid;
@@ -541,7 +553,7 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   align-items: start;
   gap: 0.45rem 0.4rem;
   width: 100%;
-  padding: 0.55rem 0.65rem;
+  padding: var(--sdk-rich-card-pad);
   background: var(--cr-surface);
   color: var(--cr-text);
   border: 1px solid var(--cr-border);
@@ -576,8 +588,8 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
 
 .sdk-rich-delegation-wait {
   width: 100%;
-  margin: 0 0 var(--cr-space-1);
-  padding: 0.4rem 0.65rem;
+  margin: 0 0 calc(-1 * var(--cr-space-1));
+  padding: 0.15rem var(--sdk-rich-card-pad, 0.5rem);
   color: var(--cr-text-muted);
   font-size: var(--cr-font-size-legacy-08);
   border: 1px dashed var(--cr-border);
@@ -585,18 +597,185 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
   background: var(--cr-surface);
 }
 
+// The content spans the whole card; the timestamp overlays its top-right corner.
+.sdk-rich-delegation {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.sdk-rich-delegation .sdk-rich-line__timestamp {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+  align-self: start;
+  margin: 0;
+}
+
+.sdk-rich-delegation .sdk-rich-line__content {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .sdk-rich-delegation .sdk-rich-line__content,
 .sdk-rich-mailbox .sdk-rich-line__content {
   display: flex;
   flex-direction: column;
-  gap: var(--cr-space-1);
+  gap: var(--cr-space-2);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .sdk-rich-delegation-title {
-  font-size: var(--cr-font-size-legacy-085);
+  font-size: var(--cr-font-size-legacy-08);
+  color: var(--cr-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sdk-rich-delegation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+  min-width: 0;
+}
+
+.sdk-rich-delegation-logo {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.sdk-rich-delegation-model {
+  font-weight: 600;
   color: var(--cr-text);
+  overflow-wrap: anywhere;
+}
+
+// Effort as four signal bars; the filled count comes from data-level.
+.sdk-rich-delegation-effort {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 0.85rem;
+
+  i {
+    display: block;
+    width: 3px;
+    border-radius: 1px;
+    background: var(--cr-border-strong);
+
+    &:nth-child(1) { height: 25%; }
+    &:nth-child(2) { height: 50%; }
+    &:nth-child(3) { height: 75%; }
+    &:nth-child(4) { height: 100%; }
+  }
+
+  @for $level from 1 through 4 {
+    &[data-level='#{$level}'] i:nth-child(-n + #{$level}) { background: var(--cr-accent); }
+  }
+}
+
+.sdk-rich-delegation-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 var(--cr-space-2);
+  border-radius: 999px;
+  border: 1px solid var(--cr-border);
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-legacy-08);
+
+  &[data-active='1'] {
+    color: var(--cr-warn);
+    border-color: var(--cr-warn);
+  }
+}
+
+.sdk-rich-delegation[data-delegation-status='completed'] .sdk-rich-delegation-state {
+  color: var(--cr-success);
+  border-color: var(--cr-success);
+}
+
+.sdk-rich-delegation[data-delegation-status='failed'] .sdk-rich-delegation-state,
+.sdk-rich-delegation[data-delegation-status='interrupted'] .sdk-rich-delegation-state {
+  color: var(--cr-error);
+  border-color: var(--cr-error);
+}
+
+.sdk-rich-delegation-pulse {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: sdk-rich-delegation-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sdk-rich-delegation-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdk-rich-delegation-pulse { animation: none; }
+}
+
+.sdk-rich-delegation-elapsed {
+  color: var(--cr-text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cr-font-size-legacy-08);
+}
+
+.sdk-rich-delegation-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cr-space-2);
+}
+
+.sdk-rich-delegation-bar-end {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cr-space-1);
+  margin-left: auto;
+}
+
+.sdk-rich-delegation-btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--cr-control-height);
+  padding: 0;
+}
+
+.sdk-rich-delegation-stop:hover {
+  color: var(--cr-error);
+}
+
+.sdk-rich-delegation-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--cr-text-muted);
+
+  .mdi { transition: transform 0.12s ease; }
+  &[aria-expanded='true'] .mdi { transform: rotate(180deg); }
+}
+
+// Details sit in a soft inset box so they read as secondary to the card.
+.sdk-rich-delegation-details-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cr-space-1);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-legacy-08);
+
+  &[hidden] { display: none; }
 }
 
 .sdk-rich-delegation-waiting {
@@ -1285,6 +1464,10 @@ cr-sdk-block.sdk-rich-opencode-permission--resolved {
 }
 
 .sdk-image-lightbox-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   position: absolute;
   z-index: 1;
   top: 0.85rem;
@@ -1707,3 +1890,23 @@ body.sdk-image-lightbox-open {
 }
 
 /* Usage-tab rules live in features/settings/_usage.scss. */
+
+// Empty slots (badges, actions, rating) must not add flex gaps at the card bottom.
+.sdk-rich-delegation .sdk-rich-line__content > :empty {
+  display: none;
+}
+
+.sdk-rich-delegation-bar {
+  margin-top: var(--cr-space-1);
+}
+
+// Card buttons use the same dark control style as the chat toolbar.
+.sdk-rich-delegation-btn {
+  border-color: var(--cr-border-subtle);
+  background: var(--cr-control-idle-bg);
+
+  &:hover {
+    background: var(--cr-hover);
+    border-color: var(--cr-border-strong);
+  }
+}

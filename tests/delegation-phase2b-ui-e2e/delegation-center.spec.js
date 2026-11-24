@@ -202,7 +202,7 @@ async function openSettingsTab(page, tabId) {
     await page.locator('#header-settings-btn').click({ force: true });
   }
   await expect(settingsPanel).toBeVisible();
-  const tab = page.locator(`#settings-tabs .settings-tab[data-settings-tab="${tabId}"]`);
+  const tab = page.locator(`#sidebar-settings-tree [data-settings-node="${tabId}"]`);
   await expect(tab).toBeVisible();
   await tab.click({ force: true });
   const section = page.locator(`.settings-section[data-settings-tab="${tabId}"]`).first();
@@ -244,6 +244,9 @@ test.describe('delegation center and live WS reconnect', () => {
     await openSettingsTab(page, 'delegations');
     await expect(page.locator('#settings-tabs .settings-tab[data-settings-tab="delegations"]'))
       .toHaveText(/Delegations|Delegacje/);
+    await expect(page.locator('#delegation-runtime-section')).not.toHaveAttribute('open', '');
+    await expect(page.locator('#delegation-runtime-health')).toBeHidden();
+    await page.locator('#delegation-runtime-section').getByRole('button').click();
     await expect(page.locator('#delegation-runtime-health')).toBeVisible();
     await expect(page.locator('#delegation-runtime-health')).toContainText(/Server process is up|Proces serwera działa/);
     await expect(page.locator('#delegation-runtime-health')).toContainText(/Worker running|Worker działa/);
@@ -252,6 +255,11 @@ test.describe('delegation center and live WS reconnect', () => {
     const cardA = page.locator(`#delegation-center-list [data-delegation-id="${jobA.id}"]`);
     const cardFail = page.locator(`#delegation-center-list [data-delegation-id="${jobFail.id}"]`);
     const cardDelivery = page.locator(`#delegation-center-list [data-delegation-id="${jobDelivery.id}"]`);
+    await expect(cardA).toHaveCount(0);
+    await expect(cardFail).toBeVisible();
+    await expect(cardFail.locator('header strong')).not.toBeEmpty();
+    await expect(cardFail.getByRole('link')).toHaveAttribute('href', /panel=chat&chat=.+/);
+    await chooseBarSelect(page, '#delegation-center-filter', /All|Wszystkie/);
     await expect(cardA).toBeVisible();
     await expect(cardA.locator('[data-act="retry-task"]')).toBeVisible();
     await expect(cardA.locator('[data-act="ack"]')).toBeVisible();
@@ -294,6 +302,7 @@ test.describe('delegation center and live WS reconnect', () => {
     await expect(page.locator('#delegation-center-refresh')).toContainText('Odśwież');
     await expect(page.locator('#delegation-runtime-health')).toContainText('Proces serwera działa');
     await expect(page.locator('#delegation-runtime-health')).toContainText('Worker działa');
+
   });
 
   test('browser reconnects to live WS of this isolated instance', async ({ page }) => {
@@ -335,4 +344,41 @@ test.describe('delegation center and live WS reconnect', () => {
     });
     await expect(card).toContainText(/Needs a reply|Wymaga odpowiedzi|waiting_for_input/i, { timeout: 20_000 });
   });
+});
+
+test('diagnostics cards, health, attention default and empty state', async ({ page }) => {
+  await authenticate(page);
+  let degraded = false;
+  let empty = false;
+  await page.route('**/api/delegations/runtime?*', (route) => route.fulfill({ json: {
+    ok: true, runtime: { processAlive: true, workerRunning: true, readiness: !degraded,
+      lifecycle: { state: degraded ? 'degraded' : 'ready' }, counts: {} },
+  } }));
+  await page.route(/\/api\/delegations\?/, (route) => route.fulfill({ json: {
+    ok: true, delegations: empty ? [] : [{ id: 'diagnostic-job', title: 'Fix mailbox delivery <safe>',
+      chatId: 'diagnostic-chat', status: 'failed', executor: { model: 'test/model' } }], nextCursor: '',
+  } }));
+  await openSettingsTab(page, 'delegations');
+  const filter = page.locator('#delegation-center-filter');
+  await expect.poll(() => filter.evaluate((el) => el.value)).toBe('needs_attention');
+  const card = page.locator('[data-delegation-id="diagnostic-job"]');
+  await expect(card.locator('header strong')).toHaveText('Fix mailbox delivery <safe>');
+  await expect(card.getByRole('link')).toHaveAttribute('href', '/?panel=chat&chat=diagnostic-chat');
+  await expect(page.locator('#delegation-runtime-health')).toBeHidden();
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => localStorage.setItem('cretli-theme', `cretli-${theme}`), theme);
+    await page.reload();
+    await dismissOverlays(page);
+    await openSettingsTab(page, 'delegations');
+    await expect(card).toBeVisible();
+    await page.screenshot({ path: `test-results/delegation-diagnostics-${theme}.png`, fullPage: true });
+  }
+  degraded = true;
+  await page.locator('#delegation-center-refresh').click();
+  await expect(page.locator('#delegation-runtime-health')).toBeVisible();
+  degraded = false;
+  empty = true;
+  await page.locator('#delegation-center-refresh').click();
+  await expect(page.locator('#delegation-runtime-health')).toBeHidden();
+  await expect(page.locator('#delegation-center-list')).toHaveText(/Everything is fine|Wszystko w porządku/);
 });

@@ -225,7 +225,7 @@ test('status-only change on a memo hit refreshes groups, data-group-summary and 
     assert.equal(after.grouped.groups[0].expanded, expanded);
     assert.equal(after.grouped.groups[0].summary.failed, 1);
     assert.notEqual(groupAttrs['data-group-summary'], summaryBefore, 'data-group-summary refreshed');
-    assert.match(groupAttrs['data-group-summary'], /\u2717/);
+    assert.match(groupAttrs['data-group-summary'], /\u{F0156}/u);
     assert.equal(activeRow.classList.contains('is-active'), true);
     assert.equal(activeRow.getAttribute('aria-selected'), 'true');
     assert.equal(otherRow.classList.contains('is-active'), false);

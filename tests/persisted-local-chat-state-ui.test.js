@@ -1003,6 +1003,7 @@ assert.equal(
   '',
 );
 assert.equal(resolveSidebarHarnessIcon({ agentTransport: 'sdk' }), 'cursor.svg');
+assert.equal(resolveSidebarHarnessIcon({ agentTransport: 'antigravity' }), 'antigravity.svg');
 assert.equal(resolveSidebarHarnessIcon({ agentTransport: 'claude' }), 'claude.svg');
 assert.equal(resolveSidebarHarnessIcon({ agentTransport: 'opencode' }), 'opencode.svg');
 // `not_loaded`/no-state still use the normal icon path (unknown -> the legacy default).

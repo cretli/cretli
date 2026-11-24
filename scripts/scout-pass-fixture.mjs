@@ -16,7 +16,7 @@ const passArg = args.indexOf('--passes');
 const PASSES = passArg >= 0 ? Math.max(1, Number(args[passArg + 1]) || 20) : 20;
 
 const { upsertWorkspaceWatcher } = await import('../lib/persist/workspace-watchers-persist.js');
-const { saveChats } = await import('../lib/persist/chats-persist.js');
+const { saveChatsAsync } = await import('../lib/persist/chats-persist.js');
 const { addTodo } = await import('../lib/persist/todos-store.js');
 const scout = await import('../lib/workspace-watcher-scout.js');
 
@@ -33,7 +33,7 @@ for (let i = 0; i < 8; i += 1) {
 }
 const now = new Date().toISOString();
 // The fixture records carry only the fields the scout pass reads.
-saveChats(/** @type {any} */ (Array.from({ length: 1500 }, (_, i) => ({
+await saveChatsAsync(/** @type {any} */ (Array.from({ length: 1500 }, (_, i) => ({
   id: `chat-${i}`,
   title: `Chat ${i}`,
   workspaceFolder: folders[i % folders.length],

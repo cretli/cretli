@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureMockNewChatEnvironment } from './chat-e2e-helpers.js';
+import { clickSidebarFooterButton, ensureMockNewChatEnvironment } from './chat-e2e-helpers.js';
 
 for (const width of [390, 1440]) {
   test(`global browser approval outside the requesting chat (${width}px)`, async ({ page }) => {
@@ -20,7 +20,7 @@ for (const width of [390, 1440]) {
       return route.fulfill({ json: { ok: true } });
     });
     await ensureMockNewChatEnvironment(page);
-    await page.locator('#header-settings-btn').click();
+    await clickSidebarFooterButton(page, '#header-settings-btn');
     await expect(page.locator('#settings-panel')).toBeVisible();
     prompts = [
       { id: 'chrome-1', chatId: 'background-chat', chatTitle: 'Checkout preview', kind: 'chrome' },

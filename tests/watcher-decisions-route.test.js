@@ -33,7 +33,7 @@ for (let i = 0; i < 5; i += 1) {
 
 const body = await new Promise((resolve) => {
   const res = { status() { return this; }, json: resolve };
-  handlers.get('GET /api/workspace-watcher/decisions')({ params: {}, query: {}, body: {} }, res);
+  handlers.get('GET /api/workspace-watcher/decisions')({ params: {}, query: { workspaceFolder: cwd }, workspaceFolder: cwd, requestScope: { workspaceFolder: cwd }, body: {} }, res);
 });
 assert.equal(body.ok, true);
 assert.equal(body.decisions.length, 1);

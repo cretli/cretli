@@ -3,7 +3,7 @@ import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { CretliApiClient } from '../lib/remote-api-client.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   createDelegationRecord,
   getDelegationById,

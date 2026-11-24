@@ -306,6 +306,17 @@
     flex-shrink: 0;
     width: 0.9rem;
     font-size: var(--cr-font-size-legacy-075);
+
+    // Current branch: a dot drawn in CSS instead of a text bullet.
+    &.is-current::before {
+      content: '';
+      display: block;
+      width: 0.4rem;
+      height: 0.4rem;
+      margin: auto;
+      border-radius: 50%;
+      background: currentColor;
+    }
   }
 
   .header-branch-item-name {
@@ -582,13 +593,15 @@ body.sidebar-swipe-settling {
     height: 1.8rem;
     padding: 0;
     background: transparent;
-    color: var(--cr-text);
+    // Chrome icons are muted like the header ones and brighten on hover.
+    color: var(--cr-text-muted);
     border: 1px solid transparent;
     border-radius: 4px;
     cursor: pointer;
 
     &:hover,
     &.is-active {
+      color: var(--cr-text);
       background: var(--cr-hover);
       border-color: var(--cr-border-strong);
     }
@@ -614,6 +627,91 @@ body.sidebar-swipe-settling {
 .app-sidebar {
   --sidebar-row-height: 2rem;
 }
+
+// Pinned footer: app-level controls that do not belong to the current view.
+.sidebar-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
+  padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.sidebar-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cr-space-2);
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: var(--cr-font-size-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--cr-text);
+    background: var(--cr-hover);
+  }
+
+  .mdi {
+    font-size: var(--cr-font-size-legacy-115);
+  }
+
+  &[data-fullscreen='on'],
+  &[aria-pressed='true'] {
+    color: var(--cr-text);
+  }
+
+  // A running voice or car session stays visible in the drawer; the hamburger dot mirrors it.
+  &.is-live {
+    color: var(--cr-success);
+    animation: header-voice-live-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+// Attention dot on the hamburger: something in the closed drawer wants a look.
+.header-menu-btn {
+  position: relative;
+
+  &[data-attention]::after {
+    content: '';
+    position: absolute;
+    top: 0.3rem;
+    right: 0.3rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--cr-success);
+    box-shadow: 0 0 0 2px var(--cr-surface);
+  }
+
+  &[data-attention='live']::after {
+    animation: header-voice-live-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+// The drawer already shows what the dot points at.
+body.sidebar-open .header-menu-btn[data-attention]::after,
+body.sidebar-docked .header-menu-btn[data-attention]::after {
+  display: none;
+}
+
 
 .sidebar-empty {
   padding: 1rem 0.75rem;
@@ -885,6 +983,29 @@ body.sidebar-workspace-drag-active {
   }
 }
 
+// Internal operator owner thread: pinned above the Workspace section, badge + state chip.
+.sidebar-operator-section {
+  .sidebar-operator-badge {
+    margin-left: var(--cr-space-1);
+    padding: 0 0.35rem;
+    border-radius: var(--cr-radius-sm);
+    font-size: var(--cr-font-size-xs);
+    color: var(--cr-text-muted);
+    border: 1px solid var(--cr-border-strong);
+  }
+
+  .sidebar-operator-chip {
+    flex-shrink: 0;
+    font-size: var(--cr-font-size-xs);
+    color: var(--cr-text-muted);
+
+    &[data-operator-state='running'] { color: var(--cr-accent); }
+    &[data-operator-state='queued'] { color: var(--cr-accent); }
+    &[data-operator-state='paused'],
+    &[data-operator-state='budget'] { color: var(--cr-error); }
+  }
+}
+
 // Header control that switches the Workspace section between "watcher only" and
 // "every workspace" (so a watcher can be enabled for a workspace that has none).
 .sidebar-watcher-show-all {
@@ -1054,17 +1175,49 @@ body.sidebar-workspace-drag-active {
 
 .sidebar-chat-more {
   list-style: none;
-  margin: 0.15rem 0.5rem 0.4rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: var(--cr-radius-sm);
-  color: var(--cr-accent);
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  gap: 0.35rem;
+  height: var(--sidebar-row-height);
+  margin: 0.15rem 0 0.4rem;
+  padding: 0 0.5rem;
+  border-radius: 4px;
+  color: var(--cr-text-muted);
   cursor: pointer;
-  font-size: var(--cr-font-size-legacy-08);
+  user-select: none;
+}
+
+// Same look as the collapsed "finished subchats" row: chevron, muted title, count pill.
+.sidebar-chat-more-chevron {
+  flex-shrink: 0;
+  font-size: var(--cr-font-size-legacy-09);
+  line-height: 1;
+}
+
+.sidebar-chat-more-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--cr-font-size-legacy-078);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-chat-more-count {
+  flex-shrink: 0;
+  min-width: 1.3rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--cr-surface-2);
+  color: var(--cr-text-subtle);
+  font-size: var(--cr-font-size-legacy-068);
+  text-align: center;
 }
 
 .sidebar-chat-more:hover,
 .sidebar-chat-more:focus-visible {
-  background: var(--cr-primary);
+  background: var(--cr-hover);
   color: var(--cr-text);
   outline: none;
 }
@@ -1190,6 +1343,7 @@ body.sidebar-workspace-drag-active {
 }
 
 .sidebar-subchat-group-summary {
+  font-family: var(--cr-font-ui), 'Material Design Icons';
   flex-shrink: 0;
   color: var(--cr-text-subtle);
   font-size: var(--cr-font-size-legacy-068);
@@ -1428,7 +1582,10 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   line-height: 1.15;
 }
 
-.sidebar-chat-item.has-push-preview {
+.sidebar-chat-item.has-push-preview,
+// Flat view: a second line with the workspace needs more than the fixed single-line row,
+// otherwise the content overflows the row and rows end up with uneven spacing.
+.sidebar-chat-item.has-workspace-line {
   height: auto;
   min-height: var(--sidebar-row-height);
   padding-top: 0.2rem;
@@ -1476,8 +1633,10 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   line-height: 1;
 }
 
-// Parent-row summary of the settled subchats folded away underneath it.
+// Parent-row summary of the settled subchats folded away underneath it. The summary text carries
+// icon-font codepoints, so the icon font is the fallback of the text stack.
 .sidebar-chat-item-subchat-summary {
+  font-family: var(--cr-font-ui), 'Material Design Icons';
   flex-shrink: 0;
   padding: 0 0.3rem;
   border-radius: 999px;
@@ -1749,6 +1908,60 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   margin-left: auto;
 }
 
+// Swipe-to-archive: the row follows the finger and an archive icon is revealed
+// in the space it leaves behind (the icon is injected by sidebarChatSwipeArchive).
+.sidebar-chat-item.is-swiping-archive,
+.sidebar-chat-item.is-swipe-settling {
+  transform: translateX(var(--sidebar-swipe-x, 0));
+}
+
+.sidebar-chat-item.is-swipe-settling {
+  transition: transform 0.16s ease;
+}
+
+.sidebar-chat-swipe-hint {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cr-text-muted);
+  font-size: var(--cr-font-size-legacy-11);
+  opacity: calc(var(--sidebar-swipe-reveal, 0) * 0.7);
+  pointer-events: none;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+
+.sidebar-chat-swipe-hint--delete {
+  right: auto;
+  left: 100%;
+  color: var(--cr-error);
+  opacity: calc(var(--sidebar-swipe-reveal-delete, 0) * 0.8);
+}
+
+.sidebar-chat-item.is-swipe-armed-delete .sidebar-chat-swipe-hint--delete {
+  color: var(--cr-error);
+  opacity: var(--sidebar-swipe-reveal-delete, 1);
+  filter: saturate(1.4) brightness(1.1);
+}
+
+.sidebar-chat-item.is-swipe-armed .sidebar-chat-swipe-hint {
+  color: var(--cr-warn);
+  opacity: var(--sidebar-swipe-reveal, 1);
+}
+
+@media (pointer: coarse) {
+  .sidebar-chat-item:not(.is-archived):not(.has-pin-actions) .sidebar-chat-fav-btn {
+    margin-left: auto;
+  }
+  .sidebar-chat-item:not(.is-archived) .sidebar-chat-archive-btn {
+    display: none;
+  }
+}
+
 // On wide sidebars, reserve stable columns for subchat counts, status,
 // archive, and favorite actions. This keeps the same kind of information in
 // the same place across chat rows and their group row without squeezing the
@@ -1839,6 +2052,25 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   .sidebar-chat-item.is-archived .sidebar-chat-delete-btn { grid-column: 8; }
   .sidebar-chat-action { width: 1.55rem; }
   .sidebar-chat-item .sidebar-chat-action-first { margin-left: 0; }
+
+  // Touch devices archive by swiping the row to the right, so the live-row
+  // archive button is dropped and the remaining actions close the gap.
+  @media (pointer: coarse) {
+    .sidebar-chat-item:not(.is-archived) {
+      grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 1.8rem 1.55rem;
+    }
+    .sidebar-chat-item:not(.is-archived).has-pin-actions {
+      grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 1.8rem 1.55rem 1.55rem;
+    }
+    .sidebar-chat-item:not(.is-archived).has-activity-status {
+      grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 5.75rem 1.55rem;
+    }
+    .sidebar-chat-item:not(.is-archived).has-activity-status.has-pin-actions {
+      grid-template-columns: 0.5rem 1.35rem minmax(0, 1fr) 2.2rem 5.75rem 1.55rem 1.55rem;
+    }
+    .sidebar-chat-item:not(.is-archived):not(.has-pin-actions) .sidebar-chat-fav-btn { grid-column: 6; }
+    .sidebar-chat-item:not(.is-archived).has-pin-actions .sidebar-chat-fav-btn { grid-column: 7; }
+  }
 
   .sidebar-subchat-group-header {
     display: grid;
@@ -1964,4 +2196,193 @@ body.theme-light .sidebar-chat-item-harness--codex img {
   border: 0;
   text-align: left;
   font-family: inherit;
+  gap: 0.5rem;
+}
+
+
+// Workspace marker: emoji icon, or a dot in the workspace accent colour.
+.sidebar-ws-marker {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ws-accent, transparent);
+  border: 1px solid var(--ws-accent, var(--cr-border-strong));
+
+  &.has-icon {
+    width: 1rem;
+    height: 1rem;
+    border-radius: var(--cr-radius-sm);
+    background: color-mix(in srgb, var(--ws-accent, transparent) 22%, transparent);
+    border-color: transparent;
+    font-size: calc(var(--cr-font-size-md) * 0.9);
+    line-height: 1;
+  }
+}
+
+// View mode switch (Workspaces | All | Agents) under the search row. A single thumb
+// slides under the active button; its position comes from --thumb-x / --thumb-w.
+.sidebar-view-modes {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  margin: var(--cr-space-2) var(--cr-space-2) var(--cr-space-1);
+  padding: 2px;
+  // Same border and fill as the search field above it.
+  border: 1px solid var(--cr-field-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-field-bg);
+  flex-shrink: 0;
+  // Horizontal swipes belong to the switch; vertical panning still scrolls the page.
+  touch-action: pan-y;
+}
+
+.sidebar-view-modes-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: var(--thumb-w, 0);
+  transform: translateX(var(--thumb-x, 0));
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-active);
+  pointer-events: none;
+}
+
+// No slide on the first placement or for users who prefer reduced motion.
+.sidebar-view-modes.is-ready .sidebar-view-modes-thumb {
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1), width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+// While the finger drags the highlight it must track 1:1, without easing.
+.sidebar-view-modes.is-thumb-dragging .sidebar-view-modes-thumb {
+  transition: none;
+}
+
+.sidebar-view-mode-btn {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 1.7rem;
+  padding: 0 var(--cr-space-2);
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: var(--cr-font-size-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--cr-transition);
+  // Touch screens paint a tap flash on buttons that would sit under the sliding thumb.
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+
+  &:hover {
+    color: var(--cr-text);
+  }
+
+  &.is-active {
+    color: var(--cr-text);
+    font-weight: 500;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--cr-accent);
+    outline-offset: -2px;
+  }
+}
+
+// Agents mode lists only the watcher section; the workspace groups stay out of the way.
+.sidebar-body[data-view-mode='agents'] {
+  .sidebar-workspaces,
+  .sidebar-only-active-hint {
+    display: none;
+  }
+}
+
+// Flat view rows: workspace marker and name under the title.
+.sidebar-chat-item-workspace {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: var(--cr-font-size-legacy-068);
+  color: var(--cr-text-muted);
+}
+
+// Wide emoji (a house, for example) are taller than this small second line and touched the title
+// above; inside the line the marker is a little smaller than in headers.
+.sidebar-chat-item-workspace .sidebar-ws-marker.has-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  font-size: var(--cr-font-size-legacy-065);
+  line-height: 1;
+}
+
+.sidebar-chat-item-workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// The workspace branch chip belongs to the grouped view; the flat and agents views are not tied to one folder.
+.app-sidebar[data-view-mode='all'] .sidebar-branch-row,
+.app-sidebar[data-view-mode='agents'] .sidebar-branch-row {
+  display: none;
+}
+
+// Agents view: framed master switch that stops every workspace agent.
+.sidebar-agents-master {
+  display: flex;
+  align-items: center;
+  gap: var(--cr-space-2);
+  margin: 0 0 var(--cr-space-2);
+  padding: var(--cr-space-2) var(--cr-space-3);
+  border: 1px solid var(--cr-success-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-success-bg);
+
+  &.is-off {
+    border-color: var(--cr-error-border);
+    background: var(--cr-error-bg);
+  }
+
+  .sidebar-agents-master-icon {
+    flex-shrink: 0;
+    font-size: var(--cr-font-size-xl);
+    color: var(--cr-success);
+  }
+
+  &.is-off .sidebar-agents-master-icon {
+    color: var(--cr-error);
+  }
+
+  .sidebar-agents-master-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar-agents-master-title {
+    font-size: var(--cr-font-size-md);
+    font-weight: 600;
+    color: var(--cr-text);
+  }
+
+  .sidebar-agents-master-hint {
+    font-size: var(--cr-font-size-xs);
+    color: var(--cr-text-muted);
+  }
 }

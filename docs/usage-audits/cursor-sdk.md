@@ -552,3 +552,13 @@ All fixtures are synthetic and machine-generated. They contain only type tags,
 opaque ids and token counts; no conversation text, prompt, reply, transcript,
 tool payload, credential or personal path. They pass
 `containsConversationContent()` from `lib/usage/usage-contract.js`.
+
+## 13. Fallback paths (`b575b71d`)
+
+`recordSdkRunUsageFallback` (cumulative `Run.usage`, tagged `usageSource: run.usage`)
+runs on the normal finish path (any final status, so a cancelled run is covered)
+and, since this revision, also in the run-error catch path, using the room's
+current run. It is a no-op when a stream usage event was already measured, so a
+run is never counted twice. A run with output but no usage anywhere is flagged
+`usageMissingReason` (`provider_reported_no_usage`, `aborted_before_usage` or
+`error_before_usage`). Covered by `tests/usage-capture-matrix.test.js`.

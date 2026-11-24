@@ -187,7 +187,7 @@ export function createRealtimeSession(callbacks = {}) {
   }
 
   /**
-   * @param {object} payload
+   * @param {any} payload
    */
   function sendEvent(payload) {
     if (!channel || channel.readyState !== 'open') return;
@@ -230,7 +230,7 @@ export function createRealtimeSession(callbacks = {}) {
     handledCalls.add(callId);
     const myEpoch = epoch;
 
-    /** @type {object} */
+    /** @type {any} */
     let args = {};
     try {
       args = rawArguments ? JSON.parse(rawArguments) : {};

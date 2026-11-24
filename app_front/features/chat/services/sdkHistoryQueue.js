@@ -279,7 +279,7 @@ export function appendSdkUserPromptLine(chat, userText, opts = {}) {
   const line = `\n> ${raw}\n`;
   chatHost.processAgentOutput(chat, line);
   if (chat._sdkRichView) {
-    chat._sdkRichView.appendUserPrompt(raw, opts);
+    chat._sdkRichView.appendUserPrompt(raw, { ...opts, forceScroll: opts.forceScroll === true });
   }
 }
 
@@ -314,11 +314,11 @@ export function appendOptimisticSdkPrompt(chat, userText) {
   if (shouldQueue) {
     const nextPos = (chat._sdkRichView?.queuedCount || 0) + 1;
     chat._sdkOptimisticSentQueued.push(raw);
-    appendSdkQueuedPromptLine(chat, raw, nextPos);
+    appendSdkQueuedPromptLine(chat, raw, nextPos, { forceScroll: true });
     return;
   }
   chat._sdkOptimisticSentNow.push(raw);
-  appendSdkUserPromptLine(chat, raw);
+  appendSdkUserPromptLine(chat, raw, { forceScroll: true });
 }
 
 /**
@@ -350,7 +350,7 @@ export function consumeOptimisticSdkQueuedPrompt(chat, userText) {
   return true;
 }
 
-export function appendSdkQueuedPromptLine(chat, userText, position) {
+export function appendSdkQueuedPromptLine(chat, userText, position, opts = {}) {
   const raw = resolveInheritedPromptEcho(
     userText == null ? '' : String(userText).trim(),
     inheritedPromptLabels()
@@ -361,7 +361,7 @@ export function appendSdkQueuedPromptLine(chat, userText, position) {
   const line = `\n> ${t('chatUi.queuedPlainTag', { n: pos })} ${raw}\n`;
   chatHost.processAgentOutput(chat, line);
   if (chat._sdkRichView) {
-    chat._sdkRichView.appendQueuedPrompt(raw, pos);
+    chat._sdkRichView.appendQueuedPrompt(raw, pos, { forceScroll: opts.forceScroll === true });
   }
 }
 
@@ -380,9 +380,9 @@ export function removeSdkQueuedPromptLine(chat, userText) {
   chat._sdkRichView.removeQueuedPrompt(raw);
 }
 
-export function sendQueueControl(chat, type, text) {
+export function sendQueueControl(chat, type, text, extra = {}) {
   if (!chat?.ws || chat.ws.readyState !== WebSocket.OPEN) return;
-  chat.ws.send(JSON.stringify({ type, text: String(text || '') }));
+  chat.ws.send(JSON.stringify({ ...extra, type, text: String(text || '') }));
 }
 
 export function sendOpenCodeQuestionReply(chat, payload) {
@@ -520,7 +520,7 @@ export function armOlderSdkHistory(chat) {
   view.scrollToBottom();
   const hasCached = Array.isArray(chat._historyOlderLocal) && chat._historyOlderLocal.length > 0;
   const available = hasCached || resolveOlderHistoryCursor(chat) > 0;
-  // Two frames: one for the forced scroll to land, one for layout to settle before observing.
+  // Two frames: one for a following view to scroll, one for layout to settle before observing.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       if (chat._sdkRichView !== view) return;

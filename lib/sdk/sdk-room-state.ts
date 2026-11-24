@@ -82,6 +82,9 @@ export function buildSdkRoomStatePayload(
     pendingPermissionCount,
     lastEventAt,
     transport: transport || null,
+    promptSuggestion: room?.promptSuggestion && typeof room.promptSuggestion.text === 'string'
+      ? { text: room.promptSuggestion.text, turnRunId: String(room.promptSuggestion.turnRunId || '') }
+      : null,
     steerSupported,
     backgroundOutstanding,
     claudeBackgroundTaskCount: room?._claudeSession?.alive === true && room?._claudeSession?.query

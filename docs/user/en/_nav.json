@@ -1,0 +1,97 @@
+{
+  "sections": [
+    {
+      "id": "getting-started",
+      "title": "Getting started",
+      "pages": [
+        "index",
+        "getting-started",
+        "install-docker"
+      ]
+    },
+    {
+      "id": "harnesses",
+      "title": "Harnesses",
+      "pages": [
+        "harness-opencode",
+        "harness-openrouter",
+        "harness-deepseek",
+        "harness-qwen",
+        "harness-mistral",
+        "harness-mimo",
+        "harness-zai",
+        "harness-codebuddy",
+        "harness-antigravity",
+        "harness-claude",
+        "harness-codex",
+        "harness-cursor-sdk"
+      ]
+    },
+    {
+      "id": "workspaces",
+      "title": "Workspaces",
+      "pages": [
+        "workspaces",
+        "settings"
+      ]
+    },
+    {
+      "id": "working-surfaces",
+      "title": "Working surfaces",
+      "pages": [
+        "chat-and-agents"
+      ]
+    },
+    {
+      "id": "todos",
+      "title": "Todo and plans",
+      "pages": [
+        "todos"
+      ]
+    },
+    {
+      "id": "watcher",
+      "title": "Watcher",
+      "pages": [
+        "workspace-watcher"
+      ]
+    },
+    {
+      "id": "delegation",
+      "title": "Delegation and review",
+      "pages": [
+        "delegation-review"
+      ]
+    },
+    {
+      "id": "mcp",
+      "title": "MCP",
+      "pages": [
+        "mcp"
+      ]
+    },
+    {
+      "id": "remote-access",
+      "title": "Remote access",
+      "pages": [
+        "remote-access",
+        "security-basics"
+      ]
+    },
+    {
+      "id": "backups",
+      "title": "Backups and data",
+      "pages": [
+        "backups-and-data"
+      ]
+    },
+    {
+      "id": "troubleshooting",
+      "title": "Troubleshooting and FAQ",
+      "pages": [
+        "troubleshooting",
+        "faq"
+      ]
+    }
+  ]
+}

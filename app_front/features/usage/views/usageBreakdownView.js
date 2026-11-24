@@ -112,7 +112,7 @@ export function renderBreakdownHeadView(columns, sort, t) {
     if (!column.sortable) return html`<th scope="col">${t(column.labelKey)}</th>`;
     const active = sort.sortKey === column.key;
     const ariaSort = active ? (sort.sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
-    const arrow = active ? (sort.sortDir === 'asc' ? '▲' : '▼') : '';
+    const arrow = active ? html`<span class="mdi ${sort.sortDir === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'}"></span>` : '';
     return html`<th scope="col" aria-sort=${ariaSort}><button type="button" class="settings-usage-sort${active ? ' is-active' : ''}" data-sort-key=${column.key}>${t(column.labelKey)}<span class="settings-usage-sort-arrow" aria-hidden="true">${arrow}</span></button></th>`;
   })}</tr>`;
 }

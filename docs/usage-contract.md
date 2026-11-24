@@ -1,11 +1,12 @@
 # Usage contract and harness coverage matrix
 
-Status: contract revision `2026-10-25.1`, `schemaVersion = 3`,
+Status: contract revision `2026-11-22.1`, `schemaVersion = 4`,
 `normalizationVersion = 2`, `occupancySchemaVersion = 1`. Code and this
 document are reconciled: the earlier mismatch (`2026-10-06.3` here vs
 `2026-10-06.2` in code) was closed by revision `2026-10-22.1`. Schema version 3
-adds bounded Codex and Claude run-pressure counters to run events; normalization remains
-at version 2. Events with
+adds bounded Codex and Claude run-pressure counters to run events; schema version 4
+adds the `orchestrator` role and stores plan/fix as their own roles (section 14);
+normalization remains at version 2. Events with
 `schemaVersion`/`normalizationVersion` 1 or no version stay readable
 (`isReadableUsageVersion`), newer-than-build versions are not.
 
@@ -613,3 +614,82 @@ fixture `tests/fixtures/usage/history/raw-usage-sdk-events.json`.
   Events that carry their own epoch and child (consolidated) events never move
   that baseline.
 - Billing (`billedTotalTokens`, `accountingScope`) is untouched by this path.
+
+## 14. Roles and capture coverage (`b575b71d`)
+
+### 14.1 Usage roles (`schemaVersion = 4`)
+
+`USAGE_ROLES` = `chat`, `plan`, `implement`, `review`, `fix`, `orchestrator`.
+The writer (`resolveHarnessRole`) resolves: delegation work role
+(`room.delegationWorkRole`, from `delegationWorkRole(row)`; `review_*` -> `review`)
+-> legacy runtime assignment -> a watcher cycle room without a delegation
+(`orchestrator`) -> `chat`. The runtime assignment alone folds plan authoring
+into `review` and `fix` into `implement`, which is why it is no longer first.
+
+Readers use `resolveEffectiveUsageRole(event, roleIndex)`
+(`lib/usage/usage-role.ts`): for a delegated event the role comes from the
+delegation row, for a cycle event without a delegation it is `orchestrator`,
+otherwise the stored role. Historical events (schema <= 3) therefore read as plan/fix/orchestrator
+without being rewritten. Applied to the `role` and `resume` axes of `usage_top`,
+`usage_explain` and the workflow breakdown.
+
+The `role` **filter** (`/api/usage/*`, MCP `role`) matches the **stored** role:
+events written before schema 4 keep `plan` as `review`, `fix` as `implement` and
+the orchestrator as `chat` under that filter.
+
+### 14.2 Coverage per harness x role
+
+`buildUsageCoverage` (`lib/usage/usage-coverage.ts`; `GET /api/usage/coverage`,
+MCP `usage_coverage`) is a pure read model over the persisted state; it never
+calls `applyUsageCoverageCorrection` and never adds a run (section 5).
+
+- *attempt* = terminal attempt of a delegation (`attempts[]` + the current one)
+  finished inside the window, attributed to harness (`executor.transport`) x
+  effective role; two attempts of one delegation are two attempts. Orchestrator
+  units are watcher cycles (`cycleId`).
+- a run belongs to an attempt when `delegationId` + `attemptId` match; 0..N runs.
+  A replayed logical event / `runId` counts once (best corrected state wins).
+- `noOutput`: no run and no usage events - excluded from the denominator.
+- `pending`: ended < 24 h (`USAGE_FINAL_USAGE_GRACE_MS`) ago and no run measured
+  yet - excluded from the denominator.
+- `eligible` = attempts - noOutput - pending (supported harnesses only).
+- `measured`: eligible and **every** run is `complete` or `partial` (a reported
+  zero with a correct final is a measurement). An attempt with output but no run,
+  or with any `missing` run, is unmeasured; the reason is counted in `missingReasons`.
+- `coverage` = measured / eligible (null when eligible = 0).
+- `quality`: `ok` (coverage >= `USAGE_COVERAGE_TARGET` 0.8 and eligible >=
+  `USAGE_COVERAGE_MIN_SAMPLE` 20), `low_coverage`, `insufficient_sample`,
+  `no_traffic`, `unsupported`. Every supported harness x role pair has a row.
+
+`usage_advice` `low_measurement_coverage` is derived from the `low_coverage`
+rows of this model (the earlier delegation-seen-in-events denominator is gone).
+
+### 14.3 Lifecycle outcomes (attempt level)
+
+`lib/usage/usage-lifecycle-outcome.ts`: one label per terminal attempt,
+precedence `recovered` > `completed` > `cancelled` > `restart` > `requeued` >
+`abandoned`. `recovered` = completed but interrupted/startup-retried on the way;
+`restart` = ended by a server restart (`interruptCode` contains `restart`, not
+cancelled); `requeued` = not completed and a later attempt of the delegation
+exists; `abandoned` = terminal, not completed, no successor. Cycle level
+(orchestrator) comes from the cycle metric: `closeOutcome=interrupted_restart`
+-> `restart`, `closeSource=abort` -> `abandoned`, `success` -> `completed`,
+`blocked`/`failure` -> `abandoned`. `USAGE_OUTCOMES` (ok/error/limit/aborted) of
+run events are unchanged: lifecycle outcomes are a read-side dimension.
+Exposure: coverage rows carry `byOutcome` (sums to `attempts` together with
+`unclassified`, cycles still open), and `usage_top` / `GET /api/usage/top` accept
+`groupBy=outcome` (events without a delegation attempt fall into `(unattributed)`).
+
+### 14.4 Host review-verify cost (`hostVerify`)
+
+The host runs review-verify itself (`verify-runner` `timing`). The timing is kept
+on `verifyResult.timing` (+ `queueWaitMs`, `executionId` = attempt id + runner
+start instant) and ledgered in the delegation's bounded `verifyRuns[]` (max 10
+newest). The entry is written **before** the equivalence short-circuit of
+`recordDelegationVerifyResult`: a replay of the same execution (same
+`executionId`, e.g. after a restart) is a no-op, a rerun is a new execution and a
+new entry even when its result is equivalent. `timing` is not part of equivalence.
+The coverage response carries `hostVerify`: per harness x role x source `runs`,
+`passed`, `failed`, `stale`, `wallMs`, `stepMs`, `cachedSteps`, `queueWaitMs`;
+`tokens`/`usd` are `null` and `note = host_time_only`. Nothing is written to the
+usage ledger, so these numbers are never part of token totals.

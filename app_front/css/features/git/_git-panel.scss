@@ -58,7 +58,7 @@
 
 .git-worktrees-title {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--cr-font-size-legacy-09);
   font-weight: 600;
 }
 
@@ -92,12 +92,12 @@
 
 .git-worktree-chat-count {
   color: var(--cr-text-muted);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
 }
 
 .git-worktree-todo-link {
   color: var(--cr-success);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
 }
 
 .git-worktree-todo-link--missing {
@@ -131,7 +131,7 @@
 
 /* Git panel context chip: main project vs task worktree. */
 .git-context-chip {
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-family: var(--cr-font-mono);
   color: var(--cr-text-muted);
   border: 1px solid var(--cr-border-control);
@@ -213,7 +213,7 @@
   border: 1px solid var(--cr-border);
   border-radius: 4px;
   font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   line-height: 1.4;
   color: var(--cr-text);
   white-space: pre-wrap;
@@ -230,7 +230,7 @@
 
 .github-section-title {
   margin: 0 0 0.5rem;
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   font-weight: 600;
   color: var(--cr-text);
 }
@@ -256,7 +256,7 @@
   border: 1px dashed var(--cr-border-strong);
   border-radius: 6px;
   color: var(--cr-text-muted);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 
 .github-jobs-error {
@@ -295,7 +295,7 @@
 }
 
 .github-run-name {
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -308,7 +308,7 @@
   flex-wrap: wrap;
   gap: 0.35rem 0.75rem;
   margin-top: 0.35rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
@@ -330,7 +330,7 @@
   display: inline-flex;
   align-items: center;
   padding: 0.2rem 0.5rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   border: 1px solid var(--cr-border-control);
   border-radius: 4px;
   background: var(--cr-control-bg);
@@ -347,7 +347,7 @@
   margin: 0.45rem 0 0;
   padding-left: 1.1rem;
   color: var(--cr-error);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
 }
 
 .github-job-logs {
@@ -359,7 +359,7 @@
   border: 1px solid var(--cr-border);
   border-radius: 4px;
   font-family: var(--cr-font-mono);
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-word;
@@ -370,7 +370,7 @@
 }
 
 .logs-toolbar-label {
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   color: var(--cr-color-858585);
 }
 
@@ -392,7 +392,7 @@
 
 .logs-clear-btn {
   padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   background: transparent;
   color: var(--cr-color-858585);
   border: 1px solid var(--cr-color-555);
@@ -420,7 +420,7 @@
   overflow: auto;
   padding: 0.5rem;
   font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   line-height: 1.4;
   color: var(--cr-color-d4d4d4);
   white-space: pre-wrap;
@@ -458,7 +458,7 @@
 }
 
 .instances-toolbar-label {
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 
@@ -470,7 +470,7 @@
 
 .instances-toolbar-btn {
   padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   background: transparent;
   color: var(--cr-text-muted, var(--cr-color-858585));
   border: 1px solid var(--cr-border-strong, var(--cr-color-555));
@@ -513,7 +513,7 @@
 
 .instances-empty {
   padding: 0.75rem 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 
@@ -551,7 +551,7 @@
 
 .instances-card-icon {
   flex-shrink: 0;
-  font-size: 1.1rem;
+  font-size: var(--cr-font-size-legacy-11);
   color: var(--cr-text-muted, var(--cr-color-858585));
   margin-top: 0.05rem;
 }
@@ -565,13 +565,13 @@
 }
 
 .instances-card-title {
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   font-weight: 600;
   line-height: 1.25;
 }
 
 .instances-card-sub {
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   color: var(--cr-text-muted, var(--cr-color-858585));
   overflow: hidden;
   text-overflow: ellipsis;
@@ -580,13 +580,13 @@
 
 .instances-this-device {
   font-weight: 500;
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   color: var(--cr-success, var(--cr-color-4ec9b0));
 }
 
 .instances-status {
   flex-shrink: 0;
-  font-size: 0.62rem;
+  font-size: var(--cr-font-size-legacy-062);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   padding: 0.12rem 0.3rem;
@@ -640,7 +640,7 @@
 
 .instances-command-status {
   padding: 0.35rem 0.5rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted, var(--cr-color-858585));
   border-bottom: 1px solid var(--cr-border-strong, var(--cr-color-333));
   flex-shrink: 0;
@@ -655,7 +655,7 @@
 }
 
 .instances-detail-title {
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
   font-weight: 600;
   color: var(--cr-text, var(--cr-color-d4d4d4));
   overflow: hidden;
@@ -674,7 +674,7 @@
   flex-wrap: wrap;
   gap: 0.35rem 0.75rem;
   padding: 0.35rem 0.5rem;
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   color: var(--cr-text-muted, var(--cr-color-858585));
   border-bottom: 1px solid var(--cr-border-strong, var(--cr-color-333));
   flex-shrink: 0;
@@ -686,7 +686,7 @@
   overflow: auto;
   padding: 0.5rem;
   font-family: var(--cr-font-mono, ui-monospace, 'Cascadia Code', 'Consolas', monospace);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   line-height: 1.4;
   color: var(--cr-text, var(--cr-color-d4d4d4));
   white-space: pre-wrap;
@@ -704,14 +704,14 @@
 .instances-logs-empty {
   padding: 0.75rem 0;
   color: var(--cr-text-muted, var(--cr-color-858585));
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
 }
 
 .instances-logs-footer {
   margin-top: 0.5rem;
   padding-top: 0.35rem;
   border-top: 1px solid var(--cr-border-strong, var(--cr-color-333));
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   color: var(--cr-text-muted, var(--cr-color-858585));
 }
 

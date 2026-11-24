@@ -30,6 +30,11 @@ class CrSearchableSelect extends LitElement {
     searchThreshold: { type: Number, attribute: 'search-threshold' },
     displayLabel: { type: String, attribute: 'display-label' },
     displayDescription: { type: String, attribute: 'display-description' },
+    // Optional closed-trigger decorations: a model logo before the label and signal bars (0-4) after it.
+    displayIconSrc: { type: String },
+    displayEffortBars: { type: Number },
+    displayEffortMax: { type: Boolean },
+    displayEffortTitle: { type: String },
     // Closed-trigger tooltip; defaults to the label (plus description).
     displayTitle: { type: String, attribute: 'display-title' },
     favoritesEnabled: { type: Boolean, attribute: 'favorites-enabled' },
@@ -68,6 +73,32 @@ class CrSearchableSelect extends LitElement {
       opacity: 0.55;
       pointer-events: none;
     }
+    .model-icon {
+      flex-shrink: 0;
+      width: 1.4rem;
+      height: 1.4rem;
+      object-fit: contain;
+    }
+    /* Signal-strength bars for the thinking level, same look as the chat mode bar. */
+    .effort-bars {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 0.9rem;
+    }
+    .effort-bars i {
+      display: block;
+      width: 3px;
+      border-radius: 1px;
+      background: var(--cr-border-strong);
+    }
+    .effort-bars i:nth-child(1) { height: 40%; }
+    .effort-bars i:nth-child(2) { height: 60%; }
+    .effort-bars i:nth-child(3) { height: 80%; }
+    .effort-bars i:nth-child(4) { height: 100%; }
+    .effort-bars i.is-on { background: var(--cr-accent); }
+    .effort-bars--max i.is-on { background: var(--cr-warn); }
     .trigger {
       box-sizing: border-box;
       width: 100%;
@@ -105,7 +136,9 @@ class CrSearchableSelect extends LitElement {
     .selection { flex: 1; min-width: 0; text-align: left; }
     ::slotted([slot='start']),
     ::slotted([slot='end']) { flex-shrink: 0; }
-    .favorite-indicator { color: var(--cr-favorite); flex-shrink: 0; }
+    .favorite-indicator { display: inline-flex; width: 0.9rem; height: 0.9rem; color: var(--cr-favorite); flex-shrink: 0; }
+    .favorite-indicator svg, .star-icon svg { display: block; width: 100%; height: 100%; }
+    .star-icon { display: inline-flex; width: 1rem; height: 1rem; }
     .worktree-indicator { flex-shrink: 0; width: 0.9rem; height: 0.9rem; color: var(--cr-text-muted); }
     .worktree-indicator svg { display: block; width: 100%; height: 100%; }
     .description {
@@ -122,13 +155,15 @@ class CrSearchableSelect extends LitElement {
       display: block;
       width: 100%;
     }
-    :host([clearable]) .trigger {
-      padding-right: 2rem;
+    /* The chevron keeps its place at the right edge; the clear button sits just left of it and the
+       text stops before both. */
+    :host([clearable]) .arrow {
+      margin-left: 1.6rem;
     }
     .clear {
       position: absolute;
       top: 50%;
-      right: 1.6rem;
+      right: calc(var(--cr-searchable-select-padding-x) + 0.65rem + 0.3rem);
       transform: translateY(-50%);
       display: inline-flex;
       align-items: center;
@@ -196,6 +231,10 @@ class CrSearchableSelect extends LitElement {
     this.displayLabel = '';
     this.displayDescription = '';
     this.displayTitle = '';
+    this.displayIconSrc = '';
+    this.displayEffortBars = 0;
+    this.displayEffortMax = false;
+    this.displayEffortTitle = '';
     this.favoritesEnabled = false;
     this.addFavoriteLabel = 'Add to favorites';
     this.removeFavoriteLabel = 'Remove from favorites';
@@ -206,6 +245,7 @@ class CrSearchableSelect extends LitElement {
     this.emptyFavoritesLabel = 'No favorites yet';
     this.availableFilterEnabled = false;
     this.availableOnly = false;
+    this.worktreeFilterEnabled = false;
     this.worktreeFilter = '';
     this.clearable = false;
     this.clearLabel = '';
@@ -326,6 +366,22 @@ class CrSearchableSelect extends LitElement {
     }
   }
 
+  /**
+   * Rows the dropdown lists under its current filters (favorites, available, worktree), ignoring
+   * the search text. Swipe gestures walk this list so they never land on a hidden row; the
+   * selected row is always kept so the gesture has a starting point.
+   *
+   * @returns {Array<{ value: string }>}
+   */
+  filteredOptions() {
+    return this._normalizeOptions().filter((row) => row.value === this.value || (
+      (!this.favoritesFilterEnabled || !this.favoritesOnly || row.favorite)
+      && (!this.availableFilterEnabled || !this.availableOnly || !row.disabled)
+      && (!this.worktreeFilterEnabled || !this.worktreeFilter
+        || (this.worktreeFilter === 'worktree' ? row.worktree : !row.worktree))
+    ));
+  }
+
   _getVisibleOptions() {
     const options = this._normalizeOptions().filter((row) => (
       (!this.favoritesFilterEnabled || !this.favoritesOnly || row.favorite)
@@ -412,7 +468,7 @@ class CrSearchableSelect extends LitElement {
       const actionLabel = `${row.favorite ? this.removeFavoriteLabel : this.addFavoriteLabel}: ${row.group} · ${row.label}`;
       const star = this.favoritesEnabled && row.favoriteable ? `<button type="button" class="cr-searchable-select-favorite"
         data-favorite-value="${escape(row.value)}" aria-pressed="${row.favorite}" aria-label="${escape(actionLabel)}"
-        title="${escape(actionLabel)}"><span aria-hidden="true">${row.favorite ? '★' : '☆'}</span></button>` : '';
+        title="${escape(actionLabel)}"><span class="star-icon" aria-hidden="true">${row.favorite ? '<svg viewBox="0 0 24 24" focusable="false"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"/></svg>' : '<svg viewBox="0 0 24 24" focusable="false"><path fill="currentColor" d="M22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z"/></svg>'}</span></button>` : '';
       return groupHeading + `<li class="cr-searchable-select-option-row${collapsed ? ' has-variants' : ''}" role="presentation">${option}${star}${chips}</li>`;
     }).join('');
     if (focusedValue !== null) {
@@ -687,12 +743,15 @@ class CrSearchableSelect extends LitElement {
         @keydown=${this._handleTriggerKeydown}
       >
         <slot name="start"></slot>
+        ${this.displayIconSrc ? html`<img class="model-icon" src=${this.displayIconSrc} alt="" aria-hidden="true" />` : null}
         ${this._normalizeOptions().some((row) => row.value === this.value && row.worktree)
           ? html`<span class="worktree-indicator" aria-hidden="true">${unsafeSVG(GIT_ICON)}</span>` : null}
         ${this.favoritesEnabled && this._normalizeOptions().some((row) => row.value === this.value && row.favorite)
-          ? html`<span class="favorite-indicator" aria-hidden="true">★</span>` : null}
+          ? html`<span class="favorite-indicator" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2 9.19 8.62 2 9.24l5.46 4.73L5.82 21z"/></svg></span>` : null}
         <span class="selection"><span class="label">${this._labelForValue()}</span>
           ${this.displayDescription ? html`<span id="selection-description" class="description">${this.displayDescription}</span>` : null}</span>
+        ${this.displayEffortBars > 0 ? html`<span class="effort-bars${this.displayEffortMax ? ' effort-bars--max' : ''}" title=${this.displayEffortTitle || ''} aria-hidden="true">
+          ${[0, 1, 2, 3].map((index) => html`<i class=${index < this.displayEffortBars ? 'is-on' : ''}></i>`)}</span>` : null}
         <slot name="end"></slot>
         <span class="arrow" aria-hidden="true">
           <svg viewBox="0 0 24 24" focusable="false">

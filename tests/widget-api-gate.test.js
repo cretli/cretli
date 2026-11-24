@@ -3,7 +3,7 @@ import express from 'express';
 import { registerDocsRoutes } from '../lib/routes/docs-routes.js';
 import assert from 'node:assert/strict';
 import { installWidgetApiGate } from '../lib/widget/widget-http.ts';
-import { saveChats } from '../lib/persist/chats-persist.js';
+import { saveChats } from '../lib/persist/chats-legacy-store.js';
 import { filterPresenceForScope } from '../lib/agent-presence-activity.js';
 
 const ownChat = {

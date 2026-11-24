@@ -48,8 +48,8 @@ function percentText(value, lang, unknownLabel) {
  * Cycle denominators for the canonical view model. All counts are known when
  * the backend returned a cycles block; a missing block stays `null`.
  *
- * @param {object|null} cycles
- * @returns {object|null}
+ * @param {Record<string, any>|null} cycles
+ * @returns {Record<string, any>|null}
  */
 function canonicalCycles(cycles) {
   if (!cycles) return null;
@@ -72,7 +72,7 @@ function canonicalCycles(cycles) {
  * of `$0`.
  *
  * @param {object|null|undefined} cost
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 function canonicalCost(cost) {
   return {
@@ -92,10 +92,10 @@ function canonicalCost(cost) {
  * group stays separate; missing values stay `null` so the renderer prints the
  * unknown label.
  *
- * @param {object|null} canonical
+ * @param {Record<string, any>|null} canonical
  * @param {string} lang
  * @param {string} unknownLabel
- * @returns {object|null}
+ * @returns {Record<string, any>|null}
  */
 export function buildCanonicalViewModel(canonical, lang = 'en', unknownLabel = 'unknown') {
   if (!canonical || typeof canonical !== 'object') return null;
@@ -184,7 +184,7 @@ function formatUsd(usd, lang, unknownLabel) {
 }
 
 /**
- * @param {object|null} cost
+ * @param {Record<string, any>|null} cost
  * @param {string} lang
  * @param {string} unknownLabel
  * @returns {string}
@@ -198,10 +198,10 @@ function costText(cost, lang, unknownLabel) {
 }
 
 /**
- * @param {object} report
+ * @param {Record<string, any>} report
  * @param {string} lang
  * @param {string} unknownLabel
- * @returns {object}
+ * @returns {Record<string, any>}
  */
 export function buildDiagnosticsViewModel(report, lang = 'en', unknownLabel = 'unknown') {
   const config = report?.config || null;
@@ -380,7 +380,7 @@ function cellUsd(usd, unknownLabel) {
  * and cost denominators, then one row per cohort with the four denominator
  * groups kept apart and the uncertainty notes attached.
  *
- * @param {object} canonical
+ * @param {Record<string, any>} canonical
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */
@@ -516,7 +516,7 @@ function renderCanonicalHtml(canonical, t) {
 }
 
 /**
- * @param {object} model
+ * @param {Record<string, any>} model
  * @param {(key: string, values?: object) => string} t
  * @returns {string}
  */

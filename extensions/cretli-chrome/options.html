@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cretli extension options</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; max-width: 520px; margin: 24px auto; }
+    label { display: block; margin-top: 12px; }
+    input { width: 100%; padding: 6px; box-sizing: border-box; }
+    button { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Cretli extension</h1>
+  <p>In Cretli open Settings, Browser, Chrome extension and press Pair. Paste the code below within two minutes.</p>
+  <label>Server WebSocket URL
+    <input id="url" placeholder="wss://127.0.0.1:3011/ws-chrome-ext">
+  </label>
+  <label>Pairing code
+    <input id="code" maxlength="8" autocomplete="off">
+  </label>
+  <button id="pair">Pair</button>
+  <p id="state"></p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

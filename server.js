@@ -16,6 +16,7 @@ process.title = 'cretli';
 
 import { publishSupervisorAlert } from './lib/notifications/supervisor-producer.ts';
 import { createServerStallWatchdog } from './lib/server-health/server-stall-watchdog.js';
+import { peekChatsAsync } from './lib/persist/chats-persist.js';
 import { addTodo, listTodos } from './lib/persist/todos-store.js';
 import { publishNotification } from './lib/notifications/notification-store.ts';
 import express from 'express';
@@ -24,6 +25,9 @@ import { resolveServedFrontBundle } from './lib/front-bundle.js';
 import { createDistStaticMiddleware } from './lib/dist-static.js';
 import { guardAsyncRoutes } from './lib/http-async-guard.js';
 import { resolveServerTransport, exitOnTlsFailure } from './lib/server-tls.js';
+import { FleetRegistry } from './lib/fleet/registry.js';
+import { FleetPoller } from './lib/fleet/poller.js';
+import { registerFleetRoutes } from './lib/routes/fleet-routes.js';
 import { registerTlsSettingsRoutes } from './lib/routes/tls-settings-routes.js';
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { WebSocketServer } from 'ws';
@@ -85,6 +89,7 @@ import { createWorkspaceContext, isTaskRunInScope } from './lib/workspace-contex
 import { createClientDebugLog } from './lib/client-debug-log.js';
 import { buildInteractivePtyEnv as buildPtyEnv } from './lib/pty-env.js';
 import { registerAppRoutes, registerDevAndUpdateRoutes } from './lib/register-app-routes.js';
+import { createFastRestartRunner } from './lib/restart-fast-runtime.js';
 import { markDeferredBootFailed, bootDelegationRuntime, shutdownDelegationRuntime, installDelegationTestAdapters, beginDelegationShutdown, recordShutdownIntent, flushChatStateForShutdown } from './lib/delegation-runtime-boot.js';
 import { settleDelegationHistoryTasks } from './lib/delegation-service.js';
 import { resolveShutdownIntentReason } from './lib/recovery/recovery-shutdown.ts';
@@ -413,6 +418,11 @@ app.use(requireAuth);
 app.use(applyWidgetCorsResponse);
 installWidgetApiGate(app);
 registerTlsSettingsRoutes(app, { server, certificate: tlsCertificate, keyPath, certPath });
+const fleetRegistry = new FleetRegistry();
+const fleetPoller = new FleetPoller(fleetRegistry);
+registerFleetRoutes(app, { registry: fleetRegistry, poller: fleetPoller });
+fleetPoller.start();
+server.once('close', () => fleetPoller.stop());
 
 registerPublicPages(app, {
   indexHtmlPath: INDEX_HTML_PATH,
@@ -668,6 +678,7 @@ registerDevAndUpdateRoutes(app, {
   projectRoot: __dirname,
   getServerRestartScheduled: () => serverRestartScheduled,
   setServerRestartScheduled: (scheduled) => { serverRestartScheduled = scheduled; },
+  runFastRestart: createFastRestartRunner({ dataDir }),
   devBuildRunContext: {
     taskRuns,
     devBuildRunId: DEV_BUILD_RUN_ID,
@@ -740,6 +751,8 @@ async function runDeferredBoot() {
   seededRevisionCount = seedChatHistoryRevisionsFromIndex(await listChatHistoryHeadSeqs());
   if (seededRevisionCount > 0) console.log(`  Chat history revisions seeded: ${seededRevisionCount}`);
   bootPhase('chat-history-revision-seed');
+  // Warm the synchronous chat-row index (lib/chat-row-index.js) before the runtime's liveness probes run.
+  await peekChatsAsync();
   await installDelegationTestAdapters();
   await bootDelegationRuntime({ shouldSkipAutomaticWork: /** @type {any} */ (restoreGate).shouldSkipAutomaticWork });
   bootPhase('delegation-runtime-boot-done');
@@ -750,6 +763,7 @@ const stallWatchdog = createServerStallWatchdog({
   addTodo,
   listTodos,
   publishNotification,
+  recordDiagnostic: (event, details) => serverDiagnostics.record(event, details),
 });
 let delegationShutdownStarted = false;
 
@@ -758,6 +772,7 @@ let delegationShutdownStarted = false;
  * @param {{ exitCode?: number }} [options]
  */
 async function shutdownDelegationAndExit(signal, options = {}) {
+  fleetPoller.stop();
   if (delegationShutdownStarted) return;
   delegationShutdownStarted = true;
   stallWatchdog.stop();

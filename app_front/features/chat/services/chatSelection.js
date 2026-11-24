@@ -190,6 +190,10 @@ export function performSelectChatBody(id) {
   if (chat) setEmbedNoChatState(false);
   const reselectingActive = chatRuntime.activeChatId === id;
   const prevActiveChatId = chatRuntime.activeChatId;
+  const previousChat = chats.find((entry) => entry.id === prevActiveChatId);
+  if (previousChat?._sdkRichView) {
+    previousChat._chatViewportSnapshot = previousChat._sdkRichView.getViewportSnapshot?.();
+  }
   retainMountedChatPanes(id);
   chats.forEach((c) => {
     c.pane?._sendBar?.closeSendMenu?.();
@@ -231,7 +235,12 @@ export function performSelectChatBody(id) {
     chatRuntime.chatDiagnosticsApi.startChatContextUsageSync(chat);
     if (chat._sdkRichView && !reselectingActive) {
       setTimeout(() => {
+        if (chatRuntime.activeChatId !== id) return;
         const view = chat._sdkRichView;
+        if (chat._chatViewportSnapshot && view?.restoreViewportSnapshot) {
+          view.restoreViewportSnapshot(chat._chatViewportSnapshot);
+          return;
+        }
         if (typeof view?.restoreViewportAfterShow === 'function') view.restoreViewportAfterShow();
         else view?.scrollToBottom();
       }, 50);

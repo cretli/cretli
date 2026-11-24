@@ -4,21 +4,25 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createSupervisor, supervisorConfig, loadSupervisorEnv, acquireSupervisorLock,
-  requestRestart, atomicSupervisorState, supervisorLogTail, probeSupervisorHealth, supervisorProgress } from '../lib/cretli-supervisor.js';
+  requestRestart, requestStop, atomicSupervisorState, supervisorLogTail, probeSupervisorHealth, supervisorProgress } from '../lib/cretli-supervisor.js';
 import { isHttpsRequested } from '../lib/server-tls.js';
 import { rotateLogIfNeeded, startLogCapTimer } from '../lib/log-rotate.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Test overrides require an explicit mode and an isolated lock and data path.
 const testing = process.env.CRETLI_SUPERVISOR_TEST_MODE === '1';
-if (testing && (!process.env.CRETLI_SUPERVISOR_TEST_LOCK || (process.argv[2] !== 'request-restart' && !process.env.CRETLI_DATA_DIR))) {
+if (testing && (!process.env.CRETLI_SUPERVISOR_TEST_LOCK || (!['request-restart', 'request-stop'].includes(process.argv[2]) && !process.env.CRETLI_DATA_DIR))) {
   throw new Error('Supervisor tests require isolated lock and data paths');
 }
 const lockPath = testing ? path.resolve(process.env.CRETLI_SUPERVISOR_TEST_LOCK) : path.join(root, 'data/supervisor.lock');
 if (process.argv[2] === 'request-restart') {
   process.exitCode = requestRestart(lockPath);
+} else if (process.argv[2] === 'request-stop' && process.argv.length === 3) {
+  process.exitCode = requestStop(lockPath);
+  if (process.exitCode === 3) console.error('No running Cretli supervisor found.');
+  else if (process.exitCode === 4) console.error('Could not signal the Cretli supervisor.');
 } else if (process.argv.length > 2) {
-  console.error('Usage: cretli-supervisor.mjs [request-restart]'); process.exitCode = 4;
+  console.error('Usage: cretli-supervisor.mjs [request-restart|request-stop]'); process.exitCode = 4;
 } else {
   let supervisor, earlySignal, release, probeTimer, capTimer, controlTimer;
   // Register before any filesystem operation, including lock publication.

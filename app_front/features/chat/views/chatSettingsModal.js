@@ -19,6 +19,7 @@ import {
 } from '../chatSettingsPrefs.js';
 import { chatRuntime, chats } from '../state/chatRuntimeState.js';
 import { chatHost } from '../services/chatHost.js';
+import { isAutoContextCompressionSettingOn } from '../services/chatContextCompression.js';
 
 const CHAT_SETTINGS_TABS = ['chat', 'voice', 'context', 'diagnosis'];
 
@@ -113,8 +114,10 @@ export function openChatSettingsModal() {
     }
   }
   if (autoContextCompressionEnabledCheckbox) {
-    autoContextCompressionEnabledCheckbox.checked = chatHost.isAutoContextCompressionEnabled(chat);
+    autoContextCompressionEnabledCheckbox.checked = isAutoContextCompressionSettingOn(chat);
   }
+  const claudeCompactionHint = document.getElementById('chat-settings-auto-context-compression-claude-hint');
+  if (claudeCompactionHint) claudeCompactionHint.hidden = chat.agentTransport !== 'claude';
   if (autoContextCompressionThresholdInput) {
     autoContextCompressionThresholdInput.value = String(
       chatHost.normalizeAutoContextCompressionThreshold(chat.autoContextCompressionThreshold)
@@ -431,7 +434,7 @@ export function saveChatSettings() {
     && chatHost.isChatSettingsControlOnVisibleTab(autoContextCompressionEnabledCheckbox)
   ) {
     const enabled = autoContextCompressionEnabledCheckbox.checked === true;
-    if (enabled !== chatHost.isAutoContextCompressionEnabled(chat)) {
+    if (enabled !== isAutoContextCompressionSettingOn(chat)) {
       payload.autoContextCompressionEnabled = enabled;
     }
   }

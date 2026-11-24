@@ -1,3 +1,4 @@
+import { getViewContextRuntimeScope } from '../../app/appShell/viewContextBridge.js';
 /**
  * Settings → Usage: KPI tiles, stacked chart, sortable model/harness table.
  *
@@ -221,12 +222,7 @@ function byId(id) {
  * @returns {{ workspaceFolder: string, workspaceFile: string }}
  */
 function getActiveWorkspaceScope() {
-  if (typeof document === 'undefined') return { workspaceFolder: '', workspaceFile: '' };
-  const trigger = document.getElementById('header-workspace-trigger');
-  return {
-    workspaceFolder: String(trigger?.dataset?.workspaceFolder || '').trim(),
-    workspaceFile: String(trigger?.dataset?.workspaceFile || '').trim(),
-  };
+  return getViewContextRuntimeScope();
 }
 
 /**

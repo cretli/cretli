@@ -51,7 +51,7 @@ export function createHarnessHealthCache(options = {}) {
   /** Monotonic request id; the highest id owns the right to commit the cache. */
   let latestSeq = 0;
 
-  /** @returns {object|null} */
+  /** @returns {Record<string, any>|null} */
   function getCached() {
     return cache.payload;
   }

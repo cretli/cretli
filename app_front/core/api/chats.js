@@ -811,6 +811,10 @@ export function getAntigravityModels() {
   return dedupeGetJson('/api/antigravity/models', 'getAntigravityModels');
 }
 
+/** Run Google's Antigravity CLI installer on the server (Linux/macOS). */
+export function installAntigravityCli() {
+  return apiFetchJson('/api/antigravity/install', { method: 'POST' }, 'installAntigravityCli', { timeoutMs: 330000 });
+}
 export function getAntigravityLoginStatus() {
   return apiFetchJson('/api/antigravity/login/status', {}, 'getAntigravityLoginStatus');
 }

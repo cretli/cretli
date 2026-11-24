@@ -10,6 +10,8 @@ import { writeLocalStorageSafe } from '../chatLocalStorage.js';
 import { chatPresetsStore } from '../chatPresets.js';
 import { decodeNewChatLocation, toggleNewChatLocationFavorite } from '../newChatLocationOptions.js';
 import { decodeNewChatModelChoice } from '../newChatModelOptions.js';
+import { swipeNeighbour } from '../modelSwipeNav.js';
+import { attachModelSwipe, SWIPE_COMMIT_MS } from '../../../lib/modelSwipeGesture.js';
 import { createChatFromModal } from '../services/chatCreateFromModal.js';
 import {
   closeChatDeleteConfirmModal,
@@ -21,6 +23,7 @@ import {
   getWorkspaceContextForChat,
 } from '../services/chatWorkspaceContext.js';
 import {
+  applyNewChatPickerDisplay,
   getSelectedNewChatHarness,
   loadNewChatModelCatalogs,
   localChatHarnessIds,
@@ -95,6 +98,7 @@ export function bindChatPanelModals() {
   const newCancelBtn = document.getElementById('chat-new-cancel');
   const newHarnessSel = document.getElementById('chat-new-harness-select');
   if (newCancelBtn) newCancelBtn.addEventListener('click', (e) => { e.preventDefault(); closeNewChatModal(); });
+  document.getElementById('chat-new-close')?.addEventListener('click', (e) => { e.preventDefault(); closeNewChatModal(); });
   if (newHarnessSel) {
     newHarnessSel.addEventListener('change', () => {
       newChatModalState.newChatHarnessUserTouched = true;
@@ -156,7 +160,7 @@ export function bindChatPanelModals() {
     });
   }
 
-  const combinedModelPicker = document.getElementById('chat-new-agent-model');
+  const combinedModelPicker = /** @type {any} */ (document.getElementById('chat-new-agent-model'));
   combinedModelPicker?.addEventListener('cr-favorite-toggle', (event) => {
     const choice = decodeNewChatModelChoice(event.detail?.value);
     if (!choice?.model || localChatHarnessIds.has(choice.harness)) return;
@@ -184,12 +188,108 @@ export function bindChatPanelModals() {
     syncNewChatHarnessUi();
     syncNewChatAgentModelPicker();
   });
-  const locationPicker = document.getElementById('chat-new-location');
+  // Swipe on the closed picker: up/down walks models, left/right the thinking level.
+  if (combinedModelPicker) {
+    let applied = combinedModelPicker.value;
+    attachModelSwipe(combinedModelPicker, {
+      step(axis, dir) {
+        if (newChatModalState.chatCreateInFlight) return false;
+        const current = decodeNewChatModelChoice(combinedModelPicker.value);
+        if (!current) return false;
+        const next = swipeNeighbour(combinedModelPicker.filteredOptions(), current.harness, current.model, axis, dir);
+        if (!next) return false;
+        const option = combinedModelPicker.options.find((row) => row.value === next.value);
+        combinedModelPicker.value = next.value;
+        // Live label while the finger moves; the committed change re-syncs the full text.
+        applyNewChatPickerDisplay(combinedModelPicker, {
+          harness: next.harness, harnessLabel: option?.group || next.harness, model: next.model, option,
+        });
+        return true;
+      },
+      commit() {
+        const value = combinedModelPicker.value;
+        if (value === applied) return;
+        applied = value;
+        combinedModelPicker.dispatchEvent(new CustomEvent('cr-change', { detail: { value }, bubbles: true, composed: true }));
+      },
+    });
+    // Picks made in the dropdown or by sync code are the new baseline.
+    combinedModelPicker.addEventListener('cr-change', (/** @type {CustomEvent} */ event) => { applied = event.detail?.value ?? applied; });
+  }
+  const locationPicker = /** @type {any} */ (document.getElementById('chat-new-location'));
   newChatModalState.chatNewFolderDropdownApi = {
     refresh: syncNewChatLocationPicker,
     close: () => locationPicker?.closeDropdown?.(),
     isOpen: () => locationPicker?.isDropdownOpen?.() === true,
   };
+  // Swipe on the closed location select: up/down walks the folders and worktrees,
+  // left/right switches the workspace (the swipe picker above it).
+  if (locationPicker) {
+    /** @type {string} */
+    let pendingLocation = '';
+    /** @type {string} */
+    let pendingWorkspace = '';
+    let commitTimer = 0;
+    const workspacePicker = () => /** @type {any} */ (document.getElementById('chat-new-workspace-picker'));
+    const commitPending = () => {
+      clearTimeout(commitTimer);
+      const workspace = pendingWorkspace;
+      const location = pendingLocation;
+      pendingWorkspace = '';
+      pendingLocation = '';
+      // A new workspace rebuilds the folder list, so it wins over a location picked before it.
+      if (workspace) {
+        workspacePicker()?.dispatchEvent(new CustomEvent('cr-change', { detail: { value: workspace }, bubbles: true, composed: true }));
+        return;
+      }
+      if (location) {
+        locationPicker.dispatchEvent(new CustomEvent('cr-change', { detail: { value: location }, bubbles: true, composed: true }));
+      }
+    };
+    const stepWorkspace = (dir) => {
+      const wp = workspacePicker();
+      const row = document.getElementById('chat-new-workspace-row');
+      const items = Array.isArray(wp?.items) ? wp.items : [];
+      if (!wp || !row || row.hidden || items.length < 2) return false;
+      const at = Math.max(0, items.findIndex((item) => item.value === (pendingWorkspace || wp.value)));
+      const next = items[at + dir];
+      if (!next) return false;
+      pendingWorkspace = next.value;
+      wp.value = next.value;
+      return true;
+    };
+    const stepLocation = (dir) => {
+      const rows = locationPicker.filteredOptions().filter((row) => row && !row.disabled && decodeNewChatLocation(row.value));
+      const at = rows.findIndex((row) => row.value === (pendingLocation || locationPicker.value));
+      const next = at < 0 ? null : rows[at - dir];
+      if (!next) return false;
+      pendingLocation = next.value;
+      locationPicker.value = next.value;
+      const choice = decodeNewChatLocation(next.value);
+      // Live label while the finger moves; the committed change re-syncs the full text.
+      locationPicker.displayLabel = choice?.todoId ? `${next.group} · ${next.label}` : next.group;
+      locationPicker.displayDescription = next.description || '';
+      return true;
+    };
+    attachModelSwipe(locationPicker, {
+      step(axis, dir) {
+        if (newChatModalState.chatCreateInFlight) return false;
+        return axis === 'effort' ? stepWorkspace(dir) : stepLocation(dir);
+      },
+      commit: commitPending,
+    });
+    // Dragging up/down on the workspace chips walks the location select below them,
+    // the mirror of left/right on the location select moving the chips.
+    workspacePicker()?.addEventListener('cr-vstep', (event) => {
+      if (newChatModalState.chatCreateInFlight) return;
+      if (stepLocation(event.detail.dir)) {
+        event.detail.handled = true;
+        clearTimeout(commitTimer);
+        commitTimer = setTimeout(commitPending, SWIPE_COMMIT_MS);
+      }
+    });
+    workspacePicker()?.addEventListener('cr-vstep-end', commitPending);
+  }
   locationPicker?.addEventListener('cr-open', () => {
     combinedModelPicker?.closeDropdown?.();
     void loadNewChatLocationGroups();

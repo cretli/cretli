@@ -8,7 +8,7 @@ import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createStartupLockoutWorkspacePair } from './helpers/startup-lockout-fixture.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 import { persistModelPickProposal } from '../lib/model-pick-decisions.js';

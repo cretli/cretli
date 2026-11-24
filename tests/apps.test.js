@@ -1,3 +1,4 @@
+import './helpers/isolated-data-dir.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,8 @@ const { buildSuggestions, parseComposePort } = await import('../lib/apps/suggest
 const monitor = await import('../lib/apps/monitor.js');
 const { createAppsStateStore } = await import('../lib/apps/state-store.js');
 const { createAppsService, processRunsInWorkspace, resolveConfinedCwd } = await import('../lib/apps/service.js');
-const { createAppsMonitorJob } = await import('../lib/apps/runtime.js');
+const { createAppsMonitorJob, createAppsAutoStartJob } = await import('../lib/apps/runtime.js');
+const { createTaskLauncher } = await import('../lib/apps/task-launcher.js');
 const { createPeriodicJobRunner } = await import('../lib/periodic-job-runner.js');
 
 function workspace(files = {}) {
@@ -257,6 +259,204 @@ test('monitor job is disabled until the service is configured, and interval come
   assert.equal(monitor.resolveMonitorIntervalMs({}), monitor.DEFAULT_MONITOR_INTERVAL_MS);
 });
 
+test('task dependencies run in order and the app starts only after successful exits', async () => {
+  const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+  const taskRuns = new Map();
+  const specs = [];
+  const state = createAppsStateStore({ file: path.join(dir, 'state.json') });
+  let service;
+  service = createAppsService({
+    getWorkspaceDir: () => dir, taskRuns, state, snapshot: async () => ({ ok: true, listeners: [] }),
+    loadTasksForWorkspace: () => ({ tasks: [
+      { label: 'prepare', command: 'prepare', cwd: dir, dependsOn: ['generate'] },
+      { label: 'generate', command: 'generate', cwd: dir },
+      { label: 'serve', command: 'serve', cwd: dir, dependsOn: 'prepare' },
+    ] }),
+    launchTask: (spec, hooks) => {
+      specs.push(spec.label);
+      const id = `r${specs.length}`;
+      taskRuns.set(id, {});
+      if (spec.label === 'generate') setImmediate(() => hooks.onExit({ runId: id, exitCode: 0 }));
+      else if (spec.label === 'prepare') setImmediate(() => hooks.onExit({ runId: id, exitCode: 0 }));
+      return { runId: id, pid: 42 };
+    },
+  });
+  const result = await service.start('my-app');
+  assert.equal(result.ok, true);
+  assert.deepEqual(specs, ['generate', 'prepare', 'serve']);
+});
+
+test('dependency errors and concurrent start/restart/stop are handled safely', async () => {
+  const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+  const taskRuns = new Map();
+  let hooks;
+  let launches = 0;
+  const service = createAppsService({
+    getWorkspaceDir: () => dir, taskRuns, state: createAppsStateStore({ file: path.join(dir, 'state.json') }),
+    snapshot: async () => ({ ok: true, listeners: [] }),
+    loadTasksForWorkspace: () => ({ tasks: [{ label: 'serve', command: 'serve', cwd: dir, dependsOn: 'missing' }] }),
+    launchTask: () => { launches += 1; return { runId: 'r', pid: 1 }; },
+  });
+  assert.equal((await service.start('my-app')).error, 'task-dependency-invalid');
+  assert.equal(launches, 0);
+
+  const dir2 = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+  const runs2 = new Map();
+  const service2 = createAppsService({
+    getWorkspaceDir: () => dir2, taskRuns: runs2, state: createAppsStateStore({ file: path.join(dir2, 'state.json') }),
+    snapshot: async () => ({ ok: true, listeners: [] }), dependencyTimeoutMs: 1000,
+    loadTasksForWorkspace: () => ({ tasks: [{ label: 'prep', command: 'prep', cwd: dir2 }, { label: 'serve', command: 'serve', cwd: dir2, dependsOn: 'prep' }] }),
+    launchTask: (spec, h) => { launches += 1; hooks = h; runs2.set('dep', {}); return { runId: 'dep', pid: 1 }; },
+  });
+  const pending = service2.start('my-app');
+  while (!hooks) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal((await service2.start('my-app')).error, 'app-starting');
+  assert.equal((await service2.restart('my-app')).error, 'app-starting');
+  assert.equal((await service2.stop('my-app')).ok, true);
+  assert.equal((await pending).error, 'app-start-cancelled');
+});
+
+test('dependency cycles and non-zero exits fail before the app task launches', async () => {
+  const make = (tasks) => {
+    const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+    const taskRuns = new Map();
+    const launches = [];
+    const service = createAppsService({
+      getWorkspaceDir: () => dir, taskRuns, state: createAppsStateStore({ file: path.join(dir, 'state.json') }),
+      snapshot: async () => ({ ok: true, listeners: [] }), loadTasksForWorkspace: () => ({ tasks }),
+      launchTask: (spec, hooks) => {
+        launches.push(spec.label);
+        setImmediate(() => hooks.onExit({ runId: spec.label, exitCode: spec.label === 'prep' ? 2 : 0 }));
+        return { runId: spec.label, pid: 12 };
+      },
+    });
+    return { service, launches, dir };
+  };
+  const cycle = make([
+    { label: 'serve', command: 'serve', cwd: '.', dependsOn: 'prep' },
+    { label: 'prep', command: 'prep', cwd: '.', dependsOn: 'serve' },
+  ]);
+  assert.equal((await cycle.service.start('my-app')).error, 'task-dependency-invalid');
+  assert.deepEqual(cycle.launches, []);
+
+  const failed = make([
+    { label: 'serve', command: 'serve', cwd: '.', dependsOn: 'prep' },
+    { label: 'prep', command: 'prep', cwd: '.', dependsOn: [] },
+  ]);
+  const result = await failed.service.start('my-app');
+  assert.equal(result.error, 'task-dependency-failed');
+  assert.equal(result.label, 'prep');
+  assert.deepEqual(failed.launches, ['prep']);
+});
+
+test('dependency timeout kills the active dependency run', async () => {
+  const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+  const taskRuns = new Map();
+  let killed = false;
+  let appLaunch = false;
+  const service = createAppsService({
+    getWorkspaceDir: () => dir, taskRuns, state: createAppsStateStore({ file: path.join(dir, 'state.json') }),
+    snapshot: async () => ({ ok: true, listeners: [] }), dependencyTimeoutMs: 5,
+    loadTasksForWorkspace: () => ({ tasks: [{ label: 'prep', command: 'prep', cwd: dir }, { label: 'serve', command: 'serve', cwd: dir, dependsOn: 'prep' }] }),
+    launchTask: (spec) => {
+      if (spec.label === 'serve') appLaunch = true;
+      else taskRuns.set('dep', { pty: { kill: () => { killed = true; } }, clients: new Set() });
+      return { runId: spec.label === 'serve' ? 'app' : 'dep', pid: 1 };
+    },
+  });
+  const result = await service.start('my-app');
+  assert.equal(result.error, 'task-dependency-timeout');
+  assert.equal(killed, true);
+  assert.equal(appLaunch, false);
+});
+
+test('stale persisted starting state is normalized after service recreation', async () => {
+  const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+  const stateFile = path.join(dir, 'state.json');
+  createAppsStateStore({ file: stateFile }).patch(dir, 'my-app', { status: 'starting', lastChangeAt: new Date().toISOString() });
+  const taskRuns = new Map();
+  const service = createAppsService({
+    getWorkspaceDir: () => dir, taskRuns, state: createAppsStateStore({ file: stateFile }),
+    snapshot: async () => ({ ok: true, listeners: [] }),
+    loadTasksForWorkspace: () => ({ tasks: [
+      { label: 'prepare', command: 'prepare', cwd: dir },
+      { label: 'serve', command: 'serve', cwd: dir, dependsOn: 'prepare' },
+    ] }),
+    launchTask: (spec, hooks) => {
+      if (spec.label === 'prepare') {
+        setImmediate(() => hooks.onExit({ runId: 'prepare-run', exitCode: 0 }));
+        return { runId: 'prepare-run', pid: 20 };
+      }
+      taskRuns.set('app-run', { pty: { pid: 21 }, clients: new Set() });
+      return { runId: 'app-run', pid: 21 };
+    },
+  });
+  assert.equal((await service.status()).apps[0].status, 'stopped');
+  const recovered = await service.start('my-app');
+  assert.equal(recovered.ok, true);
+  assert.equal(taskRuns.has(recovered.runId), true);
+});
+
+test('autoStart boot job is detached, sequential, one-shot, and continues after failures', async () => {
+  const calls = [];
+  let release;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  const service = {
+    list: () => ({ apps: [
+      { id: 'a', autoStart: true, start: {} }, { id: 'external', autoStart: true, start: { external: true } },
+      { id: 'b', autoStart: true, start: {} },
+    ] }),
+    status: async () => ({ apps: [] }),
+    start: async (id) => { calls.push(id); if (id === 'a') await blocked; return id === 'b' ? { ok: false, error: 'port-in-use' } : { ok: true }; },
+  };
+  const job = createAppsAutoStartJob({ getService: () => service, canAcceptNewRun: () => true });
+  assert.equal(job.run(), null);
+  assert.equal(job.run(), null);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['a']);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['a', 'b']);
+});
+
+test('autoStart waits for update gate and gives up at its bound', async () => {
+  let now = 0;
+  let open = false;
+  let starts = 0;
+  const service = { list: () => ({ apps: [{ id: 'app', autoStart: true, start: {} }] }), status: async () => ({ apps: [] }), start: async () => { starts += 1; return { ok: true }; } };
+  const job = createAppsAutoStartJob({
+    getService: () => service, canAcceptNewRun: () => open, now: () => now, pollMs: 5, maxWaitMs: 20,
+    sleep: async (ms) => { now += ms; if (now >= 10) open = true; },
+  });
+  job.run();
+  for (let i = 0; i < 10 && starts === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(starts, 1);
+
+  let timeoutNow = 0;
+  const logs = [];
+  const closedJob = createAppsAutoStartJob({
+    getService: () => service, canAcceptNewRun: () => false, now: () => timeoutNow, pollMs: 5, maxWaitMs: 10,
+    sleep: async (ms) => { timeoutNow += ms; }, log: (event) => logs.push(event),
+  });
+  closedJob.run();
+  for (let i = 0; i < 10 && !logs.length; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(starts, 1);
+  assert.deepEqual(logs, ['apps-auto-start-gate-timeout']);
+});
+
+test('task launcher forwards the PTY exit code to its onExit hook', () => {
+  let ptyExit;
+  let observed;
+  const launcher = createTaskLauncher({
+    taskRuns: new Map(), buildInteractivePtyEnv: () => ({}), randomSessionId: () => 'run',
+    spawnPty: () => ({ pid: 7, onData: () => {}, onExit: (fn) => { ptyExit = fn; }, kill() {} }),
+  });
+  launcher({ label: 'build', type: 'shell', command: 'build', cwd: '.', workspaceDir: '.' }, { onExit: (info) => { observed = info; } });
+  ptyExit({ exitCode: 23 });
+  assert.deepEqual(observed, { runId: 'run', exitCode: 23 });
+});
+
 test('listener snapshotter issues exactly one ss command', async () => {
   const calls = [];
   const snap = monitor.createListenerSnapshotter({
@@ -410,4 +610,199 @@ test('external app: its listener is expected, status follows the port, start and
   assert.equal(launched, 0);
   listeners = [];
   assert.equal((await service.status({ refresh: true })).apps[0].status, 'stopped');
+});
+
+test('concurrent starts cannot both pass when the second snapshot resolves late (F3)', async () => {
+  const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp }] } });
+  const taskRuns = new Map();
+  const resolvers = [];
+  let launches = 0;
+  const service = createAppsService({
+    getWorkspaceDir: () => dir, taskRuns, state: createAppsStateStore({ file: path.join(dir, 'state.json') }),
+    snapshot: () => new Promise((resolve) => resolvers.push(() => resolve({ ok: true, listeners: [] }))),
+    launchTask: () => { launches += 1; taskRuns.set(`r${launches}`, { pty: { pid: 5 }, clients: new Set() }); return { runId: `r${launches}`, pid: 5 }; },
+  });
+  const first = service.start('my-app');
+  const second = service.start('my-app');
+  assert.equal((await second).error, 'app-starting');
+  resolvers.forEach((resolve) => resolve());
+  assert.equal((await first).ok, true);
+  assert.equal(launches, 1);
+  // The lock is released afterwards, so a further start reports the live run.
+  assert.equal((await service.start('my-app')).error, 'app-already-running');
+});
+
+test('removing an app while it is starting is refused and nothing is launched afterwards (F2)', async () => {
+  const dir = workspace({ '.cretli/apps.json': { apps: [{ ...myApp, start: { taskLabel: 'serve' } }] } });
+  const taskRuns = new Map();
+  let depHooks;
+  let appLaunches = 0;
+  const service = createAppsService({
+    getWorkspaceDir: () => dir, taskRuns, state: createAppsStateStore({ file: path.join(dir, 'state.json') }),
+    snapshot: async () => ({ ok: true, listeners: [] }),
+    loadTasksForWorkspace: () => ({ tasks: [{ label: 'prep', command: 'prep', cwd: dir }, { label: 'serve', command: 'serve', cwd: dir, dependsOn: 'prep' }] }),
+    launchTask: (spec, hooks) => {
+      if (spec.label === 'serve') { appLaunches += 1; return { runId: 'app', pid: 2 }; }
+      depHooks = hooks;
+      taskRuns.set('dep', { pty: { kill() {} }, clients: new Set() });
+      return { runId: 'dep', pid: 1 };
+    },
+  });
+  const starting = service.start('my-app');
+  for (let i = 0; i < 5 && !depHooks; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(depHooks, 'dependency is running');
+  const removed = service.remove('my-app');
+  assert.equal(removed.ok, false);
+  assert.equal(removed.error, 'app-starting');
+  assert.equal(loadAppsFile(dir).apps.length, 1);
+  depHooks.onExit({ runId: 'dep', exitCode: 0 });
+  assert.equal((await starting).ok, true);
+  assert.equal(appLaunches, 1);
+});
+
+/** Injected process tree for the ancestor walk: child -> parent, with per-pid comm/workspace overrides. */
+function treeService({ parents, comms = {}, outside = [], tracked = [], listenerPid = 4242, selfPid = 9000, signals = [] }) {
+  const listeners = [{ address: '127.0.0.1', port: 5173, pid: listenerPid, command: 'node' }];
+  return makeService({
+    snapshot: async () => ({ ok: true, listeners: [...listeners] }),
+    parentOf: (pid) => (pid in parents ? parents[pid] : (pid === selfPid ? 1 : null)),
+    readComm: (pid) => (pid in comms ? comms[pid] : 'node'),
+    readCommand: (pid) => `cmd-${pid}`,
+    isTracked: (pid) => tracked.includes(pid),
+    selfPid,
+    runsInWorkspace: (dir, pid) => !outside.includes(pid),
+    signal: (pid, sig) => { signals.push([pid, sig]); listeners.length = 0; },
+    sleep: async () => {},
+  });
+}
+const foreignAncestors = async (service) => {
+  const status = await service.status({ refresh: true });
+  return status.apps[0].ports[0].listener.ancestors;
+};
+
+test('ancestor walk collects the old watcher parents, nearest first', async () => {
+  const { service } = treeService({ parents: { 4242: 4000, 4000: 3000, 3000: 2000 }, comms: { 2000: 'bash' } });
+  assert.deepEqual(await foreignAncestors(service), [{ pid: 4000, command: 'cmd-4000' }, { pid: 3000, command: 'cmd-3000' }]);
+});
+
+test('ancestor walk stops at each guard and excludes the stopping parent', async () => {
+  const base = { 4242: 4000, 4000: 3000, 3000: 2000 };
+  const cases = [
+    ['outside workspace', { parents: base, outside: [3000] }, [4000]],
+    ['PID 1', { parents: { 4242: 4000, 4000: 1 } }, [4000]],
+    ['cretli itself', { parents: { ...base, 2000: 1 }, selfPid: 3000 }, [4000]],
+    ['ancestor of cretli', { parents: { ...base, 9000: 3000, 2000: 1 } }, [4000]],
+    ['tracked process', { parents: base, tracked: [3000] }, [4000]],
+    ['sh', { parents: base, comms: { 3000: 'sh' } }, [4000]],
+    ['dash', { parents: base, comms: { 3000: 'dash' } }, [4000]],
+    ['login zsh', { parents: base, comms: { 3000: '-zsh' } }, [4000]],
+    ['fish', { parents: base, comms: { 3000: 'fish' } }, [4000]],
+    ['unreadable comm', { parents: base, comms: { 3000: null } }, [4000]],
+    ['null parent', { parents: { 4242: 4000 } }, [4000]],
+    ['cycle', { parents: { 4242: 4000, 4000: 3000, 3000: 4000 } }, [4000, 3000]],
+  ];
+  for (const [name, input, expected] of cases) {
+    const { service } = treeService(input);
+    assert.deepEqual((await foreignAncestors(service)).map((a) => a.pid), expected, name);
+  }
+});
+
+test('ancestor walk is capped at 64 levels', async () => {
+  const parents = {};
+  for (let pid = 4242; pid < 4242 + 100; pid += 1) parents[pid] = pid + 1;
+  const { service } = treeService({ parents });
+  assert.equal((await foreignAncestors(service)).length, 64);
+});
+
+test('ancestors are computed only for foreign-owned ports (none without a listener)', async () => {
+  const listener = { address: '127.0.0.1', port: 5173, pid: 4242, command: 'node' };
+  const parentOf = (pid) => ({ 4242: 4000, 9000: 1 })[pid] ?? null;
+  const common = { snapshot: async () => ({ ok: true, listeners: [listener] }), parentOf, readComm: () => 'node', isTracked: () => false, runsInWorkspace: () => true, selfPid: 9000 };
+  const foreign = await makeService(common).service.status({ refresh: true });
+  assert.equal(foreign.apps[0].ports[0].ownedBy, 'foreign');
+  assert.deepEqual(foreign.apps[0].ports[0].listener.ancestors.map((a) => a.pid), [4000]);
+  // An external app's listener is expected, not foreign: no walk.
+  const extDir = workspace({ '.cretli/apps.json': { apps: [externalApp] } });
+  const ext = createAppsService({
+    getWorkspaceDir: () => extDir, taskRuns: new Map(), launchTask: () => ({ runId: 'r', pid: 1 }),
+    snapshot: async () => ({ ok: true, listeners: [{ address: '0.0.0.0', port: 8090, pid: 42, command: 'nginx' }] }),
+    state: createAppsStateStore({ file: path.join(extDir, 'state.json') }),
+    parentOf: () => { throw new Error('walk must not run'); },
+  });
+  const extStatus = await ext.status({ refresh: true });
+  assert.equal(extStatus.apps[0].ports[0].ownedBy, 'external');
+  assert.equal('ancestors' in extStatus.apps[0].ports[0].listener, false);
+  const idle = await makeService({ listeners: [] }).service.status({ refresh: true });
+  assert.equal(idle.apps[0].ports[0].listener, null);
+});
+
+test('takeover needs the exact set (listener + ancestors) in both directions and signals ancestors first, once each', async () => {
+  const signals = [];
+  const parents = { 4242: 4000, 4000: 3000 };
+  const { service, taskRuns } = treeService({ parents, comms: { 3000: 'bash' }, signals });
+  // Listener only: the ancestor is missing.
+  assert.equal((await service.takeover('my-app', { pids: [4242] })).error, 'takeover-stale');
+  // Extra PID.
+  assert.equal((await service.takeover('my-app', { pids: [4242, 4000, 3000] })).error, 'takeover-stale');
+  assert.deepEqual(signals, []);
+  const done = await service.takeover('my-app', { pids: [4242, 4000] });
+  assert.equal(done.ok, true);
+  assert.deepEqual(signals, [[4000, 'SIGTERM'], [4242, 'SIGTERM']]);
+  assert.equal(taskRuns.size, 1);
+});
+
+test('takeover re-checks the workspace of every pid before any signal', async () => {
+  const signals = [];
+  // The ancestor walk sees 4000 inside the workspace; the later per-pid check does not.
+  const seen = new Set();
+  const { service } = makeService({
+    snapshot: async () => ({ ok: true, listeners: [{ address: '127.0.0.1', port: 5173, pid: 4242, command: 'node' }] }),
+    parentOf: (pid) => ({ 4242: 4000, 9000: 1 })[pid] ?? null,
+    readComm: () => 'node', isTracked: () => false, selfPid: 9000,
+    runsInWorkspace: (dir, pid) => { const first = !seen.has(pid); seen.add(pid); return pid !== 4000 || first; },
+    signal: (pid) => signals.push(pid),
+  });
+  const result = await service.takeover('my-app', { pids: [4242, 4000] });
+  assert.equal(result.error, 'takeover-outside-workspace');
+  assert.equal(result.killHint, 'kill 4000 4242');
+  assert.deepEqual(signals, []);
+});
+
+test('an incomplete Cretli protection chain yields no ancestors and no signal (fail closed)', async () => {
+  const signals = [];
+  // Cretli 9000 -> 8000 -> 7000, listener 4242 -> 7000; the parent read of 9000 is unavailable.
+  const { service } = treeService({ parents: { 9000: null, 8000: 7000, 4242: 7000, 7000: 1 }, signals });
+  assert.deepEqual(await foreignAncestors(service), []);
+  assert.equal((await service.takeover('my-app', { pids: [4242, 7000] })).error, 'takeover-stale');
+  assert.deepEqual(signals, []);
+  // The same tree with a readable chain protects 7000 as Cretli's ancestor.
+  const ok = treeService({ parents: { 9000: 8000, 8000: 7000, 7000: 1, 4242: 7000 } });
+  assert.deepEqual(await foreignAncestors(ok.service), []);
+});
+
+test('takeover treats ESRCH as already gone per PID and still starts; other errors fail', async () => {
+  const listeners = [{ address: '127.0.0.1', port: 5173, pid: 4242, command: 'node' }];
+  const signals = [];
+  const { service, taskRuns } = makeService({
+    snapshot: async () => ({ ok: true, listeners: [...listeners] }),
+    parentOf: (pid) => ({ 4242: 4000, 9000: 1 })[pid] ?? null,
+    readComm: () => 'node', isTracked: () => false, selfPid: 9000, runsInWorkspace: () => true,
+    signal: (pid) => {
+      signals.push(pid);
+      if (pid === 4000) { listeners.length = 0; return; }
+      throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+    },
+    sleep: async () => {},
+  });
+  const done = await service.takeover('my-app', { pids: [4242, 4000] });
+  assert.equal(done.ok, true);
+  assert.deepEqual(signals, [4000, 4242]);
+  assert.equal(taskRuns.size, 1);
+
+  const denied = makeService({
+    snapshot: async () => ({ ok: true, listeners: [{ address: '127.0.0.1', port: 5173, pid: 4242, command: 'node' }] }),
+    parentOf: () => null, runsInWorkspace: () => true,
+    signal: () => { throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' }); },
+  });
+  assert.equal((await denied.service.takeover('my-app', { pids: [4242] })).error, 'takeover-failed');
 });

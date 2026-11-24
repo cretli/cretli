@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import { registerMockChatRunAdapter, resetMockChatRuns } from '../lib/chat-run/mock-adapter.ts';
 import { createDelegationService } from '../lib/delegation-service.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 
 resetMockChatRuns();

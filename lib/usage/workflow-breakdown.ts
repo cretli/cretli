@@ -12,6 +12,7 @@
  */
 
 import { buildDelegationJoinIndex, joinTodoUsageEvents } from './todo-usage.ts';
+import { buildDelegationRoleIndex, resolveEffectiveUsageRole } from './usage-role.ts';
 import { sumUsageCost, sumUsageTokenBuckets } from './usage-insights.ts';
 
 const MAX_ROWS = 200;
@@ -44,6 +45,7 @@ function attemptTimeMs(attempt) {
  */
 export function buildWorkflowBreakdown(input: Partial<{ events?: Record<string, any>[], delegations?: Record<string, any>[], limit?: number, keepAlivePings?: Record<string, any>[] }> = {}) {
   const index = buildDelegationJoinIndex(input.delegations);
+  const roleIndex = buildDelegationRoleIndex(input.delegations);
   const pingByRun = new Map();
   for (const ping of Array.isArray(input.keepAlivePings) ? input.keepAlivePings : []) {
     const runId = text(ping?.runId);
@@ -85,7 +87,7 @@ export function buildWorkflowBreakdown(input: Partial<{ events?: Record<string, 
     const key = `${row.todoId}|${round ?? ''}|${row.delegationId}`;
     let group = groups.get(key);
     if (!group) {
-      group = { leafId: row.todoId, round, delegationId: row.delegationId, role: text(row.event.role) || null, events: [] };
+      group = { leafId: row.todoId, round, delegationId: row.delegationId, role: resolveEffectiveUsageRole(row.event, roleIndex) || null, events: [] };
       groups.set(key, group);
     }
     group.events.push(row.event);

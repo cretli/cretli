@@ -2,7 +2,7 @@ import './cr-docs-panel.js';
 import { docsScope } from './docsScope.js';
 
 export async function refreshDocsPanel() {
-  const panel = document.querySelector('cr-docs-panel');
+  const panel = /** @type {any} */ (document.querySelector('cr-docs-panel'));
   if (!panel) return;
   const scope = await docsScope();
   panel.setScope(scope);

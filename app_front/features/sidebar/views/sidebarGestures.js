@@ -3,6 +3,7 @@
 import { t } from '../../../i18n/index.js';
 import { confirmNotificationAction } from '../../notifications/notificationConfirm.js';
 import { initSidebarChatDrag } from '../sidebarChatDrag.js';
+import { initSidebarChatSwipeArchive } from '../sidebarChatSwipeArchive.js';
 import { readChatOrder, writeChatOrderForList } from '../sidebarChatOrder.js';
 import { publishSidebarLayout } from '../sidebarLayoutSync.js';
 import { initSidebarWorkspaceDrag } from '../sidebarWorkspaceDrag.js';
@@ -43,6 +44,22 @@ export function createSidebarGestures(ctx) {
     checkbox.addEventListener('change', () => {
       writePinActiveWorkspaceFlag(!!checkbox.checked);
       forceRerender();
+    });
+  }
+
+  function initChatSwipeArchive() {
+    const body = getContainer()?.querySelector('.sidebar-body');
+    if (!body) return;
+    state.chatSwipeArchive = initSidebarChatSwipeArchive({
+      body,
+      isEnabled: () => !isSearchActive() && !state.workspaceDrag.isDragging() && !state.chatDrag?.isDragging?.(),
+      isBlocked: (chatId) => ctx.isChatForkArchiveBlocked(chatId),
+      onDelete: (chatId) => {
+        if (typeof ctx.requestDeleteChat === 'function') void ctx.requestDeleteChat(chatId, { preserveListOpen: true, forceConfirm: true });
+      },
+      onArchive: (chatId) => {
+        if (typeof ctx.requestArchiveChat === 'function') void ctx.requestArchiveChat(chatId, { preserveListOpen: true });
+      },
     });
   }
 
@@ -147,7 +164,7 @@ export function createSidebarGestures(ctx) {
       isOpen: () => state.open,
       isMobile: isMobileViewport,
       isResizing: () => document.body?.classList.contains('sidebar-resizing') === true,
-      isChatDragging: () => state.chatDrag.isDragging(),
+      isChatDragging: () => state.chatDrag.isDragging() || state.chatSwipeArchive?.isSwiping?.() === true,
       isWorkspaceDragging: () => state.workspaceDrag.isDragging(),
       onClose: closeSidebar,
       onOpen: openSidebar,
@@ -159,5 +176,5 @@ export function createSidebarGestures(ctx) {
     });
   }
 
-  return { initSearchInput, initPinActiveWorkspaceSetting, initChatDrag, initWorkspaceDrag, flushArchiveVirtualWindowsAfterGesture, initArchiveVirtualGestureGuard, afterSidebarGestureSettled, initSwipe };
+  return { initSearchInput, initPinActiveWorkspaceSetting, initChatDrag, initChatSwipeArchive, initWorkspaceDrag, flushArchiveVirtualWindowsAfterGesture, initArchiveVirtualGestureGuard, afterSidebarGestureSettled, initSwipe };
 }

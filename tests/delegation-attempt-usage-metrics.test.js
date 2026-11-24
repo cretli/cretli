@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { mkdtempSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { acceptDelegationFinalReport, applyLateDelegationMetrics, createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { collectRoomDelegationMetrics, noteDelegationRoomEvent } from '../lib/delegation-run-bridge.js';

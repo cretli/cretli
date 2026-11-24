@@ -5,6 +5,17 @@ import { fileURLToPath } from 'node:url';
 
 test('built frontend: Chat, Terminal, Todo and Settings', async ({ page }, testInfo) => {
   const errors = [];
+  const scopedRequests = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname !== '/api/browser/policy' && url.pathname !== '/api/workspace-watcher') return;
+    const body = request.postDataJSON() || {};
+    scopedRequests.push({
+      path: url.pathname,
+      scoped: ['workspaceFolder', 'workspaceFile', 'ws', 'folder', 'chatId']
+        .some((key) => Boolean(url.searchParams.get(key) || body[key])),
+    });
+  });
   const terminalSockets = new Map();
   const sockets = [];
   page.on('websocket', (socket) => {
@@ -59,12 +70,17 @@ test('built frontend: Chat, Terminal, Todo and Settings', async ({ page }, testI
     }
     await page.locator('#header-settings-btn').click();
     await expect(page.locator('#settings-panel')).toBeVisible();
-    await expect(page.locator('#settings-tabs')).toBeVisible();
-    await page.locator('#settings-back-btn').click();
+    await expect(page.locator('#sidebar-settings-tree')).toBeVisible();
+    await page.locator('#header-menu-btn').click();
     await page.locator('.tab[data-panel="chat"]').click();
     await expect(modeBar.locator('button.mode')).toBeVisible();
+    for (const path of ['/api/browser/policy', '/api/workspace-watcher']) {
+      expect(scopedRequests.some((request) => request.path === path), `Observed ${path}`).toBe(true);
+    }
+    expect(scopedRequests.every((request) => request.scoped), 'Workspace requests include scope').toBe(true);
     expect(errors, 'Frontend console errors').toEqual([]);
   } finally {
+    await testInfo.attach('scoped-requests', { body: JSON.stringify(scopedRequests, null, 2), contentType: 'application/json' });
     await testInfo.attach('console-errors', { body: JSON.stringify(errors, null, 2), contentType: 'application/json' });
     await testInfo.attach('terminal-sockets', { body: JSON.stringify({ sockets, output: [...terminalSockets.values()] }, null, 2), contentType: 'application/json' });
   }

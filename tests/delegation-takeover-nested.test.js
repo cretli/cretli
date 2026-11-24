@@ -7,7 +7,7 @@ import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { addChat, loadChats } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 import { addTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   createDelegationRecord,

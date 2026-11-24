@@ -10,7 +10,7 @@ export const DEMO_CHAT_IDS = DEMO_TITLES.map((_, i) => `00000000-0000-4000-8000-
 /** Seed only through the supported persistence APIs, before the server starts. */
 export async function seedDemoStores({ workspaceFile, workspaceFolder }) {
   if (!process.env.CRETLI_DATA_DIR) throw new Error('CRETLI_DATA_DIR is required for demo isolation');
-  const { addChat } = await import('../../lib/persist/chats-persist.js');
+  const { addChatAsync } = await import('../../lib/persist/chats-persist.js');
   const { appendChatHistoryEvents, loadChatHistory } = await import('../../lib/persist/chat-history-persist.js');
   const { createDelegationRecord, loadDelegationsReadonly, updateDelegationRecord } = await import('../../lib/persist/delegations-persist.js');
   const { appendUsageEvent, readUsageEvents } = await import('../../lib/persist/usage-persist.js');
@@ -18,7 +18,7 @@ export async function seedDemoStores({ workspaceFile, workspaceFolder }) {
   for (const [i, title] of DEMO_TITLES.entries()) {
     const id = DEMO_CHAT_IDS[i];
     const session = '';
-    addChat(session, title, workspaceFile, workspaceFolder, 'demo-model', { id, agentTransport: 'codex' });
+    await addChatAsync(session, title, workspaceFile, workspaceFolder, 'demo-model', { id, agentTransport: 'codex' });
     const records = [
       { kind: 'localUser', text: `Please help with this task: ${title}. Keep the change small and run the focused tests.` },
       { kind: 'sdk', event: { type: 'tool_call', name: 'Read', status: 'completed', arguments: { path: 'src/login.js' }, result: 'Read the application source and the related tests.' } },

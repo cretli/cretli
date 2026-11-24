@@ -104,7 +104,7 @@ export function createResumeAdviceDismissals(storage) {
  */
 export function createResumeAdviceController(deps) {
   const dismissals = createResumeAdviceDismissals(deps.storage ?? null);
-  /** @type {WeakMap<HTMLElement, { chat: object, advice: object }>} */
+  /** @type {WeakMap<HTMLElement, { chat: Record<string, any>, advice: object }>} */
   const hosts = new WeakMap();
   const bound = new WeakSet();
   /** Bumped by hide(); a response that started before it must not repaint. */
@@ -122,21 +122,9 @@ export function createResumeAdviceController(deps) {
   function paint(host, hint = '') {
     const state = hosts.get(host);
     const html = state ? renderResumeAdviceHtml(state.advice, deps.t, deps.formatUsd, hint) : '';
-    const scrollContainer = host.parentElement;
-    const wasAtBottom = scrollContainer
-      && scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop <= 2;
     host.innerHTML = html;
     host.hidden = html === '';
-    if (wasAtBottom) {
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      const scrollTop = scrollContainer.scrollTop;
-      // Lit actions finish rendering after innerHTML changes; follow their final height.
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
-        if (host.parentElement === scrollContainer && scrollContainer.scrollTop === scrollTop) {
-          scrollContainer.scrollTop = scrollContainer.scrollHeight;
-        }
-      });
-    }
+    state?.chat?._sdkRichView?.scrollToBottom();
     deps.onLayoutChange?.(host);
   }
 

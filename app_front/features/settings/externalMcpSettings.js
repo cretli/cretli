@@ -13,6 +13,7 @@ import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { readBarInputLiveValue } from '../../components/ui/read-bar-input-live-value.js';
 import { getViewContextRuntimeScope, withViewContextQuery } from '../../app/appShell/viewContextBridge.js';
 import { collectWorkspaceFolders } from '../voice/voiceWorkspaceMatch.js';
+import { mountExternalMcpConnectCards } from './externalMcpConnectCards.js';
 
 const ROOT_ID = 'settings-external-mcp-root';
 const TTL_DAY_CHOICES = [7, 30, 90, 365];
@@ -500,7 +501,7 @@ async function renderInstalls(host) {
         <span class="external-mcp-badge" data-tone="${row.mode === 'stdio' ? 'success' : 'muted'}">${escapeHtml(t(row.mode === 'stdio' ? 'settings.externalMcpModeStdioShort' : 'settings.externalMcpModeHttpShort'))}</span>
       </div>
       <p class="cr-hint">${escapeHtml(row.folder)}/${escapeHtml(row.relativeFile)}</p>
-      <p class="cr-hint">${escapeHtml(row.url)} · ${escapeHtml(t(row.tokenInFile ? 'settings.externalMcpInstallsTokenFile' : 'settings.externalMcpInstallsTokenEnv', { env: TOKEN_ENV }))}</p>
+      <p class="cr-hint">${escapeHtml(row.url)} · ${escapeHtml(t(row.managed ? 'settings.externalMcpInstallsManaged' : (row.tokenInFile ? 'settings.externalMcpInstallsTokenFile' : 'settings.externalMcpInstallsTokenEnv'), { env: TOKEN_ENV }))}</p>
     </article>`).join('');
 }
 
@@ -539,24 +540,30 @@ function renderClientCard(client) {
     ? `${t('settings.externalMcpLastUsed')} ${formatDate(client.lastUsedAt)}`
     : t('settings.externalMcpNeverUsed');
   const modeLabel = modeOptions().find((option) => option.value === client.mode)?.label || client.mode;
+  // OAuth clients renew their own tokens: no export, rotation or install of a token.
+  const oauth = client.kind === 'oauth';
+  const expiry = oauth && !client.revokedAt
+    ? `${escapeHtml(t('settings.externalMcpOauthRenews'))} (${escapeHtml(t('settings.externalMcpExpires'))} ${escapeHtml(formatDate(client.expiresAt))})`
+    : `${escapeHtml(t('settings.externalMcpExpires'))} ${escapeHtml(formatDate(client.expiresAt))}`;
   return `
     <article class="cr-card mcp-server-card external-mcp-client">
       <div class="external-mcp-client-head">
         <h4>${escapeHtml(client.name)}</h4>
+        ${oauth ? `<span class="external-mcp-badge" data-tone="muted">${escapeHtml(t(client.managed ? 'settings.externalMcpManagedBadge' : 'settings.externalMcpOauthBadge'))}</span>` : ''}
         <span class="external-mcp-badge" data-tone="${state.tone}">${escapeHtml(state.label)}</span>
       </div>
       <p class="cr-hint"><span class="mdi mdi-folder-outline" aria-hidden="true"></span> ${escapeHtml(client.workspaceFolder)}</p>
-      <p class="cr-hint">${escapeHtml(modeLabel)} · ${escapeHtml(t('settings.externalMcpExpires'))} ${escapeHtml(formatDate(client.expiresAt))} · ${escapeHtml(used)}</p>
+      <p class="cr-hint">${escapeHtml(modeLabel)} · ${expiry} · ${escapeHtml(used)}</p>
       ${client.revokedAt ? '' : `<div class="cr-row">
         <cr-bar-select data-external-mcp-client-mode="${escapeAttr(client.id)}" data-current="${escapeAttr(client.mode)}" aria-label="${escapeAttr(t('settings.externalMcpChangeMode'))}"></cr-bar-select>
         <cr-bar-button data-external-mcp-revoke="${escapeAttr(client.id)}">${escapeHtml(t('settings.externalMcpRevoke'))}</cr-bar-button>
       </div>`}
-      <div class="cr-row">
+      ${oauth ? '' : `<div class="cr-row">
         <cr-bar-button data-external-mcp-export="${escapeAttr(client.id)}">
           <span class="mdi mdi-export-variant" aria-hidden="true"></span> ${escapeHtml(t('settings.externalMcpExport'))}
         </cr-bar-button>
-      </div>
-      ${client.revokedAt ? '' : `<div class="cr-row external-mcp-install">
+      </div>`}
+      ${client.revokedAt || oauth ? '' : `<div class="cr-row external-mcp-install">
         <cr-bar-select data-external-mcp-install-target="${escapeAttr(client.id)}" aria-label="${escapeAttr(t('settings.externalMcpInstallTarget'))}"></cr-bar-select>
         <cr-bar-select data-external-mcp-install-mode="${escapeAttr(client.id)}" aria-label="${escapeAttr(t('settings.externalMcpInstallMode'))}"></cr-bar-select>
         <div data-external-mcp-install-folder="${escapeAttr(client.id)}"></div>
@@ -616,11 +623,13 @@ function renderPanel(root, data, created = null) {
     ? `<p class="settings-hint">${escapeHtml(t('settings.externalMcpEmpty'))}</p>`
     : visibleClients.map(renderClientCard).join('');
   root.innerHTML = `
+    <div id="external-mcp-connect-cards"></div>
     <div class="cr-card mcp-settings-form">
       <h4>${escapeHtml(t('settings.externalMcpAccess'))}</h4>
       <cr-checkbox id="external-mcp-enabled">${escapeHtml(t('settings.externalMcpEnable'))}</cr-checkbox>
       <cr-checkbox id="external-mcp-allow-lan">${escapeHtml(t('settings.externalMcpAllowLan'))}</cr-checkbox>
       <p class="cr-hint">${escapeHtml(t('settings.externalMcpEndpoint'))} <code>${escapeHtml(url)}</code>${data.enabled ? '' : ` · ${escapeHtml(t('settings.externalMcpOff'))}`}</p>
+      <p class="cr-hint">${escapeHtml(t('settings.externalMcpOauthHint'))}</p>
     </div>
     <div class="cr-card mcp-settings-form">
       <h4>${escapeHtml(t('settings.externalMcpNewClient'))}</h4>
@@ -705,6 +714,16 @@ function renderPanel(root, data, created = null) {
   if (ttlSelect) {
     ttlSelect.options = TTL_DAY_CHOICES.map((days) => ({ value: String(days), label: t('settings.externalMcpTtlDays', { days }) }));
     ttlSelect.value = '30';
+  }
+  const cardsHost = /** @type {HTMLElement | null} */ (root.querySelector('#external-mcp-connect-cards'));
+  if (cardsHost) {
+    mountExternalMcpConnectCards(cardsHost, data, {
+      api,
+      targets: TARGETS,
+      modeOptions,
+      orderFolders: currentWorkspaceFirst,
+      refreshPanel: refreshExternalMcpSettingsPanel,
+    });
   }
   if (created) bindCreatedSnippet(root, created);
   root.querySelector('#external-mcp-clients-scope')?.addEventListener('click', () => {

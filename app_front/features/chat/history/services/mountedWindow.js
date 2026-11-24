@@ -9,7 +9,7 @@ import { resetSdkStreamState } from '../../../../lib/sdk-chat-format.js';
 /**
  * Mounted-window eviction and parked-tail restore.
  *
- * @param {any} rv Shared view scope created by `createSdkRichView`.
+ * @param {Record<string, any>} rv Shared view scope created by `createSdkRichView`.
  */
 export function installMountedWindow(rv) {
   const { chat, mountEl } = rv;
@@ -158,7 +158,7 @@ export function installMountedWindow(rv) {
    * @returns {number}
    */
   function countCardsPastParkedTail() {
-    const firstParkedSeq = Number(getHistoryParkedNewerLocal(chat)[0]?.historySeq) || 0;
+    const firstParkedSeq = Number(/** @type {Record<string, any> | undefined} */ (getHistoryParkedNewerLocal(chat)[0])?.historySeq) || 0;
     if (firstParkedSeq <= 0) return 0;
     const cards = rv.realStream.children;
     let count = 0;
@@ -202,6 +202,7 @@ export function installMountedWindow(rv) {
     }
     const parked = parkMountedCardRecords(identityLists, rv.mountedHistoryRecordRegistry)
       .map(cloneHistoryRecordForParking);
+    const anchor = rv.viewportController.captureAnchor();
     for (const el of slice) {
       releaseEvictedMountedCard(el, rv.mountedViewResourceLedger, rv.mountedDomNodeRegistry);
     }
@@ -214,6 +215,7 @@ export function installMountedWindow(rv) {
       rv.clearSegmentPointers();
       resetSdkStreamState(chat);
     }
+    rv.viewportController.restoreAnchor(anchor);
     purgeDisconnectedRunMaps();
     rv.refreshDuplicateMailboxReports();
     return parked;
@@ -275,21 +277,6 @@ export function installMountedWindow(rv) {
   const PARKED_TAIL_RESTORE_STEP = 40;
 
   /**
-   * First card whose bottom edge is inside the viewport, with its current top.
-   *
-   * @returns {{ el: HTMLElement, top: number } | null}
-   */
-  function captureFirstVisibleCard() {
-    const viewTop = mountEl.getBoundingClientRect().top;
-    for (const card of rv.realStream.children) {
-      if (!(card instanceof HTMLElement)) continue;
-      const rect = card.getBoundingClientRect();
-      if (rect.bottom > viewTop) return { el: card, top: rect.top };
-    }
-    return null;
-  }
-
-  /**
    * Brings the parked newer tail back once the reader reaches the bottom of what is
    * mounted. One step at a time, appended under the reader without moving what they
    * see; the head is trimmed above them. Only the last step can hand over to
@@ -312,12 +299,9 @@ export function installMountedWindow(rv) {
         await appendHistoryRecordsImpl(batch, { instant: true, forceScroll: true });
         enforceMountedHistoryWindowBudget();
       } else {
-        const anchor = captureFirstVisibleCard();
+        const anchor = rv.viewportController.captureAnchor();
         await appendHistoryRecordsImpl(batch, { instant: true, keepScroll: true });
-        if (anchor?.el.isConnected) {
-          const delta = anchor.el.getBoundingClientRect().top - anchor.top;
-          if (Math.abs(delta) >= 0.5) mountEl.scrollTop += delta;
-        }
+        rv.viewportController.restoreAnchor(anchor);
         const maxScroll = mountEl.scrollHeight - mountEl.clientHeight;
         const atLiveEnd = getHistoryParkedNewerLocal(chat).length === 0
           && maxScroll - mountEl.scrollTop <= rv.SCROLL_STICK_THRESHOLD_PX;
@@ -339,7 +323,7 @@ export function installMountedWindow(rv) {
   async function appendHistoryRecordsImpl(records, opts = {}) {
     if (!Array.isArray(records) || records.length === 0) return;
     const instant = opts.instant === true;
-    const forceScroll = opts.forceScroll !== false;
+    const forceScroll = opts.forceScroll === true;
     const replayGeneration = rv.historyReplayGenerationGate.getActiveGeneration();
     try {
       const applyOne = (record) => {
@@ -404,7 +388,7 @@ export function installMountedWindow(rv) {
       void mountEl.offsetHeight;
       rv.restoreInsertScroll();
       if (typeof requestAnimationFrame === 'function') {
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        await new Promise(/** @type {(resolve: (value: void) => void) => void} */ ((resolve) => requestAnimationFrame(() => resolve())));
         rv.restoreInsertScroll();
       }
       rv.pendingViewportAnchor = null;

@@ -62,7 +62,13 @@ export function installRelatedChatCards(rv) {
       line.className = 'sdk-rich-delegation-rate-rated';
       const stars = document.createElement('span');
       stars.className = 'sdk-rich-delegation-rate-stars';
-      stars.textContent = '★'.repeat(Math.max(1, Math.min(5, Number(rated.score) || 1)));
+      const starCount = Math.max(1, Math.min(5, Number(rated.score) || 1));
+      for (let i = 0; i < starCount; i += 1) {
+        const star = document.createElement('span');
+        star.className = 'mdi mdi-star';
+        star.setAttribute('aria-hidden', 'true');
+        stars.appendChild(star);
+      }
       line.appendChild(stars);
       line.appendChild(document.createTextNode(
         ` ${t('chat.delegationRatedLabel', { score: String(Number(rated.score) || '') })}`,
@@ -161,7 +167,7 @@ export function installRelatedChatCards(rv) {
         : t('chat.mailboxReplyFromChild');
     content.innerHTML = [
       `<strong class="sdk-rich-delegation-title">${escapeHtml(title)}</strong> ${queued}`,
-      `<details class="sdk-rich-mailbox-details"${replyOpen ? ' open' : ''}>`,
+      `<details class="sdk-rich-mailbox-details cr-disclosure"${replyOpen ? ' open' : ''}>`,
       `<summary>${escapeHtml(t('chat.mailboxRepeatedReply'))}</summary>`,
       fromTitle ? `<div class="sdk-rich-delegation-meta">${escapeHtml(t('chat.mailboxFromChat'))}: ${escapeHtml(fromTitle)}</div>` : '',
       rv.renderHistoryCardProse(body),
@@ -380,6 +386,6 @@ export function installRelatedChatCards(rv) {
     contextAdvisoryEl.appendChild(textEl);
     contextAdvisoryEl.appendChild(actions);
     rv.stream.appendChild(contextAdvisoryEl);
-    rv.scrollToBottom({ force: true });
+    rv.scrollToBottom();
   }
 }

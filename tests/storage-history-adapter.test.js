@@ -96,6 +96,21 @@ async function runScenario(api) {
 }
 
 describe('parity with the legacy history backend', () => {
+  it('round-trips context notices through the legacy and SQLite adapters', async () => {
+    const legacy = createDefaultLegacyHistoryAdapter();
+    const { adapter } = await boot();
+    const chats = [chatIdOf(91), chatIdOf(92)];
+    for (const [api, chat] of [[legacy, chats[0]], [adapter, chats[1]]]) {
+      await api.appendChatNotice(chat, 'restored', { variant: 'contextNotice', code: 'context_restored', turns: 7 });
+      await api.appendChatNotice(chat, 'lost', { variant: 'contextNotice', code: 'context_lost', turns: 0 });
+      const rows = (await api.getChatHistoryPage(chat, { limit: 10 })).events;
+      assert.deepEqual(rows.map((row) => JSON.parse(row.rec.payload).code), ['context_restored', 'context_lost']);
+      assert.equal(JSON.parse(rows[0].rec.payload).turns, 7);
+    }
+    await legacy.deleteChatHistory(chats[0]);
+    await adapter.deleteChatHistory(chats[1]);
+  });
+
   it('returns the same observable results for a scripted conversation (seq, gaps, coalescing, pages, usage, fork, delete)', async () => {
     const legacy = createDefaultLegacyHistoryAdapter();
     const { adapter } = await boot();

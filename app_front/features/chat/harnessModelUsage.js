@@ -25,8 +25,8 @@ export function readHarnessModelUsage(usage, harnessId) {
 }
 
 /**
- * @param {PromiseSettledResult<object>} result
- * @returns {object|null}
+ * @param {PromiseSettledResult<Record<string, any>>} result
+ * @returns {Record<string, any>|null}
  */
 function readSettledPayload(result) {
   if (result.status !== 'fulfilled') return null;

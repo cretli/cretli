@@ -3,7 +3,7 @@ import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import {
   applyDelegationWorkflowPatch,
   fingerprintDelegationWorkflowPatch,

@@ -11,7 +11,7 @@ import { notifyChatCreated } from '../lib/chat-created-push.js';
 import { buildChatCreatedPushData } from '../lib/push-inbox-logic.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const chatsPersistSource = readFileSync(path.join(root, 'lib', 'persist', 'chats-persist.js'), 'utf8');
+const chatsPersistSource = readFileSync(path.join(root, 'lib', 'persist', 'chats-legacy-store.js'), 'utf8');
 
 /**
  * @returns {{ broadcasts: object[], deps: object }}

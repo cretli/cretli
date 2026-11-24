@@ -246,4 +246,27 @@ assert.equal(badPageSessionWs.closed[0].code, 4403);
 
 removeIsolatedDataDir();
 
+const extId = 'a'.repeat(32);
+const extWss = new EventEmitter();
+const seen = [];
+attachWebSocketHandlers(extWss, { chromeExtBridge: { handleConnection: (socket) => seen.push(socket) } });
+const cookieless = createMockWs();
+extWss.emit('connection', cookieless, {
+  url: '/ws-chrome-ext',
+  headers: { origin: `chrome-extension://${extId}`, host: 'cretli.local:3011' },
+});
+assert.deepEqual(seen, [cookieless]);
+const wrongOrigin = createMockWs();
+extWss.emit('connection', wrongOrigin, {
+  url: '/ws-chrome-ext',
+  headers: { origin: 'https://cretli.local:3011', host: 'cretli.local:3011' },
+});
+assert.equal(wrongOrigin.closed[0].code, 4403);
+const widgetOrigin = createMockWs();
+extWss.emit('connection', widgetOrigin, {
+  url: '/ws-chrome-ext',
+  headers: { origin: `chrome-extension://${extId}`, host: 'cretli.local:3011', 'sec-websocket-protocol': 'cretli-widget, tok' },
+});
+assert.equal(widgetOrigin.closed[0].code, 4403);
+
 console.log('All ws-auth-boundary tests passed.');

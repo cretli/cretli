@@ -55,6 +55,7 @@ history updates only after the new command commits.
 | store.model-pick-overrides | model pick settings | RMW `model-pick-overrides.json` | S | A5 |
 | store.model-role-profiles | harness/model settings routes | RMW `model-role-profiles.json`, `model-score-heuristics.json` | S | A5 |
 | store.browser-policy | `lib/browser/routes.js` | RMW `browser-policy.json` via `setWorkspacePolicy` | S | stays-file: small per-workspace policy JSON, registry migration none |
+| store.deviceRuns | `lib/routes/devices-routes.js` via `lib/devices/runs.js` and `lib/devices/run-history.js` | atomic rewrite of `device-runs.json`; screenshot writes and paired oldest eviction in `device-run-screenshots/` (200 runs / 200 MiB) | S | stays-file: bounded measurement history JSON and owned screenshots, registry migration none |
 | store.docs-state | `lib/routes/docs-routes.js` | RMW `docs-state.json` via the docs state store | S | stays-file: small per-workspace JSON, registry migration none |
 
 ## WebSocket / harness runtime
@@ -78,6 +79,7 @@ history updates only after the new command commits.
 | store.workspace-memory | `lib/workspace-watcher-scout.js` | fact upserts | A5 |
 | store.port-exposures | `lib/port-exposure/runtime.js` | TTL expiry and reconcile job | stays-file: operational JSON ledger, registry migration none |
 | store.apps-state | `lib/apps/runtime.js` | app runtime state | stays-file: small runtime JSON state, registry migration none |
+| store.devices | `lib/devices/service.js` | test device registry | stays-file: small JSON registry, registry migration none |
 | store.workspace-watcher-cycles | `lib/workspace-watcher-cycle-metrics.js` | cycle metrics | A4 |
 | store.usage-journal | `lib/usage/usage-retention.ts` | prune old journal days | stays-file: append journal kept unless a separate measured gate says otherwise |
 | store.notification-center | notification producers | fingerprint publish | A5 |
@@ -98,6 +100,7 @@ history updates only after the new command commits.
 | store.workspaces | `wsreg_add` (a `.code-workspace` path is imported once), `wsreg_remove`; `todo_move` and `wsreg_*` accept any workspace id/alias from the SQL registry | A5 |
 | store.delegations | delegation lifecycle via HTTP backing | A4 |
 | store.workspace-watchers | `watcher_update`, `watcher_report`, … | A4 |
+| store.deviceRuns | `device_run` via `lib/devices/runs.js` and `lib/devices/run-history.js` | stays-file: bounded measurement history JSON and owned screenshots, registry migration none |
 
 ## Subprocess / CLI (when server running)
 

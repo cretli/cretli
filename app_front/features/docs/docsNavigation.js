@@ -10,5 +10,5 @@ export async function openDocsNote(path, scope) {
   const { refreshDocsPanel } = await import('./docsPanel.js');
   await refreshDocsPanel();
   if (JSON.stringify(await docsScope()) !== JSON.stringify(scope)) return;
-  document.querySelector('cr-docs-panel')?.open(path);
+  /** @type {any} */ (document.querySelector('cr-docs-panel'))?.open(path);
 }

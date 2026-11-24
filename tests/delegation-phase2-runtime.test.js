@@ -25,7 +25,7 @@ import {
   resetDelegationLifecycleForTest,
 } from '../lib/delegation-lifecycle.js';
 import { createDelegationService } from '../lib/delegation-service.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { registerMockChatRunAdapter } from '../lib/chat-run/mock-adapter.ts';
 import { bootDelegationRuntime, shutdownDelegationRuntime } from '../lib/delegation-runtime-boot.js';
 

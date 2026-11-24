@@ -155,7 +155,7 @@ assert.equal(cancelled.ok, false);
 // workspace file must still be closed, or its stdio child outlives the room.
 {
   const keyedContext = { ...contextA, sessionId: 'sess-leak', workspaceFile: '/tmp/mcp-a/app.code-workspace', workspaceId: 'ws-1' };
-  await listTools(keyedContext, server);
+  await callTool(keyedContext, server, 'ping_read', {});
   const teardownContext = { sessionId: 'sess-leak', workspaceFolder: '/tmp/mcp-a' };
   await disposeContext(teardownContext, [server]);
   assert.ok(
@@ -171,7 +171,7 @@ assert.equal(cancelled.ok, false);
 // itself must notice the cancellation and close instead of registering.
 {
   const racingContext = { ...contextA, sessionId: 'sess-race' };
-  const racing = listTools(racingContext, server).then(() => 'connected', () => 'rejected');
+  const racing = callTool(racingContext, server, 'ping_read', {}).then((r) => (r.ok ? 'connected' : 'rejected'), () => 'rejected');
   assert.equal(await disposeSessionConnections('sess-race'), 1);
   assert.equal(await racing, 'rejected');
   assert.ok(

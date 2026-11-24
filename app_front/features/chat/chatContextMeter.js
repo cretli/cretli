@@ -22,6 +22,19 @@ export function isClaudeContextMeterChat(chat) {
   return String(chat?.agentTransport || '').trim() === 'claude';
 }
 
+/** Harnesses whose CLI reports per-call context usage and the window it ran on. */
+const MEASURED_CONTEXT_TRANSPORTS = new Set(['codex', 'antigravity']);
+
+/**
+ * Codex and Antigravity feed the meter from `context_usage` events, never from
+ * run-level billing totals.
+ * @param {object|null|undefined} chat
+ * @returns {boolean}
+ */
+export function isMeasuredContextTransportChat(chat) {
+  return MEASURED_CONTEXT_TRANSPORTS.has(String(chat?.agentTransport || '').trim());
+}
+
 /**
  * Clears context-meter fields after compaction, session reset, or model change.
  * Run-level usage on the chat object is dropped so a mixed-plane ratio cannot
@@ -71,13 +84,13 @@ export function resetChatContextMeterState(chat, options = {}) {
 }
 
 /**
- * Apply the latest Codex CLI call, including cached prompt tokens and generated output.
+ * Apply the latest Codex or Antigravity CLI call, including cached prompt tokens and generated output.
  * @param {object|null|undefined} chat
  * @param {object|null|undefined} event
  * @returns {boolean}
  */
 export function applyCodexMeasuredContextUsage(chat, event) {
-  if (chat?.agentTransport !== 'codex' || !event) return false;
+  if (!isMeasuredContextTransportChat(chat) || !event) return false;
   const signature = JSON.stringify(event);
   const observedAt = Date.parse(event.observedAt);
   if (signature === chat._codexContextSignature) return false;
@@ -103,7 +116,7 @@ export function applyCodexMeasuredContextUsage(chat, event) {
   const cached = readReportedTokenCount(event.usage.cacheReadTokens);
   chat._contextCacheReadTokens = cached != null && cached <= inputTokens ? cached : null;
   chat._contextBreakdown = event.breakdown || null;
-  chat._contextUsageSource = 'codex-measured';
+  chat._contextUsageSource = `${String(chat.agentTransport)}-measured`;
   chat._contextUsageUpdatedAt = chat._contextMeasuredUpdatedAt;
   delete chat._contextFillPercent;
   const fillPercent = estimateContextFillPercentForWindow(totalTokens, chat._contextMeasuredWindowTokens);
@@ -297,7 +310,7 @@ function storeMeasuredContext(chat, tokens, model, measuredAt, contextWindowToke
  * @returns {number|null}
  */
 export function resolveChatContextWindowTokens(chat, modelId) {
-  if (isClaudeContextMeterChat(chat) || chat?.agentTransport === 'codex') {
+  if (isClaudeContextMeterChat(chat) || isMeasuredContextTransportChat(chat)) {
     const reportedWindow = readPositiveTokenValue(chat?._contextMeasuredWindowTokens);
     if (reportedWindow != null) return reportedWindow;
   }
@@ -311,7 +324,7 @@ export function resolveChatContextWindowTokens(chat, modelId) {
  * @returns {{ inputTokens: number|null, estimated: boolean, provenance: ContextFillProvenance }}
  */
 export function resolveChatContextUsage(chat) {
-  if (isClaudeContextMeterChat(chat) || chat?.agentTransport === 'codex') {
+  if (isClaudeContextMeterChat(chat) || isMeasuredContextTransportChat(chat)) {
     return resolveMeasuredChatContextUsage(chat);
   }
   const reportedTokens = Number(chat?._contextUsageInputTokens);
@@ -470,7 +483,7 @@ export function buildChatContextSnapshot(chat, modelIdOrPayload, formatLabel = (
     ? null
     : readPositiveTokenValue(chat?._contextUsageInputTokens);
   const occupancyTokens = readPositiveTokenValue(usage.inputTokens);
-  const isCodex = chat?.agentTransport === 'codex';
+  const isCodex = isMeasuredContextTransportChat(chat);
   const inputTokens = isCodex && !usage.estimated
     ? readReportedTokenCount(chat?._contextUsageInputTokens) : occupancyTokens;
   const isEstimated = usage.estimated === true;

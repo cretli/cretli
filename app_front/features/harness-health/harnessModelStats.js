@@ -1,3 +1,4 @@
+import { getViewContextRuntimeScope } from '../../app/appShell/viewContextBridge.js';
 /**
  * Settings → Harness: model prices and statistics per (model, role, level).
  *
@@ -19,11 +20,7 @@ let loadSeq = 0;
  * @returns {{ workspaceFolder: string, workspaceFile: string }}
  */
 function activeWorkspaceScope() {
-  const trigger = document.getElementById('header-workspace-trigger');
-  return {
-    workspaceFolder: String(trigger?.dataset?.workspaceFolder || '').trim(),
-    workspaceFile: String(trigger?.dataset?.workspaceFile || '').trim(),
-  };
+  return getViewContextRuntimeScope();
 }
 
 /**

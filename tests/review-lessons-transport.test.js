@@ -20,7 +20,11 @@ await seedChatRows([
   { id: 'foreign', title: 'foreign', workspaceFolder: FOREIGN },
 ]);
 const routes = new Map();
-registerReviewLessonsRoutes({ get: (p, fn) => routes.set(`GET ${p}`, fn), post: (p, fn) => routes.set(`POST ${p}`, fn), patch: (p, fn) => routes.set(`PATCH ${p}`, fn), delete: (p, fn) => routes.set(`DELETE ${p}`, fn) }, { dataDir: process.env.CRETLI_TEST_DATA_DIR, getCurrentWorkspace: () => ISOLATED_DATA_DIR });
+registerReviewLessonsRoutes({ get: (p, fn) => routes.set(`GET ${p}`, fn), post: (p, fn) => routes.set(`POST ${p}`, fn), patch: (p, fn) => routes.set(`PATCH ${p}`, fn), delete: (p, fn) => routes.set(`DELETE ${p}`, fn) }, {
+  dataDir: process.env.CRETLI_TEST_DATA_DIR,
+  loadSettings: () => ({ workspaceFile: `${FOREIGN}.code-workspace` }),
+  isKnownFolder: (folder) => folder === ISOLATED_DATA_DIR,
+});
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   let raw = '';
@@ -46,6 +50,11 @@ try {
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/review-lessons?workspaceFolder=${encodeURIComponent(ISOLATED_DATA_DIR)}&chatId=remote`, { headers: { Authorization: 'Bearer test' } });
   const body = await response.json();
   assert.equal(body.lessons.length, 2);
+  const registeredWithoutChat = await fetch(`http://127.0.0.1:${server.address().port}/api/review-lessons?workspaceFolder=${encodeURIComponent(ISOLATED_DATA_DIR)}`);
+  assert.equal(registeredWithoutChat.status, 200, 'a registered folder is not tied to the global selection');
+  const unregisteredWithoutChat = await fetch(`http://127.0.0.1:${server.address().port}/api/review-lessons?workspaceFolder=${encodeURIComponent(FOREIGN)}`);
+  assert.equal(unregisteredWithoutChat.status, 403);
+  assert.equal((await unregisteredWithoutChat.json()).code, 'OUT_OF_SCOPE');
   // A chat of another workspace cannot reach this store through either path, nor name this folder.
   const foreignRemote = createCretliMcpToolHandlers(client, { mode: 'agent', chatId: 'foreign', workspaceFolder: ISOLATED_DATA_DIR });
   assert.equal((await foreignRemote.lesson_add({ ...lessonInput, text: 'Foreign write must be rejected.' })).isError, true);

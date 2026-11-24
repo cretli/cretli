@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rozwiązywanie problemów</title>
+<meta name="description" content="Rozwiązywanie problemów — krótki przewodnik po bezpiecznej pracy z Cretli.">
+<link rel="canonical" href="https://cretli.com/docs/pl/troubleshooting.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/troubleshooting.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/troubleshooting.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/troubleshooting.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/troubleshooting.html">
+<meta property="og:title" content="Rozwiązywanie problemów">
+<meta property="og:description" content="Rozwiązywanie problemów — krótki przewodnik po bezpiecznej pracy z Cretli.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/troubleshooting.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html" aria-current="page">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Rozwiązywanie problemów</h1>
+<p>Gdy strona nie działa, sprawdź adres, protokół HTTPS i działanie serwera. Przy problemach z agentem sprawdź konfigurację wybranego silnika i modelu. Zanim zmienisz ustawienia, zapisz treść komunikatu błędu.</p>
+<h2 id="przed-rozpoczęciem">Przed rozpoczęciem</h2>
+<p>To wstępna polska wersja tej strony. Dokumentacja będzie rozwijana w kolejnych etapach. Zacznij od małego zadania w znanym projekcie. Upewnij się, że wybrany katalog jest właściwy i że rozumiesz zakres dostępu aplikacji. Terminal działa na komputerze serwera, także wtedy, gdy korzystasz z telefonu.</p>
+<h2 id="bezpieczna-praca">Bezpieczna praca</h2>
+<p>Chroń hasła, klucze dostawców i dane sesji. Nie dodawaj ich do repozytorium, zrzutów ekranu ani wiadomości. Przed wykonaniem zadania przeczytaj plan, a po zakończeniu obejrzyj różnice i wyniki testów. Zachowuj kopie ważnych danych przed zmianą konfiguracji lub aktualizacją. Jeśli coś jest niejasne, zatrzymaj pracę i sprawdź komunikat w interfejsie zamiast ponawiać polecenie bez analizy.</p>
+<h2 id="następny-krok">Następny krok</h2>
+<p>Otwórz <a href="getting-started.html">pierwsze kroki</a>, przejrzyj <a href="settings.html">ustawienia</a> oraz <a href="security-basics.html">podstawy bezpieczeństwa</a>. W razie błędu skorzystaj ze strony <a href="troubleshooting.html">rozwiązywanie problemów</a>.</p>
+<h2 id="szybki-przewodnik-po-objawach">Szybki przewodnik po objawach</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Objaw</th>
+<th>Co sprawdzić</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Przeglądarka pokazuje zerwane lub zamknięte połączenie</td>
+<td>Sprawdź, czy proces Node nasłuchuje na porcie 3011, a potem przetestuj adres kontroli stanu z tego samego komputera. Błąd webpack to inny problem.</td>
+</tr>
+<tr>
+<td>Działa na serwerze, ale nie z telefonu</td>
+<td>Domyślnie dostęp jest tylko lokalny. Włącz LAN według opisu w <a href="remote-access.html">dostępie zdalnym</a> i zezwól w zaporze.</td>
+</tr>
+<tr>
+<td>Ostrzeżenie o certyfikacie</td>
+<td>To normalne przy certyfikacie samopodpisanym. Zaakceptuj go raz na urządzeniu albo skonfiguruj zaufany HTTPS.</td>
+</tr>
+<tr>
+<td>Agent nie widzi serwera MCP</td>
+<td>Włącz <strong>Dostępny dla agentów automatycznych</strong> dla tego serwera; zobacz <a href="mcp.html">MCP</a>.</td>
+</tr>
+<tr>
+<td>Kopia lub przywracanie nie startuje</td>
+<td>Najpierw zatrzymaj serwer; zobacz <a href="backups-and-data.html">kopie i dane</a>.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Nadal problem? Przeczytaj <a href="faq.html">FAQ</a>.</p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="backups-and-data.html">&larr; Kopie zapasowe i dane</a>
+      <a rel="next" href="faq.html">FAQ &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#przed-rozpoczęciem">Przed rozpoczęciem</a></li>
+      <li><a href="#bezpieczna-praca">Bezpieczna praca</a></li>
+      <li><a href="#następny-krok">Następny krok</a></li>
+      <li><a href="#szybki-przewodnik-po-objawach">Szybki przewodnik po objawach</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

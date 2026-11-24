@@ -1,5 +1,8 @@
+import { returnToSettingsList } from '../../settings/settingsNavigationState.js';
+import { openSettingsSidebar } from '../../settings/settingsSidebarMode.js';
 /** Drawer chrome: open/pin state, dock layout, width persistence, menu and resizer wiring. */
 
+import { countUnseenFinishedChats } from '../sidebarAttention.js';
 import { t } from '../../../i18n/index.js';
 import { isSidebarDocked } from '../sidebarDock.js';
 import { SIDEBAR_MIN_WIDTH, SIDEBAR_RESIZE_STEP, clampSidebarWidth } from '../sidebarWidth.js';
@@ -70,7 +73,7 @@ export function createSidebarChrome(ctx) {
 
   function applyDockLayout() {
     const docked = isSidebarDocked({
-      pinned: state.pinned,
+      pinned: state.pinned || document.body?.dataset.sidebarMode === 'settings',
       open: state.open,
       isMobile: isMobileViewport(),
     });
@@ -103,6 +106,32 @@ export function createSidebarChrome(ctx) {
     applyEdgeOpenHandle();
     if (state.open) applySidebarWidth();
     applyDockLayout();
+  }
+
+  /**
+   * Dot on the hamburger while the drawer is closed and something in it wants a look: finished
+   * chats not opened yet, or a live voice/car session whose button now lives in the footer.
+   */
+  function paintMenuAttention() {
+    const menuBtn = document.getElementById('header-menu-btn');
+    if (!menuBtn) return;
+    const unseen = countUnseenFinishedChats(ctx.getChats?.() || [], ctx.getActiveChatId?.() || null);
+    const live = Boolean(document.querySelector('#sidebar-footer .is-live'));
+    const kind = live ? 'live' : unseen > 0 ? 'finished' : '';
+    if (kind) menuBtn.dataset.attention = kind;
+    else delete menuBtn.dataset.attention;
+    if (document.body?.dataset.sidebarMode === 'settings') {
+      delete menuBtn.dataset.attention;
+      const label = t(returnToSettingsList() ? 'settings.backToSettings' : 'header.menuTitle');
+      menuBtn.setAttribute('aria-label', label);
+      menuBtn.title = label;
+      return;
+    }
+    const base = t('header.menuTitle');
+    const label = kind === 'live' ? `${base} · ${t('sidebar.attentionLive')}`
+      : kind === 'finished' ? `${base} · ${t('sidebar.attentionFinished', { count: unseen })}` : base;
+    menuBtn.setAttribute('aria-label', label);
+    menuBtn.title = label;
   }
 
   function applyEdgeOpenHandle() {
@@ -160,21 +189,53 @@ export function createSidebarChrome(ctx) {
   function initMenuButton() {
     const menuBtn = document.getElementById('header-menu-btn');
     if (menuBtn) {
-      menuBtn.addEventListener('click', toggleSidebar);
+      const handleMenu = () => {
+        if (document.body?.dataset.sidebarMode === 'settings' && returnToSettingsList()) void openSettingsSidebar();
+        else toggleSidebar();
+      };
+      menuBtn.addEventListener('click', handleMenu);
       menuBtn.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         e.preventDefault();
-        toggleSidebar();
+        handleMenu();
       });
     }
     const pinBtn = document.getElementById('sidebar-pin-btn');
     if (pinBtn) pinBtn.addEventListener('click', togglePin);
     const closeBtn = document.getElementById('sidebar-close-btn');
     if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
+    // The car view takes over an overlay; settings keeps its navigation drawer open.
+    const footer = document.getElementById('sidebar-footer');
+    if (footer && typeof MutationObserver === 'function') {
+      new MutationObserver(paintMenuAttention).observe(footer, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
+    window.addEventListener('cr-settings-sidebar-route', (event) => {
+      const { mode, tab, openTree, entered } = /** @type {CustomEvent} */ (event).detail;
+      const settings = mode === 'settings';
+      document.getElementById('header-settings-btn')?.classList.toggle('is-active', settings);
+      document.getElementById('header-settings-btn')?.setAttribute('aria-pressed', String(settings));
+      const icon = menuBtn?.querySelector('.mdi');
+      // In settings the menu button is a gear that opens the settings tree;
+      // the close button next to it leaves settings.
+      icon?.classList.toggle('mdi-menu', !settings);
+      icon?.classList.toggle('mdi-cog', settings);
+      paintMenuAttention();
+      if (settings) {
+        if (openTree || (!isMobileViewport() && entered)) openSidebar();
+        else if (isMobileViewport() && tab) closeSidebar();
+      }
+      applyDockLayout();
+    });
+    paintMenuAttention();
+    document.getElementById('sidebar-footer')?.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest('#header-car-mode-btn') : null;
+      if (target && (!state.pinned || isMobileViewport())) closeSidebar();
+    });
     const backdrop = getBackdrop();
     if (backdrop) backdrop.addEventListener('click', closeSidebar);
     document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' || !state.open) return;
+      if (e.key !== 'Escape' || e.defaultPrevented || !state.open) return;
+      if (document.body?.dataset.sidebarMode === 'settings' && (/** @type {import('../../../components/ui/cr-bar-input.js').CrBarInput | null} */ (document.getElementById('sidebar-settings-search')))?.value) return;
       const blockingModal = document.querySelector('.chat-settings-modal:not([hidden])');
       if (blockingModal) return;
       if (isSearchFocused() && isSearchActive()) {
@@ -265,5 +326,5 @@ export function createSidebarChrome(ctx) {
     syncAria(aside.getBoundingClientRect().width);
   }
 
-  return { getContainer, getBackdrop, applyPinButton, applyDockLayout, applyVisibility, applyEdgeOpenHandle, revealDrawerPreview, hideDrawerPreview, togglePin, openSidebar, closeSidebar, toggleSidebar, initMenuButton, initResizer, getViewportWidth, clampToViewport, writeSidebarWidth, applySidebarWidth };
+  return { getContainer, getBackdrop, paintMenuAttention, applyPinButton, applyDockLayout, applyVisibility, applyEdgeOpenHandle, revealDrawerPreview, hideDrawerPreview, togglePin, openSidebar, closeSidebar, toggleSidebar, initMenuButton, initResizer, getViewportWidth, clampToViewport, writeSidebarWidth, applySidebarWidth };
 }

@@ -3,6 +3,7 @@
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { folderOptions, normalizePath } from './mcpOperatorFolders.js';
+import { setSettingsScopeName } from './settingsScopeBadges.js';
 import { getViewContextRuntimeScope, withViewContextQuery } from '../../app/appShell/viewContextBridge.js';
 import '../../components/ui/cr-bar-textarea.js';
 import './mcp-operator-settings.scss';
@@ -126,8 +127,11 @@ function render() {
   workspace.id = 'mcp-operator-workspace';
   workspace.options = state.folders;
   workspace.value = state.workspaceFolder;
+  const publishScope = () => setSettingsScopeName(root, state.folders.find((row) => row.value === state.workspaceFolder)?.label || state.workspaceFolder);
+  publishScope();
   workspace.addEventListener('cr-change', (/** @type {CustomEvent} */ event) => {
     state.workspaceFolder = String(event.detail?.value || '');
+    publishScope();
     void loadData();
   });
   const locked = el('div', { class: 'cr-card mcp-operator-locked' }, [

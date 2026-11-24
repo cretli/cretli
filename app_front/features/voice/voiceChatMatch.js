@@ -35,7 +35,7 @@ function significantTokens(tokens) {
 }
 
 /**
- * @param {object} chat
+ * @param {{ title?: string }} chat
  * @returns {string}
  */
 function chatSpokenLabel(chat) {
@@ -43,9 +43,10 @@ function chatSpokenLabel(chat) {
 }
 
 /**
- * @param {Array<object>} chats
+ * @template {{ id: string, title?: string }} T
+ * @param {T[]} chats
  * @param {string} spoken
- * @returns {{ match?: object|null, ambiguous?: boolean, candidates?: string[] }}
+ * @returns {{ match?: T|null, ambiguous?: boolean, candidates?: string[] }}
  */
 export function matchChatBySpokenTitle(chats, spoken) {
   const needle = significantTokens(tokensFrom(spoken));

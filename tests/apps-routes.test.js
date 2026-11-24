@@ -1,3 +1,4 @@
+import './helpers/isolated-data-dir.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,7 +26,7 @@ fs.writeFileSync(path.join(dir, '.vscode', 'tasks.json'), JSON.stringify({
 const appDef = (id, extra = {}) => ({ id, name: id, start: { taskLabel: 'Serve my-app' }, ports: [], exposure: 'local', ...extra });
 fs.writeFileSync(path.join(dir, '.cretli', 'apps.json'), JSON.stringify({ apps: [appDef('my-app'), appDef('other-app')] }));
 
-async function withServer(fn) {
+async function withServer(fn, { listeners = [], parentOf, readComm } = {}) {
   assert.equal(auth.setPassword('test-password-for-apps').ok, true);
   const sessionToken = auth.createSession();
   const cookie = `cr_session=${encodeURIComponent(sessionToken)}`;
@@ -41,22 +42,25 @@ async function withServer(fn) {
       buildTaskRunScopeSnapshot: () => ({ workspaceFile: '', cwd: dir }),
     }),
     loadTasksForWorkspace: ({ workspaceFolder }) => loadTasks(workspaceFolder),
-    snapshot: async () => ({ ok: true, listeners: [] }),
+    snapshot: async () => ({ ok: true, listeners }),
     state: createAppsStateStore({ file: path.join(temp, 'state.json') }),
+    ...(parentOf ? { parentOf, readComm, isTracked: () => false, runsInWorkspace: () => true, selfPid: 9000 } : {}),
   });
   const app = express();
   app.use(express.json());
-  registerAppsRoutes(app, { taskRuns, getCurrentCwd: () => dir, service, isKnownFolder: (f) => f === path.join(temp, 'known'), peekReport: () => ({ platform: 'wsl2', helper: { state: 'helper_missing' } }), getLanHost: () => '192.0.2.5' });
+  registerAppsRoutes(app, { taskRuns, getCurrentCwd: () => '/not/the/workspace', service, isKnownFolder: (f) => f === dir, peekReport: () => ({ platform: 'wsl2', helper: { state: 'helper_missing' } }), getLanHost: () => '192.0.2.5' });
   registerTasksAgentsRoutes(app, {
     taskRuns, devBuildRunId: 'dev-build', loadCurrentTasks: () => loadTasks(dir),
     buildTaskRunScopeSnapshot: () => ({ workspaceFile: '', cwd: dir }), isTaskRunInScope,
-    randomSessionId: () => 'x', getCurrentCwd: () => dir,
+    randomSessionId: () => 'x',
   });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
+  // Per-workspace routes need an explicit scope: stamp the workspace folder unless the URL names one.
+  const scoped = (url) => (url.includes('workspaceFolder=') ? url : `${url}${url.includes('?') ? '&' : '?'}workspaceFolder=${encodeURIComponent(dir)}`);
   const call = async (method, url, body) => {
-    const res = await fetch(base + url, { method, headers: { cookie, [auth.AUTH_CSRF_HEADER]: csrf, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const res = await fetch(base + scoped(url), { method, headers: { cookie, [auth.AUTH_CSRF_HEADER]: csrf, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
     return { status: res.status, body: await res.json() };
   };
   try { await fn({ call, taskRuns, base }); } finally {
@@ -97,6 +101,27 @@ test('takeover route passes only integer pids and an app with no conflict just s
     assert.ok(result.body.runId);
     assert.equal((await call('POST', '/api/apps/other-app/stop')).status, 200);
   });
+});
+
+test('GET /api/apps/status carries listener ancestors for a foreign owner; GET /api/apps does not', async () => {
+  fs.writeFileSync(path.join(dir, '.cretli', 'apps.json'), JSON.stringify({ apps: [appDef('my-app', { ports: [{ port: 5173, bind: '127.0.0.1', role: 'http' }] }), appDef('other-app')] }));
+  try {
+    await withServer(async ({ call }) => {
+      const status = await call('GET', '/api/apps/status?refresh=1');
+      const listener = status.body.apps.find((a) => a.id === 'my-app').ports[0].listener;
+      assert.deepEqual(listener.ancestors, [{ pid: 4000, command: 'node' }]);
+      const defs = await call('GET', '/api/apps');
+      assert.equal(JSON.stringify(defs.body).includes('ancestors'), false);
+      const stale = await call('POST', '/api/apps/my-app/takeover', { pids: [4242] });
+      assert.equal(stale.body.error, 'takeover-stale');
+    }, {
+      listeners: [{ address: '127.0.0.1', port: 5173, pid: 4242, command: 'node' }],
+      parentOf: (pid) => ({ 4242: 4000, 9000: 1 })[pid] ?? null,
+      readComm: () => 'node',
+    });
+  } finally {
+    fs.writeFileSync(path.join(dir, '.cretli', 'apps.json'), JSON.stringify({ apps: [appDef('my-app'), appDef('other-app')] }));
+  }
 });
 
 test('isolation: stop never touches a run started outside the registry; no own run is app-not-running', async () => {

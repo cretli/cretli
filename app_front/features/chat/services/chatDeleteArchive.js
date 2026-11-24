@@ -11,6 +11,7 @@ import * as api from '../../../core/api/index.js';
 import { refreshRelatedChatHistoryLinks } from './harnessSwitch.js';
 import { isReadOnlyOptionalPluginChat, resolvePersistedLocalChatUnavailableMessage } from '../persistedLocalChatState.js';
 import { isWatcherPinnedChat } from '../watcherPinnedChat.js';
+import { isOperatorChat, operatorChatActions } from '../operatorChat.js';
 import { closeChatListModal, renderChatList } from './chatSidebarState.js';
 import { closeChat } from './chatLifecycle.js';
 import { chatListExplicitReloadGuard } from './chatHistorySync.js';
@@ -194,6 +195,7 @@ export function settleArchiveConfirm(confirmed) {
 export function requestArchiveChatConfirmed(chatId, options = {}) {
   const id = String(chatId || '').trim();
   if (!id) return Promise.resolve(false);
+  if (!operatorChatActions(chats.find((c) => c.id === id)).archive) return Promise.resolve(false);
   if (options.forceConfirm !== true && chatHost.getSkipChatArchiveConfirm()) return requestArchiveChat(id, options);
   if (chatShell.pendingArchiveConfirm) {
     const previous = chatShell.pendingArchiveConfirm;
@@ -215,6 +217,8 @@ export function requestArchiveChatConfirmed(chatId, options = {}) {
 
 export async function requestArchiveChat(chatId, options = {}) {
   if (!chatId) return false;
+  // The operator thread is pinned: no archive from any entry point (the server answers 409 as well).
+  if (!operatorChatActions(chats.find((c) => c.id === chatId)).archive) return false;
   const suppressListReloadChatId = String(chatId).trim();
   chatListExplicitReloadGuard.begin([suppressListReloadChatId]);
   try {
@@ -266,8 +270,29 @@ export async function requestArchiveChatInner(chatId, options) {
     return false;
   }
   const stamp = typeof data?.chat?.archivedAt === 'string' && data.chat.archivedAt.trim()
-    ? data.chat.archivedAt.trim()
-    : optimisticStamp;
+    ? data.chat.archivedAt.trim() : optimisticStamp;
+  const finished = finishArchivedChat(chatId, stamp, options, relatedParentIds);
+  // Offer a quick undo: an accidental archive (e.g. a swipe) must be reversible.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cretli:toast', {
+      detail: {
+        message: t('chat.archivedToast', { title: String(archivedRow?.title || '').trim() || chatId }),
+        actionLabel: t('chat.archivedUndo'),
+        onAction: () => {
+          // An undo means the archive was unintended, so bring the confirm back.
+          chatHost.setSkipChatArchiveConfirm(false);
+          void requestRestoreChat(chatId);
+        },
+        durationMs: 8000,
+      },
+    }));
+  }
+  return finished;
+}
+
+export function finishArchivedChat(chatId, stamp = new Date().toISOString(), options = {}, relatedParentIds) {
+  const row = chats.find((entry) => entry.id === chatId);
+  relatedParentIds ||= [row?.forkParentChatId, row?.delegationParentChatId].filter(Boolean);
   const archivedIds = new Set(markForkSubtreeArchived(chats, chatId, stamp));
   archivedIds.add(String(chatId).trim());
   const switchToChatId = resolveArchiveFallbackId({
@@ -428,7 +453,7 @@ export function syncArchivedChatSendUi(chat) {
   sendBar.setReadOnly(pluginOff);
   sendBar.setPlaceholder(archived ? t('chat.archivedSendHint')
     : pluginOff ? resolvePersistedLocalChatUnavailableMessage(chat, t)
-    : (isWatcherPinnedChat(chat) ? t('watcherPinned.placeholder') : t('chat.commandPlaceholder')));
+    : (isOperatorChat(chat) ? t('operatorChat.placeholder') : isWatcherPinnedChat(chat) ? t('watcherPinned.placeholder') : t('chat.commandPlaceholder')));
 }
 
 export function syncArchiveMenuUi(chat = null) {
@@ -437,9 +462,17 @@ export function syncArchiveMenuUi(chat = null) {
   if (!btn) return;
   const archived = Boolean(String(chat?.archivedAt || '').trim());
   const blocked = !archived && isForkSubtreeBusy(chats, chat?.id, hasLiveHarnessWork);
+  const check = /** @type {HTMLButtonElement | null} */ (document.getElementById('chat-check-archive-menu-btn'));
+  if (check) {
+    check.hidden = !chat || archived || !operatorChatActions(chat).archive;
+    check.disabled = blocked;
+    check.setAttribute('aria-disabled', String(blocked));
+  }
   const key = archived ? 'chat.restore' : (blocked ? 'chat.archiveBusy' : 'chat.archive');
   const label = t(key);
   btn.disabled = blocked;
+  // Pinned operator thread: the archive control is not offered at all.
+  btn.hidden = !operatorChatActions(chat).archive;
   btn.title = label;
   btn.setAttribute('aria-label', label);
   btn.setAttribute('data-i18n-title', key);

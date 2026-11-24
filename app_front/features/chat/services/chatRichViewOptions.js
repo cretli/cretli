@@ -64,6 +64,7 @@ export function buildChatRichViewOptions(chat) {
     },
     onForceSendQueueItem: (text) => sendQueueControl(chat, 'queueForceSend', text),
     onRemoveQueueItem: (text) => sendQueueControl(chat, 'queueRemove', text),
+    onMoveQueueItem: (text, direction) => sendQueueControl(chat, 'queueMove', text, { direction }),
     onSteerQueueItem: (text) => {
       if (!canSteerSdkChat(chat) || !chat?.ws || chat.ws.readyState !== WebSocket.OPEN) return;
       rememberPendingSdkSteer(chat, text, 'queue');

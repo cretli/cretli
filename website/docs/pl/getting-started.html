@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pierwsze kroki</title>
+<meta name="description" content="Zainstaluj Cretli, skonfiguruj pierwszą sesję i zaktualizuj istniejącą instalację.">
+<link rel="canonical" href="https://cretli.com/docs/pl/getting-started.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/getting-started.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/getting-started.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/getting-started.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/getting-started.html">
+<meta property="og:title" content="Pierwsze kroki">
+<meta property="og:description" content="Zainstaluj Cretli, skonfiguruj pierwszą sesję i zaktualizuj istniejącą instalację.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/getting-started.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html" aria-current="page">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Pierwsze kroki</h1>
+<h2 id="wymagania-i-instalacja">Wymagania i instalacja</h2>
+<p>Użyj Linuksa, macOS lub WSL2 w Windows. Natywny terminal Windows nie jest obsługiwany. Zainstaluj Git i Node.js w wersji co najmniej 22.18. Pamięć aplikacji wymaga również dołączonego SQLite 3.51.0 lub nowszego; udokumentowane przykłady to Node 22.23.2 i 24.14. Natywne zależności terminala mogą wymagać kompilatora, a macOS narzędzi Xcode Command Line Tools.</p>
+<pre class="hljs"><code class="language-sh">git <span class="hljs-built_in">clone</span> https://github.com/cretli/cretli.git
+<span class="hljs-built_in">cd</span> cretli
+npm install
+npm run build:front:prod
+npm start
+</code></pre>
+<p>Otwórz <code>https://localhost:3011</code>. Domyślnie serwer jest dostępny tylko na tym komputerze. Zaakceptuj samopodpisany certyfikat wyłącznie dla własnego serwera. Jeśli brakuje certyfikatów, uruchom <code>npm run gen-cert</code> i ponownie włącz aplikację.</p>
+<h2 id="pierwsza-sesja">Pierwsza sesja</h2>
+<p>Na stronie logowania utwórz hasło dostępu. Po zalogowaniu obecne okno pierwszego uruchomienia proponuje wybór backendu czatu i, gdy potrzeba, folderu obszaru roboczego. Wskaż projekt, na przykład <code>my-app</code>. W <strong>Ustawienia → Harness</strong> skonfiguruj backend, kończąc logowanie lub podając klucz API. Następnie utwórz czat i wybierz model. Terminal i pliki działają bez danych dostawcy modeli.</p>
+<p>Rozbudowany kreator wdrożenia jest <strong>planowany</strong>, jeszcze niewydany. Instrukcja opisuje obecne okno konfiguracji oraz Ustawienia.</p>
+<p><img src="../img/chat-list-mobile.png" alt="Lista czatów" width="780" height="1688" loading="lazy"></p>
+<h2 id="aktualizacja">Aktualizacja</h2>
+<p>Zrób kopię danych aplikacji i zachowaj lokalne zmiany przed aktualizacją. Postępuj według instrukcji Git dla wydania: publiczna historia master może być przepisywana, więc zwykły pull może nie zadziałać. Po pobraniu nowego kodu wykonaj <code>npm install</code>, zbuduj interfejs przez <code>npm run build:front:prod</code> i uruchom Cretli ponownie. Zachowaj dotychczasowe dane aplikacji. Dla kontenerów zobacz <a href="install-docker.html">instalację Docker</a>, a przy problemach <a href="troubleshooting.html">rozwiązywanie problemów</a>.</p>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="index.html">&larr; Dokumentacja Cretli</a>
+      <a rel="next" href="install-docker.html">Instalacja przez Docker &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#wymagania-i-instalacja">Wymagania i instalacja</a></li>
+      <li><a href="#pierwsza-sesja">Pierwsza sesja</a></li>
+      <li><a href="#aktualizacja">Aktualizacja</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

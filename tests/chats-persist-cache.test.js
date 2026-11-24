@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import { getChatByCursorSessionId, getChatById, getChatsReadStats, loadChats, saveChats } from '../lib/persist/chats-persist.js';
+import { getChatByCursorSessionId, getChatById, getChatsReadStats, loadChats, saveChats } from '../lib/persist/chats-legacy-store.js';
 
 const originalRead = fs.readFileSync;
 let chatFileReads = 0;

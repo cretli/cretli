@@ -76,7 +76,7 @@ import {
   resolveWorkspaceWatcherOrchestrator as resolveOrchestratorDirect,
 } from '../lib/workspace-watcher-orchestrator.js';
 import { runWorkspaceWatcherTick, resolveWatcherClaimOwner } from '../lib/workspace-watcher-control.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from './helpers/chats-legacy-add.js';
 import { registerKernelChatRunAdapter } from '../lib/chat-run/kernel-adapter.ts';
 import { unregisterChatRunAdapter } from '../lib/chat-run-service.js';
 import { openRecoveryStore, closeRecoveryStore } from '../lib/recovery/recovery-store.ts';

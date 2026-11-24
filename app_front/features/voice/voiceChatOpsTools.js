@@ -90,21 +90,26 @@ export function rankChatMatch(needle, title, workspace) {
 /**
  * @typedef {{ id: string, title: string, workspaceName: string, workspaceFile: string, harness: string, archived: boolean }} ChatOpsRow
  * @typedef {{ id: string, title: string, running: boolean, canSteer: boolean, workspaceFile: string } | null} ChatOpsActive
+ * @typedef {{ chatId: string, title: string, snippet: string }} ChatContentHit
  * @typedef {{
  *   listChats: (scope: { workspace?: unknown }) => Promise<ChatOpsRow[]> | ChatOpsRow[],
  *   getActiveChat: () => Promise<ChatOpsActive> | ChatOpsActive,
  *   restoreChat: (chatId: string) => Promise<boolean> | boolean,
- *   searchContent?: (input: { query: string, workspaceFile: string }) => Promise<Array<{ chatId: string, title: string, snippet: string }>>,
- *   submit: (input: { text: string, steer: boolean }) => Promise<object> | object,
+ *   searchContent?: (input: { query: string, workspaceFile: string }) => Promise<ChatContentHit[] | { results: ChatContentHit[], truncated?: boolean }>,
+ *   submit: (input: { text: string, steer: boolean }) => Promise<import('./voiceCommandTypes.js').VoiceCommandResult> | import('./voiceCommandTypes.js').VoiceCommandResult,
  * }} ChatOpsDeps
  */
 
 /**
  * @param {ChatOpsDeps} deps
- * @returns {{ chat_ops: (args: any) => Promise<object> }}
+ * @returns {{ chat_ops: (args: any) => Promise<import('./voiceCommandTypes.js').VoiceCommandResult> }}
  */
 export function createChatOpsToolHandlers(deps) {
-  /** @param {ChatOpsRow} row */
+  /**
+   * @param {ChatOpsRow} row
+   * @param {number} index
+   * @returns {{ n: number, chat_id: string, title: string, workspace: string, info: string, snippet?: string }}
+   */
   function resultRow(row, index) {
     return {
       n: index + 1,

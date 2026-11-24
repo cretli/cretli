@@ -24,7 +24,7 @@
 
 .todo-batch-bar-count {
   margin-left: auto;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
 }
 
@@ -45,7 +45,7 @@
 }
 
 .todo-batch-banner-title {
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   font-weight: 600;
   color: var(--cr-text);
 }
@@ -54,7 +54,7 @@
   padding: 0.1rem 0.4rem;
   border-radius: var(--cr-radius-sm);
   background: var(--cr-surface-inset);
-  font-size: 0.7rem;
+  font-size: var(--cr-font-size-legacy-07);
   color: var(--cr-text-muted);
 }
 
@@ -73,14 +73,14 @@
 
 .todo-batch-banner-counts {
   margin-left: auto;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
 .todo-batch-banner-progress,
 .todo-batch-banner-reason {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
@@ -91,7 +91,7 @@
 .todo-batch-banner-list {
   margin: 0;
   padding-left: 1.1rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
@@ -119,7 +119,7 @@
   white-space: nowrap;
   padding: 0.05rem 0.35rem;
   border-radius: var(--cr-radius-sm);
-  font-size: 0.65rem;
+  font-size: var(--cr-font-size-legacy-065);
   color: var(--cr-text-muted);
   background: var(--cr-surface-inset);
 }
@@ -150,7 +150,7 @@
   background: var(--cr-surface);
   color: var(--cr-text);
   font-family: var(--cr-font-ui);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   cursor: pointer;
 }
 
@@ -183,7 +183,7 @@
   background: none;
   color: var(--cr-text);
   font-family: var(--cr-font-ui);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -191,11 +191,6 @@
 .todo-sort-row:hover,
 .todo-sort-row:focus-visible {
   background: var(--cr-surface-raised);
-}
-
-.todo-sort-row-check {
-  width: 1rem;
-  color: var(--cr-accent);
 }
 
 .todo-status-filter-row,
@@ -226,7 +221,7 @@
 
 .todo-status {
   margin-left: auto;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
   white-space: nowrap;
 }
@@ -241,7 +236,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
 }
 
@@ -265,12 +260,12 @@
   align-items: center;
   gap: var(--cr-space-2);
   color: var(--cr-text);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 .todo-mention-message {
   margin: 0;
   color: var(--cr-text-muted);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 .todo-mention-list {
   display: flex;
@@ -300,7 +295,7 @@
   background: var(--cr-surface);
   color: var(--cr-text);
   font: inherit;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -312,7 +307,7 @@
   flex: 0 0 auto;
   width: 1rem;
   color: var(--cr-text-muted);
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   line-height: 1;
 }
 .todo-mention-lock {
@@ -366,7 +361,7 @@
 
 .todo-section-title {
   margin: 0 0 0.55rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -420,14 +415,14 @@
 }
 
 .todo-empty-icon {
-  font-size: 2rem;
+  font-size: var(--cr-font-size-legacy-2);
   color: var(--cr-text-muted);
 }
 
 .todo-empty {
   margin: 0;
   max-width: 18rem;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   color: var(--cr-text-muted);
   line-height: 1.45;
 }
@@ -573,7 +568,7 @@
 .todo-row-title {
   flex: 1;
   min-width: 0;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -596,7 +591,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   line-height: 1.25;
   color: var(--cr-text-muted);
 }
@@ -616,7 +611,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   color: var(--cr-text-muted);
 }
 
@@ -670,7 +665,7 @@
   padding: 0 0.4rem;
   border: 1px solid var(--cr-success);
   border-radius: var(--cr-radius-sm);
-  font-size: 0.66rem;
+  font-size: var(--cr-font-size-legacy-066);
   line-height: 1.4;
   color: var(--cr-success);
 }
@@ -698,7 +693,7 @@
   width: 100%;
   gap: 0.45rem;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: var(--cr-font-size-legacy-09);
   /* `.chat-list-item` is also used on <li>; a <button> adds UA background,
    * border, centered text and a non-inherited color, which turned each row
    * into a light-grey tile. Reset all of it so it matches the attachment
@@ -711,7 +706,7 @@
 }
 
 .todo-row-menu-item .mdi {
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   color: currentColor;
 }
 
@@ -741,7 +736,7 @@
   display: inline-flex;
   align-items: center;
   color: var(--cr-accent);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   line-height: 1;
 }
 
@@ -778,7 +773,7 @@
   flex-shrink: 0;
   min-width: 1.5rem;
   text-align: right;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-variant-numeric: tabular-nums;
   color: var(--cr-text-muted);
 }
@@ -787,19 +782,19 @@
   margin-top: 0.35rem;
   padding: 0.5rem 0.75rem 0.15rem;
   border-top: 1px solid var(--cr-border-strong);
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
 .sdk-rich-delegation-accept-context {
   margin: var(--cr-space-1) 0 0;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
 .sdk-rich-delegation-accept-feedback {
   margin: var(--cr-space-1) 0 0;
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
 }
 
 .sdk-rich-delegation-accept-feedback[data-tone='error'] {
@@ -817,7 +812,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
 }
 
@@ -865,7 +860,7 @@
 
   .todo-row-mark[data-icon-only] {
     max-width: none;
-    font-size: 1rem;
+    font-size: var(--cr-font-size-lg);
     line-height: 1;
   }
 }

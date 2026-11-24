@@ -15,7 +15,8 @@ import path from 'node:path';
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import { getWorktreeRecord, mutateWorktreeRegistry } from '../lib/persist/worktree-registry-persist.js';
 import { upsertWorkspaceWatcher } from '../lib/persist/workspace-watchers-persist.js';
-import { closeRecoveryStore, openRecoveryStore } from '../lib/recovery/recovery-store.ts';
+import { closeRecoveryStore, openRecoveryStore, getRecoveryStoreDatabase } from '../lib/recovery/recovery-store.ts';
+import { writeFastRestartParticipants, clearFastRestartParticipants } from '../lib/restart-fast.js';
 import { beginRunLaunch } from '../lib/recovery/recovery-lifecycle.ts';
 import { toRecoveryRequestId } from '../lib/chat-run/chat-run-recovery.ts';
 import { getProcessInstance } from '../lib/recovery/recovery-shutdown.ts';
@@ -89,7 +90,7 @@ const release = async (ctx, probe) => await releaseStaleWorkspaceTodoClaims({
   loadDelegations: () => [],
 });
 
-function classify(ctx, probe) {
+function classify(ctx, probe, extra = {}) {
   const states = classifyWorkspaceDoingTodos({
     items: [getTodoById(ctx.dataDir, ctx.cwd, ctx.orphan.id)],
     delegations: [],
@@ -97,6 +98,7 @@ function classify(ctx, probe) {
     probe,
     isCycleChatAlive: () => true,
     now: T0,
+    ...extra,
   });
   return states[0];
 }
@@ -232,6 +234,44 @@ runCase('(e) watcher worktree leaf after interrupted_restart -> recoverable, rea
   assert.equal(after.status, 'ready');
   assert.ok(!after.claimedByChatId);
   assert.deepEqual(getWorktreeRecord(ctx.orphan.id, { dataDir: ctx.dataDir }), before, 'worktree record untouched');
+});
+
+runCase('(e2) a pending fast-restart continuation keeps the restart-interrupted leaf out of the requeue', async () => {
+  const ctx = setup('e2fast');
+  seedWorktree(ctx, { recordCycles: ['cyc-e2f'], cycleChats: [interrupted(ctx, 'cyc-e2f')] });
+  writeFastRestartParticipants(getRecoveryStoreDatabase(store), { participants: [{ chatId: ctx.chatId, harness: 'claude', sessionId: 's' }] });
+  try {
+    const result = await release(ctx, goneProbe);
+    assert.deepEqual(result.released, [], 'the continuation owns the leaf');
+    const state = result.states.find((row) => row.todoId === ctx.orphan.id);
+    assert.notEqual(state?.reason, 'restart_interrupted_worktree');
+  } finally {
+    clearFastRestartParticipants(getRecoveryStoreDatabase(store), { force: true });
+  }
+});
+
+runCase('(e2b) a dispatched continuation whose chat is no longer live stops holding the leaf (requeue allowed)', async () => {
+  const ctx = setup('e2b');
+  seedWorktree(ctx, { recordCycles: ['cyc-e2b'], cycleChats: [interrupted(ctx, 'cyc-e2b')] });
+  const db = getRecoveryStoreDatabase(store);
+  writeFastRestartParticipants(db, { participants: [{ chatId: ctx.chatId, harness: 'claude', sessionId: 's', state: 'dispatched' }] });
+  try {
+    // No live room in the adapter registry: the continuation ended, so the leaf is requeued as before.
+    const ended = await release(ctx, goneProbe);
+    assert.deepEqual(ended.released, [ctx.orphan.id]);
+  } finally {
+    clearFastRestartParticipants(db, { force: true });
+  }
+});
+
+runCase('(e2c) a live continued chat keeps the leaf held after dispatch (single owner)', async () => {
+  const ctx = setup('e2c');
+  seedWorktree(ctx, { recordCycles: ['cyc-e2c'], cycleChats: [interrupted(ctx, 'cyc-e2c')] });
+  const wt = { hasLiveWorktree: () => true, readWorktreeRecord: (id) => getWorktreeRecord(id, { dataDir: ctx.dataDir }), closedCycles: [interrupted(ctx, 'cyc-e2c')], hasRestartEvidence: () => true };
+  const free = classify(ctx, goneProbe, wt);
+  assert.equal(free.reason, 'restart_interrupted_worktree', 'control: without a hold the leaf is requeueable');
+  const hold = classify(ctx, goneProbe, { ...wt, pendingContinuationChatIds: () => new Set([ctx.chatId]) });
+  assert.notEqual(hold.reason, 'restart_interrupted_worktree');
 });
 
 runCase('(e3) a worktree leaf already picked up by a new active cycle is not released', async () => {

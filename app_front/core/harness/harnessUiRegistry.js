@@ -192,7 +192,7 @@ const ENTRIES = Object.freeze([
     statusMissingKey: 'settings.harnessStatusAntigravityMissing',
     firstRunKeyField: '', firstRunHintKey: 'firstRun.hintAntigravity', firstRunAvailability: 'whenTrue', firstRunRank: 12,
     modelsChangedEvent: 'cretli-antigravity-models-changed', enabledModelsSettingsKey: 'antigravityChatEnabledModels',
-    newChatErrorKey: 'chat.harnessErrorAntigravity', contextTransportLabelKey: null,
+    newChatErrorKey: 'chat.harnessErrorAntigravity', contextTransportLabelKey: 'chat.contextDetailsTransportAntigravity',
     modelsApiMethod: 'getAntigravityModels', catalogShape: 'plain', refreshStatusOnModelsChanged: true,
   }),
   define({

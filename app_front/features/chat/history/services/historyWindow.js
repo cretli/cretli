@@ -155,15 +155,15 @@ export function installHistoryWindow(rv) {
     }
 
     if (offscreen.childElementCount === 0) return 0;
-    const heightBefore = mountEl.scrollHeight;
-    const scrollBefore = mountEl.scrollTop;
+    const anchor = rv.viewportController.captureAnchor();
     rv.suppressScrollStickUpdate = true;
     try {
       rv.realStream.prepend(...Array.from(offscreen.childNodes));
       rv.refreshDuplicateMailboxReports();
-      mountEl.scrollTop = scrollBefore + (mountEl.scrollHeight - heightBefore);
+      rv.viewportController.restoreAnchor(anchor);
       rv.adoptTrailingTimeoutProgressSeries();
       rv.enforceMountedHistoryWindowBudget();
+      rv.viewportController.restoreAnchor(anchor);
     } finally {
       const scheduleFrame =
         typeof requestAnimationFrame === 'function' ? requestAnimationFrame : undefined;

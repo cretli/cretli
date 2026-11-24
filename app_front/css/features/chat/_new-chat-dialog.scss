@@ -96,12 +96,42 @@
   color: var(--cr-text);
   font-size: var(--cr-font-size-legacy-08);
   font-weight: 600;
-  border-top: 1px solid var(--cr-border-subtle);
-  padding-top: var(--cr-space-3);
+}
+
+#chat-new-modal .chat-new-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cr-space-2);
 }
 
 #chat-new-modal .chat-settings-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#chat-new-modal .chat-new-close {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin: -0.25rem -0.25rem 0 0;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text-muted);
+  font: inherit;
+  font-size: var(--cr-font-size-legacy-125);
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--cr-surface-raised, transparent);
+    color: var(--cr-text);
+  }
 }
 
 #chat-new-modal .chat-settings-form {

@@ -22,7 +22,7 @@ class CrDocPicker extends LitElement {
     this.api = createDocsApi(scope); this.agentOnly = agentOnly; this.query = query; this.items = []; this.opened = true;
     await this.search();
     await this.updateComplete;
-    if (this.opened) this.renderRoot.querySelector('cr-bar-input')?.focus();
+    if (this.opened) /** @type {any} */ (this.renderRoot.querySelector('cr-bar-input'))?.focus();
   }
   hide() { this.opened = false; this.version += 1; clearTimeout(this.timer); }
   async search() {
@@ -48,12 +48,12 @@ class CrDocPicker extends LitElement {
     const index = buttons.indexOf(event.composedPath().find((node) => buttons.includes(node)));
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
       : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
-    buttons[next].focus();
+    /** @type {any} */ (buttons[next]).focus();
   }
   render() {
     return html`<cr-dialog ?open=${this.opened} closable .closeLabel=${t('docs.cancel')} .heading=${t('docs.pickerTitle')}
       @keydown=${(event) => {
-        if (event.key === 'Escape') { event.stopPropagation(); event.preventDefault(); this.renderRoot.querySelector('cr-dialog').hide(); }
+        if (event.key === 'Escape') { event.stopPropagation(); event.preventDefault(); /** @type {any} */ (this.renderRoot.querySelector('cr-dialog')).hide(); }
       }} @cr-dialog-close=${(event) => {
       event.stopPropagation(); this.hide(); this.dispatchEvent(new CustomEvent('cr-doc-picker-close'));
     }}>

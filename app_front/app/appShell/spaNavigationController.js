@@ -38,20 +38,29 @@ export function createSpaNavigationController({
   let spaNavModeConfig = APP_MODES.main;
 
   /**
+   * Panel modules expose different route helpers; the shape is checked at runtime.
+   * @param {string} key
+   * @returns {Promise<any>}
+   */
+  const loadAnyPanel = (key) => loadPanelModule(key);
+  /** @returns {any} */
+  const sharedNav = () => getSharedSpaNavigation();
+
+  /**
    * @param {object} modeConfig
    * @param {{ popstate?: boolean }} [options]
    */
   function initSpaNavigationController(modeConfig, options = {}) {
     spaNavModeConfig = modeConfig;
     const restoreRouteResources = createRouteResourceRestorer({
-      replaceCanonical: (url) => getSharedSpaNavigation()?.replaceCanonicalUrl(url),
+      replaceCanonical: (url) => sharedNav()?.replaceCanonicalUrl(url),
       showResourceNotice: (messageKey, detail) => {
         appLogger.log('route-restore', t(messageKey));
         showNavigationResourceNotice(messageKey, detail);
       },
       restoreChat: (chatId) => selectChat(chatId),
       restoreTodo: (todoId) => openTodo(todoId),
-      restoreFilesPath: async (path) => (await loadPanelModule('files')).openFilesRoutePath(path),
+      restoreFilesPath: async (path) => (await loadAnyPanel('files')).openFilesRoutePath(path),
       listTerminalSessionIds: async () => {
         try {
           const data = await getTerminalSession();
@@ -61,14 +70,14 @@ export function createSpaNavigationController({
           return null;
         }
       },
-      restoreTerminalSession: async (sessionId) => (await loadPanelModule('terminal')).joinTerminalSessionFromRoute(sessionId),
-      clearTerminalSession: async () => (await loadPanelModule('terminal')).clearTerminalSessionFromRoute(),
-      listBrowserSessions: async () => (await loadPanelModule('browser')).listBrowserSessionsForRoute(),
-      listBrowserTabs: async (sessionId) => (await loadPanelModule('browser')).listBrowserTabsForRoute(sessionId),
-      restoreBrowser: async (sessionId, tabId) => (await loadPanelModule('browser')).restoreBrowserRouteTarget(sessionId, tabId),
-      listTaskRunIds: async () => (await loadPanelModule('tasks')).listScopedTaskRunIdsForRoute(),
-      restoreTaskRun: async (runId) => (await loadPanelModule('tasks')).restoreTaskRunFromRoute(runId),
-      isCurrentGeneration: (token) => getSharedSpaNavigation()?.isCurrentGeneration(token) !== false,
+      restoreTerminalSession: async (sessionId) => (await loadAnyPanel('terminal')).joinTerminalSessionFromRoute(sessionId),
+      clearTerminalSession: async () => (await loadAnyPanel('terminal')).clearTerminalSessionFromRoute(),
+      listBrowserSessions: async () => (await loadAnyPanel('browser')).listBrowserSessionsForRoute(),
+      listBrowserTabs: async (sessionId) => (await loadAnyPanel('browser')).listBrowserTabsForRoute(sessionId),
+      restoreBrowser: async (sessionId, tabId) => (await loadAnyPanel('browser')).restoreBrowserRouteTarget(sessionId, tabId),
+      listTaskRunIds: async () => (await loadAnyPanel('tasks')).listScopedTaskRunIdsForRoute(),
+      restoreTaskRun: async (runId) => (await loadAnyPanel('tasks')).restoreTaskRunFromRoute(runId),
+      isCurrentGeneration: (token) => sharedNav()?.isCurrentGeneration(token) !== false,
     });
     const nav = createSpaNavigation({
       readLocation: () => ({

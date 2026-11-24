@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { registerDelegationsRoutes } from '../lib/routes/delegations-routes.js';
 import { inspectReviewRecheckWithoutChange } from '../lib/delegation-review-recheck-gate.js';

@@ -3,8 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
-import { CodexAppServer, isCodexAppServerCompaction, isCodexAppServerEnabled, runCodexAppServerTurn } from '../lib/codex/codex-app-server.ts';
-import { handleThreadEvent } from '../lib/codex/codex-agent-ws.ts';
+import { CodexAppServer, isCodexAppServerCompaction, isCodexAppServerEnabled, isMissingCodexRolloutError, runCodexAppServerTurn } from '../lib/codex/codex-app-server.ts';
+import { handleThreadEvent, isNewCodexCompaction } from '../lib/codex/codex-agent-ws.ts';
 import { createCodexSteering, resolveCodexPromptKind } from '../lib/codex/codex-steer.ts';
 import { buildCodexCompactionEvent, parseCodexContextUsage } from '../lib/codex/codex-context-usage.ts';
 import { beginHarnessRun, recordHarnessUsageDelta } from '../lib/usage/harness-usage.ts';
@@ -385,4 +385,48 @@ test('MCP content errors keep the error text and error status', async () => {
   ]);
   assert.equal(events.at(-1).status, 'error');
   assert.deepEqual(events.at(-1).result, result);
+});
+
+test('a thread without a rollout falls back to a fresh thread only when the caller allows it', async () => {
+  const build = () => {
+    const requests = [];
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.kill = () => child.emit('close');
+    child.stdin = new Writable({ write(chunk, encoding, callback) {
+      const message = JSON.parse(chunk.toString());
+      requests.push(message);
+      if (message.id && message.method) queueMicrotask(() => {
+        // Exact error text of codex app-server for an unknown thread id.
+        const reply = message.method === 'thread/resume'
+          ? { id: message.id, error: { code: -32600, message: `no rollout found for thread id ${message.params.threadId}` } }
+          : { id: message.id, result: message.method === 'thread/start' ? { thread: { id: 'fresh' } } : {} };
+        child.stdout.write(JSON.stringify(reply) + '\n');
+      });
+      callback();
+    } });
+    return { requests, client: new CodexAppServer({ spawnFn: () => child }) };
+  };
+  const strict = build();
+  await assert.rejects(strict.client.initialize({}, 'gone'), /no rollout found/);
+  strict.client.close();
+  const fallback = build();
+  const dropped = [];
+  assert.equal(await fallback.client.initialize({}, 'gone', {}, { onResumeMissing: (error) => dropped.push(error.message) }), 'fresh');
+  assert.equal(dropped.length, 1);
+  assert.deepEqual(fallback.requests.filter((item) => item.method).map((item) => item.method), ['initialize', 'initialized', 'thread/resume', 'thread/start']);
+  fallback.client.close();
+  assert.equal(isMissingCodexRolloutError(new Error('Codex RPC timeout: thread/resume')), false);
+});
+
+test('a rollout compaction already announced by the native signal is not counted twice', () => {
+  const nativeAt = Date.parse('2026-11-21T10:00:00.000Z');
+  const room = { _runStartedAt: nativeAt - 60000, _codexLastCompactionMs: nativeAt, _codexCompactedAt: new Date(nativeAt).toISOString() };
+  // The rollout record carries its own timestamp, a moment after the notification.
+  assert.equal(isNewCodexCompaction(room, { compactedAt: '2026-11-21T10:00:01.500Z' }), false);
+  assert.equal(room._codexCompactedAt, '2026-11-21T10:00:01.500Z');
+  assert.equal(isNewCodexCompaction(room, { compactedAt: '2026-11-21T10:05:00.000Z' }), true);
+  assert.equal(isNewCodexCompaction(room, { compactedAt: '2026-11-21T10:05:00.000Z' }), false);
+  // Compactions from before this run never count.
+  assert.equal(isNewCodexCompaction({ _runStartedAt: nativeAt }, { compactedAt: '2026-11-21T09:00:00.000Z' }), false);
 });

@@ -87,7 +87,7 @@ export function formatPricedValue(block, value, digits = 3) {
 }
 
 /**
- * @param {object|null} payload GET /api/delegations/stats
+ * @param {Record<string, any>|null} payload GET /api/delegations/stats
  * @returns {{ rows: object[], attribution: { text: string, url: string }|null, truncated: boolean, hasData: boolean }}
  */
 export function buildHarnessModelStatsViewModel(payload) {
@@ -132,7 +132,7 @@ function enumLabel(prefix, code, t) {
 }
 
 /**
- * @param {object|null} price
+ * @param {Record<string, any>|null} price
  * @param {(key: string) => string} t
  * @returns {string}
  */
@@ -150,7 +150,7 @@ function renderPrice(price, t) {
 }
 
 /**
- * @param {object|null} cost
+ * @param {Record<string, any>|null} cost
  * @param {(key: string) => string} t
  * @returns {string}
  */
@@ -165,7 +165,7 @@ function renderCostPerPass(cost, t) {
 }
 
 /**
- * @param {object|null} benchmark
+ * @param {Record<string, any>|null} benchmark
  * @param {(key: string) => string} t
  * @returns {string}
  */

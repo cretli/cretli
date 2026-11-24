@@ -50,8 +50,8 @@ export function resolveChatDraftAndScroll(chat) {
     ? document.getElementById('chat-send-input')
     : null;
   const draftText = sendInput && typeof sendInput.value === 'string' ? sendInput.value : '';
-  const stream = chat?._sdkRichView?.streamEl || chat?._sdkRichView?.el || null;
-  const scrollTop = Number.isFinite(Number(stream?.scrollTop)) ? Number(stream.scrollTop) : 0;
+  const viewport = chat?._sdkRichView?.getViewportSnapshot?.();
+  const scrollTop = Number.isFinite(viewport?.scrollTop) ? viewport.scrollTop : 0;
   return { draftText, scrollTop };
 }
 

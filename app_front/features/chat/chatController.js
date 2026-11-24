@@ -1,4 +1,5 @@
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.ts';
+import { isOperatorChat } from './operatorChat.js';
 import { normalizeSdkUiMode } from '../../../lib/sdk/sdk-ui-mode.ts';
 import { resolvePersistedLocalChatTransport, isBlockingPersistedLocalChatHarnessState } from './persistedLocalChatState.js';
 import { setActiveChatIdsForEviction } from '../../lib/sdk-chat-history-store.js';
@@ -37,6 +38,8 @@ import {
   trimPendingChatListLoadQuery,
 } from './chatListLoadFreshness.js';
 import { reconcileServerChatsInTimeSlices } from './chatListServerReconcile.js';
+
+/** @typedef {Record<string, any>} RuntimeChat */
 import {
   mergeRuntimeChatListAfterScopedArchiveLoad,
   retainArchivedRowsAfterLiveLoad,
@@ -59,7 +62,7 @@ function normalizePath(pathValue) {
  * matches produced the same visible list, so the expensive repaint can be skipped.
  * Runtime-only fields (`pane`, `ws`, `_buffer`, `_fromBootCache`) are deliberately excluded.
  *
- * @param {object[] | null | undefined} list
+ * @param {RuntimeChat[] | null | undefined} list
  * @param {Record<string, number> | null | undefined} archivedCounts
  * @returns {string}
  */
@@ -92,6 +95,7 @@ function chatListRepaintSignature(list, archivedCounts) {
       chat.harnessState?.code || '',
       chat.isTemporary === true ? '1' : '0',
       chat.watcherPinned === true ? '1' : '0',
+      isOperatorChat(chat) ? '1' : '0',
       chat.onWorktree === true ? '1' : '0',
       Array.isArray(chat.summaries) ? chat.summaries.length : 0,
     ].join('\u0000'));
@@ -104,12 +108,14 @@ function chatListRepaintSignature(list, archivedCounts) {
 }
 
 // The durable watcher chat is an observability feed, not a conversation to open automatically.
+/** @param {RuntimeChat} chat */
 function isAutoSelectableChat(chat) {
-  return chat?.watcherPinned !== true;
+  return chat?.watcherPinned !== true && !isOperatorChat(chat);
 }
 
 // An explicitly opened watcher or archived chat stays put across list reloads: neither is
 // ever an auto-select candidate, so without this the reload would replace it with another chat.
+/** @param {RuntimeChat[]} chats @param {string} activeId */
 function isStickyOpenChat(chats, activeId) {
   return chats.some((chat) => chat.id === activeId && (!isAutoSelectableChat(chat) || chat.archivedAt));
 }

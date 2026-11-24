@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addChat, loadChats } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 import { addTodo, getTodoById, updateTodo } from '../lib/persist/todos-legacy-adapter.js';
 import {
   acquireWorkspaceWatcherLease,

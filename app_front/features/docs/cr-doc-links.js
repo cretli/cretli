@@ -28,7 +28,7 @@ class CrDocLinks extends LitElement {
   async reload() {
     const epoch = ++this.epoch;
     this.rows = []; this.message = ''; this.busy = true; this.api = null;
-    this.renderRoot.querySelector('cr-doc-picker')?.hide();
+    /** @type {any} */ (this.renderRoot.querySelector('cr-doc-picker'))?.hide();
     if (!this.targetId) { this.busy = false; return; }
     const kind = this.kind; const targetId = this.targetId;
     try {
@@ -63,7 +63,7 @@ class CrDocLinks extends LitElement {
           <cr-bar-button data-doc-open ?disabled=${this.busy || row.noteMissing} @click=${() => this.openNote(row.note)}>${t('docs.openPanel')}</cr-bar-button>
           ${row.removable ? html`<cr-bar-button data-doc-unlink ?disabled=${this.busy} @click=${() => this.mutate(() => this.api.removeLink(row.id))}>${t('docs.unlinkNote')}</cr-bar-button>` : ''}
         </div></li>`)}</ul>` : html`<p class="hint">${t(this.busy ? 'docs.loading' : 'docs.noLinkedNotes')}</p>`}
-      <cr-bar-button data-doc-link ?disabled=${this.busy || !this.api} @click=${() => this.renderRoot.querySelector('cr-doc-picker').show(this.scope)}>${t('docs.linkNote')}</cr-bar-button>
+      <cr-bar-button data-doc-link ?disabled=${this.busy || !this.api} @click=${() => /** @type {any} */ (this.renderRoot.querySelector('cr-doc-picker')).show(this.scope)}>${t('docs.linkNote')}</cr-bar-button>
       <cr-doc-picker @cr-doc-select=${(e) => this.mutate(() => this.api.addLink(e.detail.path, this.kind, this.targetId))}></cr-doc-picker>
     </section>`;
   }

@@ -11,7 +11,7 @@
   .settings-subgroup-title {
     padding: 0;
     margin: 0 0 var(--cr-space-1);
-    font-size: 0.85rem;
+    font-size: var(--cr-font-size-md);
     font-weight: 600;
     color: var(--cr-text);
   }
@@ -51,7 +51,7 @@
     flex: 0 0 auto;
     min-width: 2.75rem;
     text-align: end;
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     color: var(--cr-text-muted);
   }
 
@@ -93,7 +93,7 @@
   border-radius: 999px;
   background: var(--cr-accent);
   color: var(--cr-text-inverse);
-  font-size: 0.6rem;
+  font-size: var(--cr-font-size-legacy-06);
   font-weight: 600;
   line-height: 1rem;
   text-align: center;
@@ -126,7 +126,7 @@
 }
 
 .notifications-panel-title {
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   font-weight: 600;
   color: var(--cr-text);
 }
@@ -150,7 +150,7 @@
   border-radius: var(--cr-radius-sm);
   background: none;
   color: var(--cr-text-muted);
-  font-size: 1rem;
+  font-size: var(--cr-font-size-lg);
   cursor: pointer;
 
   &:hover {
@@ -173,7 +173,7 @@
 .notification-confirm-body {
   margin: 0 0 var(--cr-space-3);
   color: var(--cr-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   line-height: 1.4;
 }
 
@@ -271,7 +271,7 @@
 }
 
 .notification-item-title {
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
   font-weight: 600;
   color: var(--cr-text);
   overflow-wrap: anywhere;
@@ -286,7 +286,7 @@
 }
 
 .notification-item-body {
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   color: var(--cr-text-muted);
   overflow-wrap: anywhere;
 }
@@ -296,7 +296,7 @@
 }
 
 .notification-item-time {
-  font-size: 0.7rem;
+  font-size: var(--cr-font-size-legacy-07);
   color: var(--cr-text-subtle);
 }
 
@@ -334,7 +334,7 @@
 .notifications-empty {
   margin: 0;
   padding: var(--cr-space-3);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   color: var(--cr-text-muted);
 }
 
@@ -384,7 +384,7 @@
 .chat-model-settings-cost-hint {
   margin-top: -0.35rem;
   margin-bottom: 0.35rem;
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
 }
 
 .chat-model-settings-sort-wrap {
@@ -395,7 +395,7 @@
 }
 
 .chat-model-settings-sort-label {
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
   color: var(--cr-text-muted, var(--cr-color-858585));
   white-space: nowrap;
 }
@@ -440,13 +440,13 @@
 }
 
 .chat-model-settings-provider-name {
-  font-size: 0.92rem;
+  font-size: var(--cr-font-size-legacy-092);
   font-weight: 700;
   color: var(--cr-text, var(--cr-color-d4d4d4));
 }
 
 .chat-model-settings-provider-count {
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted, var(--cr-color-858585));
   white-space: nowrap;
 }
@@ -462,7 +462,7 @@
 }
 
 .chat-model-settings-group-title {
-  font-size: 0.84rem;
+  font-size: var(--cr-font-size-legacy-084);
   font-weight: 600;
   color: var(--cr-text-muted, var(--cr-color-858585));
   margin-bottom: 0.25rem;
@@ -475,7 +475,7 @@
   gap: 0.5rem;
   padding: 0.35rem 0.15rem;
   cursor: pointer;
-  font-size: 0.88rem;
+  font-size: var(--cr-font-size-legacy-088);
 }
 
 .chat-model-settings-checkbox,
@@ -518,7 +518,7 @@
   border-radius: var(--cr-radius-sm, 4px);
   border: 1px solid var(--cr-accent, var(--cr-color-007acc));
   color: var(--cr-accent, var(--cr-color-007acc));
-  font-size: 0.68rem;
+  font-size: var(--cr-font-size-legacy-068);
   font-weight: 600;
   vertical-align: middle;
   text-transform: uppercase;
@@ -529,7 +529,7 @@
   display: inline-block;
   margin-right: 0.3rem;
   color: var(--cr-color-eab308);
-  font-size: 0.82em;
+  font-size: var(--cr-font-size-legacy-082em);
   vertical-align: 0.04em;
 }
 
@@ -540,7 +540,7 @@
   border: 0;
   background: transparent;
   color: var(--cr-text-muted, var(--cr-color-858585));
-  font-size: 0.95rem;
+  font-size: var(--cr-font-size-legacy-095);
   line-height: 1;
   cursor: pointer;
 }
@@ -573,7 +573,7 @@
   min-width: 2.5rem;
   text-align: right;
   font-family: var(--cr-font-mono, monospace);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--cr-success, var(--cr-color-4ec9b0));
@@ -587,7 +587,7 @@
   border-radius: var(--cr-radius-sm, 4px);
   background: var(--cr-primary, var(--cr-color-094771));
   color: var(--cr-text, var(--cr-color-d4d4d4));
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   vertical-align: middle;
 }
 
@@ -622,7 +622,7 @@ body.theme-light {
   color: var(--cr-text);
   border: 1px solid var(--cr-border);
   border-radius: 4px;
-  font-size: 0.9rem;
+  font-size: var(--cr-font-size-legacy-09);
 }
 
 .quick-commands-textarea {
@@ -635,7 +635,7 @@ body.theme-light {
   color: var(--cr-text);
   border: 1px solid var(--cr-border);
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   font-family: inherit;
   resize: vertical;
 }
@@ -653,7 +653,7 @@ body.theme-light {
   color: var(--cr-text-inverse);
   border: none;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   cursor: pointer;
 
   &:hover {
@@ -663,7 +663,7 @@ body.theme-light {
 
 .quick-commands-save-status {
   color: var(--cr-success);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 
 // Built-in Browser policy: one card, fields stacked so long labels never
@@ -816,7 +816,7 @@ body.theme-light {
   border: 1px solid var(--cr-border);
   border-radius: 6px;
   background: var(--cr-surface-alt);
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;

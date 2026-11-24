@@ -182,6 +182,19 @@ function emitSocketMessage(socket, payload) {
   socket.onmessage?.({ data: JSON.stringify(payload) });
 }
 
+{
+  const hydrated = [];
+  const chat = { id: 'prompt-suggestion-hydration', cursorSessionId: 'suggestion-session' };
+  chat._promptSuggestionChip = { set: (suggestion) => hydrated.push(suggestion) };
+  const transport = createTransport(chat);
+  const socket = connectOpenSocket(transport, chat);
+  emitSocketMessage(socket, {
+    type: 'sdkRoomState',
+    promptSuggestion: { text: 'Continue with a regression test', turnRunId: 'run-hydrated' },
+  });
+  assert.deepEqual(hydrated, [{ text: 'Continue with a regression test', turnRunId: 'run-hydrated' }]);
+}
+
 function replayAssistantBatch(socket, roomEventSeq, text) {
   emitSocketMessage(socket, { type: 'replayBatchStart', totalEvents: 1, totalBatches: 1 });
   emitSocketMessage(socket, {

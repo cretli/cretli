@@ -1,7 +1,9 @@
 /** Chat-row and settled-subchat-group payload registration and row action buttons. */
 
 import { getCurrentLang, t } from '../../../i18n/index.js';
-import { writeSubchatExpandedSet } from '../state/sidebarPersistence.js';
+import { readViewMode, writeSubchatExpandedSet } from '../state/sidebarPersistence.js';
+import { findWorkspaceForFolder } from '../workspaceChatMatch.js';
+import { renderWorkspaceMarkerHtml } from '../sidebarWorkspaceMarker.js';
 import { registerSidebarChatRow } from '../sidebarChatRowPass.js';
 import { registerSidebarSubchatGroup } from '../sidebarSubchatGroupPass.js';
 import { resolveSidebarHarnessIcon } from './sidebarHarnessIcon.js';
@@ -10,9 +12,18 @@ import { resolveSidebarHarnessIcon } from './sidebarHarnessIcon.js';
  * @param {Record<string, any>} ctx shared sidebar closure: deps, state and sibling modules
  */
 export function createSidebarChatRows(ctx) {
-  const { chatFavorites, resolveChatState, getTerminalStateMeta, canPinChatToUrl, escapeHtml, onArchiveSettled, subchatExpanded, archivingGroupParents } = ctx;
+  const { getWorkspaces, getPreferredWorkspaceFolder, chatFavorites, resolveChatState, getTerminalStateMeta, canPinChatToUrl, escapeHtml, onArchiveSettled, subchatExpanded, archivingGroupParents } = ctx;
   const isChatForkArchiveBlocked = (...args) => ctx.isChatForkArchiveBlocked(...args);
   const render = (...args) => ctx.render(...args);
+
+  /** Marker + workspace name under the title, only in the flat "all chats" view. */
+  function resolveWorkspaceLineHtml(chat) {
+    if (readViewMode() !== 'all') return '';
+    const workspace = findWorkspaceForFolder(getWorkspaces(), chat.workspaceFolder || '', getPreferredWorkspaceFolder);
+    const name = workspace?.name || String(chat.workspaceFolder || '').split('/').filter(Boolean).pop() || '';
+    if (!name) return '';
+    return renderWorkspaceMarkerHtml(workspace, escapeHtml) + '<span class="sidebar-chat-item-workspace-name">' + escapeHtml(name) + '</span>';
+  }
 
   function sidebarChatRowDeps() {
     return {
@@ -24,6 +35,7 @@ export function createSidebarChatRows(ctx) {
       canPinChatToUrl,
       resolveSidebarHarnessIcon,
       renderChatActionButtonsHtml,
+      resolveWorkspaceLineHtml,
     };
   }
 

@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { executeTool } from '../lib/agent-harness/tool-executor.ts';
 import { resolvePlanModeSdkEventDecision, resolvePlanModeToolDecision } from '../lib/sdk/sdk-plan-guard.ts';
 import { listDelegationAdapterCapabilities, resolveDelegationAdapterCapabilities, assertReviewAdapterAllowed } from '../lib/delegation-adapter-capabilities.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import { getChatRunAdapter } from '../lib/chat-run-service.js';
 

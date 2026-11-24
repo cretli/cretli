@@ -42,3 +42,26 @@ test('ignores other messages', () => {
   const { room } = mkRoom();
   assert.equal(handleQueueControlMessage(room, { type: 'send', text: 'x' }, { broadcast() {} }), false);
 });
+
+test('queueMove shifts one slot and broadcasts the new UI order', () => {
+  const { room } = mkRoom({ pendingPrompts: [{ text: 'a' }, { text: 'b', displayText: 'B' }, { text: 'c' }] });
+  const sent = [];
+  const broadcast = (_r, p) => sent.push(p);
+  assert.equal(handleQueueControlMessage(room, { type: 'queueMove', text: 'B', direction: 'up' }, { broadcast }), true);
+  assert.deepEqual(room.pendingPrompts.map((i) => i.text), ['b', 'a', 'c']);
+  assert.deepEqual(sent, [{ type: 'sdkQueueReordered', text: 'B', order: ['B', 'a', 'c'] }]);
+  handleQueueControlMessage(room, { type: 'queueMove', text: 'a', direction: 'down' }, { broadcast });
+  assert.deepEqual(room.pendingPrompts.map((i) => i.text), ['b', 'c', 'a']);
+});
+
+test('queueMove ignores edges, unknown text and bad direction', () => {
+  const { room } = mkRoom();
+  const sent = [];
+  const broadcast = (_r, p) => sent.push(p);
+  handleQueueControlMessage(room, { type: 'queueMove', text: 'a', direction: 'up' }, { broadcast });
+  handleQueueControlMessage(room, { type: 'queueMove', text: 'B', direction: 'down' }, { broadcast });
+  handleQueueControlMessage(room, { type: 'queueMove', text: 'zzz', direction: 'up' }, { broadcast });
+  handleQueueControlMessage(room, { type: 'queueMove', text: 'B', direction: 'sideways' }, { broadcast });
+  assert.deepEqual(room.pendingPrompts.map((i) => i.text), ['a', 'b']);
+  assert.deepEqual(sent, []);
+});

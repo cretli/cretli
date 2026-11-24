@@ -703,7 +703,7 @@ function renderEditorForm(view) {
     + renderField({ id: 'objective', path: 'objective', label: t('settings.watcherScoutEditorObjective'), value: draft.objective, fieldErrors })
     + '<div class="cr-field">'
     + `<label class="cr-field-label" for="watcher-scout-editor-instructions">${escapeWatcherHtml(t('settings.watcherScoutEditorInstructions'))}</label>`
-    + `<textarea id="watcher-scout-editor-instructions" data-scout-editor-field="instructions" rows="5">${escapeWatcherHtml(draft.instructions)}</textarea>`
+    + `<cr-bar-textarea id="watcher-scout-editor-instructions" data-scout-editor-field="instructions" rows="5" aria-label="${escapeWatcherAttr(t('settings.watcherScoutEditorInstructions'))}" value="${escapeWatcherAttr(draft.instructions)}"></cr-bar-textarea>`
     + fieldErrorHtml(fieldErrors, 'instructions') + '</div></section>';
   const branchView = /** @type {any} */ (view);
   const branchValue = asText(draft.scope.base);

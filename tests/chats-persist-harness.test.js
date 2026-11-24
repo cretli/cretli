@@ -13,7 +13,7 @@ import {
   normalizeAgentTransport,
   usesHarnessWebSocket,
 } from '../lib/agent-transport.js';
-import { loadChats, saveChats, setChatClaudeSessionId, updateChat } from '../lib/persist/chats-persist.js';
+import { loadChats, saveChats, setChatClaudeSessionId, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { resolveDataPath } from '../lib/runtime-paths.js';
 
 const dataFile = resolveDataPath('chats.json');

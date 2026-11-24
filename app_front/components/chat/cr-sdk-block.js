@@ -24,6 +24,8 @@ class CrSdkBlock extends LitElement {
     queued: { type: Boolean, reflect: true },
     steerable: { type: Boolean, reflect: true },
     steerReady: { type: Boolean, attribute: false },
+    queueCanMoveUp: { type: Boolean, attribute: false },
+    queueCanMoveDown: { type: Boolean, attribute: false },
     running: { type: Boolean, reflect: true },
     speakable: { type: Boolean, reflect: true },
     speaking: { type: Boolean, state: true },
@@ -174,6 +176,11 @@ class CrSdkBlock extends LitElement {
       border-color: var(--cr-accent);
     }
 
+    .action-btn--move:hover:not(:disabled) {
+      color: var(--cr-accent);
+      border-color: var(--cr-accent);
+    }
+
     .action-btn--remove:hover {
       color: var(--cr-error);
       border-color: var(--cr-error-border);
@@ -311,6 +318,8 @@ class CrSdkBlock extends LitElement {
     this.queued = false;
     this.steerable = false;
     this.steerReady = false;
+    this.queueCanMoveUp = false;
+    this.queueCanMoveDown = false;
     this.running = false;
     this.speakable = false;
     this.speaking = false;
@@ -392,6 +401,16 @@ class CrSdkBlock extends LitElement {
     event.preventDefault();
     event.stopPropagation();
     this.dispatchEvent(new CustomEvent('cr-sdk-block-steer', { bubbles: true, composed: true }));
+  }
+
+  handleMoveClick(event, direction) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.dispatchEvent(new CustomEvent('cr-sdk-block-move', {
+      bubbles: true,
+      composed: true,
+      detail: { direction },
+    }));
   }
 
   handleRemoveClick(event) {
@@ -655,6 +674,31 @@ class CrSdkBlock extends LitElement {
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 12h11.17l-4.58-4.59L13 6l7 6-7 6-1.41-1.41L16.17 13H5z"/></svg>
                   <span>${t('sdkBlock.steerQueued')}</span>
+                </button>`
+            : null}
+          ${this.queued && (this.queueCanMoveUp || this.queueCanMoveDown)
+            ? html`
+                <button
+                  type="button"
+                  class="action-btn action-btn--move"
+                  title=${t('sdkBlock.moveQueuedUp')}
+                  aria-label=${t('sdkBlock.moveQueuedUp')}
+                  ?disabled=${!this.queueCanMoveUp}
+                  @click=${(event) => this.handleMoveClick(event, 'up')}
+                  @mousedown=${(event) => event.stopPropagation()}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+                </button>
+                <button
+                  type="button"
+                  class="action-btn action-btn--move"
+                  title=${t('sdkBlock.moveQueuedDown')}
+                  aria-label=${t('sdkBlock.moveQueuedDown')}
+                  ?disabled=${!this.queueCanMoveDown}
+                  @click=${(event) => this.handleMoveClick(event, 'down')}
+                  @mousedown=${(event) => event.stopPropagation()}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
                 </button>`
             : null}
           ${this.queued

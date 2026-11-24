@@ -1,0 +1,21 @@
+.chat-completion-dialog {
+  color: var(--cr-text);
+  font-size: var(--cr-font-size-sm);
+
+  > [slot='actions'] {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--cr-space-2);
+  }
+
+  .cr-field {
+    margin-block: var(--cr-space-3);
+  }
+
+  cr-bar-input {
+    display: block;
+    width: 100%;
+    margin-top: var(--cr-space-2);
+  }
+}

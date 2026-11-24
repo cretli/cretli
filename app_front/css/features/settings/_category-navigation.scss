@@ -1,0 +1,172 @@
+#settings-panel.active { display: grid; grid-template-columns: 15rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.header-settings-title, .header-settings-exit-btn { display: none; }
+body[data-sidebar-mode="settings"] {
+  #header-context-title { display: none; }
+  // Gear (open the settings tree) + close (leave settings) sit side by side.
+  #header-menu-btn { margin-right: 0.15rem; }
+  .header-settings-exit-btn { display: inline-flex; color: var(--cr-text-muted); }
+  .header-settings-exit-btn:hover { color: var(--cr-text); }
+  .header-settings-title {
+    display: block; flex: 1; min-width: 0; padding: 0 var(--cr-space-2);
+    font-size: var(--cr-font-size-sm); color: var(--cr-text);
+  }
+}
+#settings-panel .settings-category-sidebar {
+  flex: 0 0 15rem; min-height: 0; overflow: auto; background: var(--cr-surface);
+  border-right: 1px solid var(--cr-border);
+}
+#settings-panel .settings-content {
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+}
+#settings-panel #settings-tabs {
+  flex-direction: column; align-items: stretch; overflow: visible; padding: var(--cr-space-2); border: 0;
+}
+#settings-tabs .settings-category-group {
+  display: flex; flex-direction: column;
+  h3 { margin: var(--cr-space-3) var(--cr-space-2) var(--cr-space-1); font-size: var(--cr-font-size-xs); color: var(--cr-text-muted); }
+  &.is-advanced .settings-tab:not(.active) { color: var(--cr-text-muted); }
+}
+#settings-panel #settings-tabs .settings-tab {
+  display: flex; align-items: center; gap: var(--cr-space-2); width: 100%; text-align: left;
+  border: 0; border-radius: var(--cr-radius-sm); white-space: normal;
+  color: var(--cr-text); font-size: var(--cr-font-size-sm);
+  &.active { background: var(--cr-primary); color: var(--cr-text); }
+  &:hover { background: var(--cr-hover); }
+}
+
+@media (max-width: 768px) {
+  #settings-panel.active { grid-template-columns: minmax(0, 1fr); }
+  #settings-panel .settings-category-sidebar { border-right: 0; }
+  #settings-panel[data-settings-view="content"] .settings-category-sidebar { display: none; }
+  #settings-panel:not([data-settings-view="content"]) .settings-content { display: none; }
+  #settings-panel #settings-tabs .settings-tab { min-height: 2.75rem; }
+}
+#settings-category-search { display: block; margin: var(--cr-space-2); width: calc(100% - 2 * var(--cr-space-2)); }
+#settings-panel #settings-tabs [hidden],
+#settings-tabs .settings-category-group[hidden] { display: none !important; }
+#settings-search-results {
+  padding: var(--cr-space-2);
+  button {
+    width: 100%; padding: var(--cr-space-2); border: 0; border-radius: var(--cr-radius-sm);
+    background: var(--cr-surface); color: var(--cr-text); text-align: left;
+    font: inherit; font-size: var(--cr-font-size-sm); cursor: pointer;
+    &:hover, &:focus-visible { background: var(--cr-hover); outline: 1px solid var(--cr-accent); }
+  }
+}
+.settings-search-highlight { outline: 2px solid var(--cr-accent); outline-offset: 2px; }
+
+/* Settings routes own sidebar mode; chat DOM and its persisted view mode stay intact. */
+#sidebar-settings-body, #sidebar-settings-search { display: none; }
+body[data-sidebar-mode="settings"] {
+  #app-sidebar > .sidebar-body,
+  #sidebar-search, #sidebar-filter-btn, #sidebar-view-modes, #sidebar-workspace-bar { display: none !important; }
+  #sidebar-settings-search { display: inline-block; min-width: 0; flex: 1; }
+  #sidebar-settings-body { display: block; flex: 1; min-height: 0; overflow: auto; }
+  #settings-panel.active { grid-template-columns: minmax(0, 1fr); }
+  #settings-panel .settings-content { display: flex; }
+  #settings-panel .settings-category-sidebar {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+    border: 0; padding: 0; pointer-events: none;
+  }
+  #settings-panel .settings-nav { display: none; }
+  #header-settings-btn.is-active { background: var(--cr-primary); color: var(--cr-text); }
+}
+#sidebar-settings-tree[hidden] { display: none; }
+// The settings tree mirrors the sidebar chat views: each group is an
+// "All chats"-style header with a count, categories are chat rows and
+// subcategories nest like subchats. Row geometry (height, padding, radius,
+// fonts) comes from _sidebar.scss; this block resets <button> defaults and
+// draws the tree guides.
+#sidebar-settings-tree {
+  // Indent of one tree level = chevron width + row gap, so a child starts
+  // under its parent's icon instead of under its chevron.
+  --settings-tree-indent: 1.4rem;
+  // Room a chevron takes in a row (width + gap); slotted leaves skip it.
+  --settings-chevron-slot: 1.4rem;
+  padding: 0.35rem 0.5rem 1rem;
+
+  ul { list-style: none; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  .sidebar-settings-group.is-advanced .sidebar-settings-list { opacity: 0.8; }
+  // Group headers are labels, not controls.
+  .sidebar-settings-group-header {
+    cursor: default;
+    &:hover { background: var(--cr-surface); }
+    .sidebar-workspace-title { margin: 0; color: var(--cr-text); }
+  }
+  // Categories sit under the group like chats under the "All chats" header.
+  .sidebar-settings-list { margin: 0.15rem 0 0.4rem; padding-left: 0.85rem; }
+  .sidebar-chat-item {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    font: inherit;
+    line-height: normal;
+    text-align: left;
+    color: var(--cr-text);
+    background: transparent;
+    &:hover { background: var(--cr-hover); }
+    &.is-active { background: var(--cr-active); }
+    &:focus-visible { outline: 2px solid var(--cr-accent); outline-offset: -2px; }
+  }
+  .sidebar-settings-row .sidebar-workspace-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--cr-font-size-legacy-085);
+  }
+  .sidebar-settings-chevron {
+    flex: 0 0 1rem;
+    width: 1rem;
+    font-size: var(--cr-font-size-legacy-1);
+    line-height: 1;
+    text-align: center;
+    color: var(--cr-text-muted);
+  }
+  .sidebar-chat-item-harness .mdi { font-size: var(--cr-font-size-legacy-1); line-height: 1; }
+  .sidebar-chat-item.is-active .sidebar-chat-item-harness { color: var(--cr-text); }
+  // Subcategories: indented past the parent's chevron, with subchat-style
+  // guides that drop from the centre of that chevron.
+  .sidebar-settings-children { padding-left: var(--settings-tree-indent); }
+  .sidebar-settings-children > .sidebar-settings-node {
+    position: relative;
+    &::before, &::after {
+      content: '';
+      position: absolute;
+      // Row padding (0.5rem) + half the chevron (0.5rem) from the parent row.
+      left: calc(1rem - var(--settings-tree-indent));
+      pointer-events: none;
+      opacity: 0.9;
+    }
+    &::before { top: 0; bottom: 0; border-left: 1px solid var(--cr-border); }
+    &::after {
+      top: calc(var(--sidebar-row-height) / 2 - 0.5px);
+      width: calc(var(--settings-tree-indent) - 0.6rem);
+      border-top: 1px solid var(--cr-border);
+    }
+    &:last-child::before { bottom: auto; height: calc(var(--sidebar-row-height) / 2); }
+    // The guide reaches the shifted row, so it ends where the row starts.
+    &.is-slotted::after { width: calc(var(--settings-tree-indent) - 0.6rem + var(--settings-chevron-slot)); }
+  }
+  .sidebar-settings-node.is-slotted > .sidebar-chat-item {
+    margin-left: var(--settings-chevron-slot);
+    width: calc(100% - var(--settings-chevron-slot));
+  }
+}
+
+// Harness switcher above a provider page (Keys, Models, Permissions, Statistics).
+// Same column as .settings-sections so the picker lines up with the page below.
+#settings-harness-picker {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--cr-space-2) var(--cr-space-2) 0;
+  @media (min-width: 720px) {
+    max-width: 52rem;
+    margin-inline: auto;
+    padding: var(--cr-space-3) var(--cr-space-4) 0;
+  }
+  &[hidden] { display: none; }
+}

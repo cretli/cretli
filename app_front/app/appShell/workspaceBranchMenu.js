@@ -182,7 +182,7 @@ export function initWorkspaceBranchMenu(deps = {}) {
       }
       const marker = document.createElement('span');
       marker.className = 'header-branch-item-marker';
-      marker.textContent = isCurrent ? '•' : '';
+      marker.classList.toggle('is-current', isCurrent);
       marker.setAttribute('aria-hidden', 'true');
       const name = document.createElement('span');
       name.className = 'header-branch-item-name';

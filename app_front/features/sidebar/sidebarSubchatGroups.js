@@ -206,20 +206,50 @@ export function renderTreeContinuationHtml(levels) {
 }
 
 /**
- * Compact glyph summary shown on the collapsed group header, e.g. `7 ✓, 1 ✗`.
+ * Material Design Icons codepoints (private use area) for the summary glyphs. The summary spans
+ * list the icon font as a fallback, so the text stays a plain string while the glyphs render as
+ * icons: mdi-check, mdi-close, mdi-pause.
+ */
+const SUMMARY_ICON = Object.freeze({ ok: '\u{F012C}', failed: '\u{F0156}', paused: '\u{F03E4}' });
+
+/** @param {{ completed?: number, idle?: number, failed?: number, interrupted?: number }} summary */
+function summaryCounts(summary) {
+  return {
+    ok: Math.max(0, Number(summary?.completed) || 0) + Math.max(0, Number(summary?.idle) || 0),
+    failed: Math.max(0, Number(summary?.failed) || 0),
+    paused: Math.max(0, Number(summary?.interrupted) || 0),
+  };
+}
+
+/**
+ * Compact summary shown on the collapsed group header: a count followed by an icon glyph, e.g.
+ * `7 <check>, 1 <close>`. Meant for display only; tooltips use {@link formatSubchatSummaryText}.
  *
  * @param {{ completed?: number, idle?: number, failed?: number, interrupted?: number }} summary
  * @returns {string}
  */
 export function formatSubchatSummary(summary) {
-  const parts = [];
-  const ok = Math.max(0, Number(summary?.completed) || 0) + Math.max(0, Number(summary?.idle) || 0);
-  const failed = Math.max(0, Number(summary?.failed) || 0);
-  const interrupted = Math.max(0, Number(summary?.interrupted) || 0);
-  if (ok) parts.push(ok + ' ✓');
-  if (failed) parts.push(failed + ' ✗');
-  if (interrupted) parts.push(interrupted + ' ⏸');
-  return parts.join(', ');
+  const counts = summaryCounts(summary);
+  return ['ok', 'failed', 'paused']
+    .filter((kind) => counts[kind])
+    .map((kind) => counts[kind] + ' ' + SUMMARY_ICON[kind])
+    .join(', ');
+}
+
+/**
+ * The same summary in words for tooltips and accessible descriptions.
+ *
+ * @param {{ completed?: number, idle?: number, failed?: number, interrupted?: number }} summary
+ * @param {(key: string, vars?: Record<string, string|number>) => string} [translate]
+ * @returns {string}
+ */
+export function formatSubchatSummaryText(summary, translate) {
+  const tFn = typeof translate === 'function' ? translate : (key, vars) => `${vars?.count} ${key.split('.').pop()}`;
+  const counts = summaryCounts(summary);
+  return [['ok', 'sidebar.subchatCountOk'], ['failed', 'sidebar.subchatCountFailed'], ['paused', 'sidebar.subchatCountPaused']]
+    .filter(([kind]) => counts[kind])
+    .map(([kind, key]) => tFn(key, { count: counts[kind] }))
+    .join(', ');
 }
 
 /**
@@ -534,7 +564,7 @@ export function renderSubchatGroupHtml(group, options = {}) {
     ? translate('sidebar.collapseGroup', { label: labelledCount })
     : translate('sidebar.expandGroup', { label: labelledCount });
   const summaryTitle = summaryLabel
-    ? translate('sidebar.subchatSummary', { summary: summaryLabel })
+    ? translate('sidebar.subchatSummary', { summary: formatSubchatSummaryText(group?.summary, translate) })
     : '';
   const canArchive = options.canArchive === true && (group?.allChildIds?.length || 0) > 0;
   const indentLevel = Math.min(
@@ -619,6 +649,6 @@ export function formatSubchatParentBadge(summary, translate) {
   const tFn = typeof translate === 'function' ? translate : (key) => key;
   return {
     label,
-    title: tFn('sidebar.subchatParentSummary', { summary: label }),
+    title: tFn('sidebar.subchatParentSummary', { summary: formatSubchatSummaryText(summary, tFn) || label }),
   };
 }

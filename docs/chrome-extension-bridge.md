@@ -1,8 +1,26 @@
-# Cretli Chrome extension bridge (design decision)
+# Cretli Chrome extension bridge
 
-Status: design, decided. Implementation is tracked by the follow-up leaf
-("Chrome extension 2/2"). This document is the contract that leaf builds
-against; where the leaf text and this document differ, this document wins.
+## Implementation status
+
+The server side and MV3 extension are implemented. The settings UI is pending.
+
+## Implementation decisions
+
+- **Consent is per exact host**, not per registrable domain. Approving
+  `invoices.example.com` does not cover `example.com`.
+- **Redirects are never followed.** A redirect to another host fails with
+  `E_DOMAIN_NOT_ALLOWED`.
+- **The install is bound to the instance owner** (single-password auth), not to
+  a login session. Pairing, unpairing, domain approval and the kill switch need
+  an interactive login (`human-required` otherwise).
+- **The kill switch deletes the token**, so the extension must be paired again.
+- Bytes are streamed into `data/chrome-ext-downloads/<chatId>/`. Limits: PDF/CSV
+  only; 20 MiB per file, 10 files and 50 MiB per command.
+- The workspace MCP policy toggle is `allowCretliChromeExtension` and defaults
+  to false.
+- REST ownership uses the single instance owner; MCP dispatch also requires an
+  in-workspace chat with the same active resolved owner throughout each call,
+  then dispatches as `INSTANCE_OWNER_ID`.
 
 Goal: let an agent in an interactive Cretli Agent chat list and download
 documents (invoices, statements: PDF/CSV) from sites where the user is already
@@ -111,10 +129,9 @@ The extension has no Cretli session cookie, so the path is handled in
 3. Later connections send `{ "type": "auth", installId, token }` as the first
    message (5 s timeout, `4401` missing / `4403` invalid or revoked or origin id
    mismatch).
-4. The install is bound to the **signed-in owner** who created the code, not to
-   a browser session cookie. Commands are dispatched only for chats whose
-   resolved owner (`resolveBrowserChatOwner`) is the same user and has an active
-   session (`isBrowserOwnerSessionActive`), the same rule as `chrome-tools.js:48-51`.
+4. Commands require a chat in the calling workspace with a resolved owner and
+   an active session. Dispatch uses `INSTANCE_OWNER_ID`; the resolved owner is
+   rechecked and must stay stable for each call.
 5. One live connection per owner: a new authenticated connection replaces the
    previous one (old closed with `4409 replaced`). Heartbeat: reuse
    `attachWsKeepalive`; the extension reconnects with exponential backoff
@@ -157,7 +174,7 @@ user's Chrome setting, and it needs the `downloads` permission.
 All control messages are JSON text frames. Server -> extension:
 
 ```json
-{ "type": "cmd", "id": "<uuid>", "name": "list_documents|download|open_url|cancel",
+{ "type": "cmd", "id": "<uuid>", "name": "chrome_ext_docs|chrome_ext_fetch|chrome_ext_open|cancel",
   "timeoutMs": 30000, "args": { } }
 ```
 
@@ -169,9 +186,9 @@ server (default 30 s, `download` 120 s, max 300 s) and end with `E_TIMEOUT`.
 
 | Command | args | data |
 |---|---|---|
-| `open_url` | `{ url, reuseTab?: boolean }` (`https:` only, host must be on the opt-in list) | `{ tabId, url, title }` |
-| `list_documents` | `{ tabId, selector?: string, match?: { hrefPattern?, textPattern? }, limit?: 1..200 }` | `{ items: [{ selector, href, text, mimeHint }] }` (text trimmed to 200 chars) |
-| `download` | `{ tabId, items: [{ selector? , href? }] }` (1..10, `href` must be same-site as the tab or on the opt-in list) | `{ files: [{ path, name, size, sha256, mime, sourceHost }] }` |
+| `chrome_ext_open` | `{ url, reuseTab?: boolean }` (`https:` only, host must be on the opt-in list) | `{ tabId, url, title }` |
+| `chrome_ext_docs` | `{ tabId, selector?: string, match?: { hrefPattern?, textPattern? }, limit?: 1..200 }` | `{ items: [{ selector, href, text, mimeHint }] }` (text trimmed to 200 chars) |
+| `chrome_ext_fetch` | `{ tabId, items: [{ selector? , href? }] }` (1..10, `href` must be same-site as the tab or on the opt-in list) | `{ files: [{ path, name, size, sha256, mime, sourceHost }] }` |
 
 Error codes: `E_NOT_PAIRED`, `E_DISCONNECTED`, `E_KILLED`, `E_DOMAIN_NOT_ALLOWED`,
 `E_PERMISSION_DENIED` (host permission not granted in Chrome), `E_NO_TAB`,
@@ -184,8 +201,8 @@ values, form field values or credentials; `E_HTTP` carries only the status
 code. The server schema-validates every result and drops unknown fields.
 
 Agent-facing MCP tools (new module `lib/mcp/builtin/chrome-ext-tools.js`,
-registered in `lib/mcp/builtin/catalog.js`): **`chrome_ext_open_url`**,
-**`chrome_ext_list_documents`**, **`chrome_ext_download`**, plus read-only
+registered in `lib/mcp/builtin/catalog.js`): **`chrome_ext_open`**,
+**`chrome_ext_docs`**, **`chrome_ext_fetch`**, plus read-only
 **`chrome_ext_status`** (paired / connected / allowed domains, no secrets).
 
 ## 5. Security model
@@ -197,7 +214,7 @@ registered in `lib/mcp/builtin/catalog.js`): **`chrome_ext_open_url`**,
   consent to Cretli's.
 - **Domain opt-in list:** per owner, stored server-side
   (`data/chrome-ext/domains.json`). The first command against a new
-  registrable domain fails with `E_DOMAIN_NOT_ALLOWED` and creates a pending
+  exact host fails with `E_DOMAIN_NOT_ALLOWED` and creates a pending
   request the human approves in Settings (or a consent card in the chat); the
   extension then calls `chrome.permissions.request` for that origin, which Chrome
   shows to the user. `manifest.json` lists only `optional_host_permissions`
@@ -221,8 +238,8 @@ registered in `lib/mcp/builtin/catalog.js`): **`chrome_ext_open_url`**,
 | Chat must belong to the calling workspace (`:36-38`) | **yes** |
 | No delegation / Watcher orchestrator / Scout (`:41-44`) | **yes** |
 | Workspace consent (existing `allowClaudeChrome` pattern: `:23`, `:45-47`) | **yes**, a **new implementation gate** via `allowCretliChromeExtension`; the cited code checks `allowClaudeChrome`, not the new key |
-| Signed-in owner attached and active, stable during the call (`:48-52`) | **yes**, plus the owner must match the install's owner |
-| `confirm: true` (`:58-61`) | **yes** for `chrome_ext_open_url` and `chrome_ext_download`; no for `list_documents` and `status` |
+| Signed-in owner attached and active, stable during the call (`:48-52`) | **yes**, dispatch uses `INSTANCE_OWNER_ID` after rechecking the active resolved owner |
+| `confirm: true` (`:58-61`) | **yes** for `chrome_ext_open` and `chrome_ext_fetch`; no for `list_documents` and `status` |
 | Claude Code subscription (`:53-55`) | **no**: the extension is independent of Claude CLI |
 | Re-authorize before dispatch (`authorize` passed to the bridge, `:65`) | **yes**, rechecked before each command |
 

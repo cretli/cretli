@@ -6,6 +6,7 @@
  * length budget. All text is assigned through `textContent`, never as HTML.
  */
 
+import '../../components/ui/cr-bar-textarea.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import './agent-prompts-settings.scss';
@@ -77,13 +78,14 @@ function renderBlock(block) {
     el('span', { class: 'cr-hint' }, [block.hard ? t('settings.agentPrompts.hard') : t('settings.agentPrompts.editable')]),
     block.overridden ? el('span', { class: 'cr-hint' }, [t('settings.agentPrompts.overridden')]) : null,
   ]);
-  const area = el('textarea', {
+  const area = el('cr-bar-textarea', {
     class: 'cr-prompts-text',
+    'aria-label': title,
     rows: block.hard ? '3' : '4',
     'data-prompts-text': block.key,
     ...(block.hard ? { readonly: '', 'aria-readonly': 'true' } : {}),
   });
-  /** @type {HTMLTextAreaElement} */ (area).value = block.text;
+  /** @type {any} */ (area).value = block.text;
   const children = [el('span', { class: 'cr-field-label' }, [title]), badges, area];
   if (!block.hard) {
     children.push(el('div', { class: 'cr-row' }, [
@@ -144,7 +146,7 @@ export async function refreshAgentPromptsSettings() {
 async function runAction(action, key) {
   const root = getRoot();
   if (action === 'save') {
-    const text = /** @type {HTMLTextAreaElement | null} */ (root?.querySelector(`[data-prompts-text="${key}"]`))?.value || '';
+    const text = /** @type {any} */ (root?.querySelector(`[data-prompts-text="${key}"]`))?.value || '';
     const { status, json } = await api(`${API}/blocks/${encodeURIComponent(key)}`, { method: 'PUT', body: { text } });
     if (status !== 200 || !json?.ok) return setStatus(`${t('settings.agentPrompts.saveFailed')} (${json?.error || `HTTP ${status}`})`, 'error');
     await refreshAgentPromptsSettings();

@@ -544,3 +544,57 @@ test('viewContextRuntimeParams carries the pinned id for panel requests', () => 
     todoId: '',
   });
 });
+
+
+test('runtime readiness waits for the default workspace after route-only boot', async () => {
+  const h = harness();
+  let settled = false;
+  const runtimeReady = h.store.whenRuntimeReady().then(() => { settled = true; });
+  await h.store.applyRouteContext();
+  assert.equal(settled, false, 'route boot alone has no runtime paths');
+  h.store.markDefaultReady({ workspaceFile: '/ws/a.code-workspace', workspaceFolder: '/ws/a' });
+  await runtimeReady;
+  assert.equal(settled, true);
+  assert.equal((await h.store.whenRuntimeReady()).runtime.workspaceFolder, '/ws/a');
+});
+
+test('runtime readiness stays parked for an explicit target until its paths resolve', async () => {
+  const answer = deferred();
+  const h = harness({ resolveWorkspace: () => answer.promise });
+  h.setLocation('/chat', `?ws=${WS_A}&folder=${FOLDER_A}`);
+  const applying = h.store.applyRouteContext();
+  let settled = false;
+  const runtimeReady = h.store.whenRuntimeReady().then(() => { settled = true; });
+  h.store.markDefaultReady({ workspaceFolder: '/ws/wrong' });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  answer.resolve({ workspaceFile: '/ws/a.code-workspace', workspaceFolder: '/ws/a' });
+  await applying;
+  await runtimeReady;
+  assert.equal(h.store.getState().runtime.workspaceFolder, '/ws/a');
+});
+
+
+for (const runtime of [{ workspaceFolder: '/ws/default' }, { workspaceFile: '/ws/default.code-workspace' }]) {
+  test(`resolved empty runtime waits until ${Object.keys(runtime)[0]} arrives`, async () => {
+    // A truthy default can normalize to empty paths during route-only boot.
+    const h = harness({ defaultContext: { workspaceFile: ' ', workspaceFolder: ' ' } });
+    let beforeSettled = false;
+    const before = h.store.whenRuntimeReady().then(() => { beforeSettled = true; });
+    await h.store.applyRouteContext();
+    assert.equal(h.store.getState().status, VIEW_CONTEXT_STATUS.RESOLVED);
+    assert.deepEqual(h.store.getState().runtime, { workspaceFile: '', workspaceFolder: '' });
+    let afterSettled = false;
+    const after = h.store.whenRuntimeReady().then(() => { afterSettled = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(beforeSettled, false, 'an empty resolved state must not release parked callers');
+    assert.equal(afterSettled, false, 'new callers must also wait for runtime paths');
+    h.store.markDefaultReady({});
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(beforeSettled || afterSettled, false, 'empty settings do not supply a scope');
+    h.store.markDefaultReady(runtime);
+    await Promise.all([before, after]);
+    assert.equal(beforeSettled && afterSettled, true);
+    assert.equal((await h.store.whenRuntimeReady()).runtime[Object.keys(runtime)[0]], Object.values(runtime)[0]);
+  });
+}

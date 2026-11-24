@@ -10,7 +10,7 @@ import {
   updateDelegationRecord,
 } from '../lib/persist/delegations-persist.js';
 import { setDelegationStoreBackend } from '../lib/persist/delegation-store-backend.js';
-import { loadChats, saveChats } from '../lib/persist/chats-persist.js';
+import { loadChats, saveChats } from '../lib/persist/chats-legacy-store.js';
 
 for (const backend of ['json', 'sqlite']) {
   setDelegationStoreBackend(backend);

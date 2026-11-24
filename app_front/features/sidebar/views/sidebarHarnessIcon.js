@@ -23,6 +23,7 @@ export function resolveSidebarHarnessIcon(chat) {
     mistral: 'mistral.svg',
     zai: 'zai.svg',
     mimo: 'mimo.svg',
+    antigravity: 'antigravity.svg',
     codex: 'codex.svg',
     qwen: 'qwen.svg',
     claude: 'claude.svg',

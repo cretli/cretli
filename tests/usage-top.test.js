@@ -155,9 +155,6 @@ test('resume axis splits delegated usage by sessionResume and advice flags harne
   const advice = buildUsageAdvice({ resume: top });
   assert.deepEqual(advice.map((f) => `${f.kind}:${f.subject}`), ['resume_hurts:codex|review']);
   assert.equal(advice[0].evidence.ratio, 3);
-  // A harness that is mostly unmeasured must not be judged on the few events it has.
-  const sparse = buildUsageTop({ events: events.filter((e, i) => i % 5 === 0).concat(events.map((e) => ({ ...e, eventType: 'run', tokens: undefined }))), delegations, groupBy: 'resume' });
-  assert.deepEqual(buildUsageAdvice({ resume: sparse }).map((f) => f.kind), ['low_measurement_coverage']);
 });
 
 test('resume axis reports resume_context_cap fallbacks as their own bucket', () => {
@@ -172,13 +169,13 @@ test('resume axis reports resume_context_cap fallbacks as their own bucket', () 
   assert.equal(byKey['codex|implement|fresh'].delegations, 1);
 });
 
-test('advice flags harness/role pairs whose delegations mostly lack usage measurements', async () => {
+test('advice flags harness/role pairs whose attempts mostly lack usage measurements', async () => {
   const { buildUsageAdvice } = await import('../lib/usage/usage-advice.ts');
-  const advice = buildUsageAdvice({ resume: { rows: [
-    { key: 'codex|review|fresh', delegations: 41, delegationsSeen: 173 },
-    { key: 'codex|review|resumed', delegations: 16, delegationsSeen: 48 },
-    { key: 'claude|review|fresh', delegations: 570, delegationsSeen: 579 },
+  const advice = buildUsageAdvice({ coverage: { rows: [
+    { harness: 'codex', role: 'review', quality: 'low_coverage', attempts: 173, eligible: 173, measured: 57, coverage: 0.3295, missingReasons: { run_missing: 116 } },
+    { harness: 'claude', role: 'review', quality: 'ok', attempts: 579, eligible: 579, measured: 570, coverage: 0.9844, missingReasons: {} },
+    { harness: 'qwen', role: 'fix', quality: 'insufficient_sample', attempts: 3, eligible: 3, measured: 0, coverage: 0, missingReasons: {} },
   ] } });
   assert.deepEqual(advice.map((f) => `${f.kind}:${f.subject}`), ['low_measurement_coverage:codex|review']);
-  assert.equal(advice[0].evidence.delegationsMeasured, 57);
+  assert.equal(advice[0].evidence.measured, 57);
 });

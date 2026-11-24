@@ -285,6 +285,7 @@ export function assemble(context: AssembleContext, adapter: ContextAdapter): {
   const volatileInput = {
     cwd,
     chatId: context.chatId,
+    chat: context.chat,
     mode: context.mode,
     transport: context.transport,
     skipPlanHint: context.skipPlanHint === true,

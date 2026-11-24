@@ -1,6 +1,9 @@
 /** New-chat modal: harness readiness, model catalogs, usage limits and picker sync. */
 import * as api from '../../../core/api/index.js';
 import { t } from '../../../i18n/index.js';
+import { effortBarCount, formatModelDisplay } from '../modelDisplay.js';
+import { getModelIconSrc } from '../modelIcon.js';
+import { buildNewChatRecency, newChatRecencyStamp, sortModelOptionsByRecency } from '../newChatRecency.js';
 import {
   buildNewChatModelOptions,
   encodeNewChatModelChoice,
@@ -145,11 +148,13 @@ function buildCombinedModelPickerOptions() {
     t('chat.newNoModels'), t('chat.newChecking'),
     // Limit countdowns read the clock, so live lockouts re-key once a minute.
     newChatUsageLockouts.length ? Math.floor(Date.now() / 60000) : 0,
+    // Rows are ordered by the last chat that used them.
+    newChatRecencyStamp(chats),
   ]);
   if (combinedPickerMemo?.key === key) return combinedPickerMemo.result;
   const built = buildNewChatModelOptions(harnesses, newChatUsageLockouts, t, { locale });
   const favoriteSet = new Set(favoriteChoices);
-  const options = built.map((row) => {
+  const options = sortModelOptionsByRecency(built, buildNewChatRecency(chats)).map((row) => {
     const choice = decodeNewChatModelChoice(row.value);
     return { ...row, favoriteable: !!choice?.model && !localChatHarnessIds.has(choice.harness),
       favorite: favoriteSet.has(row.value) };
@@ -211,6 +216,24 @@ export function syncSdkModeBarPicker(bar, chat) {
   if (bar.pickerLabels !== labels) bar.pickerLabels = labels;
 }
 
+/**
+ * Closed-trigger look of the new-chat model picker: model name, family glyph before it and
+ * signal bars for the thinking level after it. Also used for the live label while swiping.
+ *
+ * @param {any} picker
+ * @param {{ harness: string, harnessLabel: string, model: string, option?: any }} info
+ */
+export function applyNewChatPickerDisplay(picker, { harness, harnessLabel, model, option }) {
+  const display = formatModelDisplay(model, option?.name || option?.label || '');
+  picker.displayLabel = display.name
+    || chatRuntime.chatModelSelectApi.getModelLabelByValue(model, harness) || t('chat.newNoModels');
+  picker.displayIconSrc = getModelIconSrc(model, harness);
+  picker.displayEffortBars = effortBarCount(display.effort);
+  picker.displayEffortMax = display.effort === 'max' || display.effort === 'ultra';
+  picker.displayEffortTitle = display.effort ? t(`sdkBlock.effortLevel.${display.effort}`) : '';
+  picker.displayTitle = `${harnessLabel} · ${model}`;
+}
+
 /** Mirror the selected pair and all known catalogs into the combined Lit picker. */
 export function syncNewChatAgentModelPicker() {
   const picker = document.getElementById('chat-new-agent-model');
@@ -225,9 +248,11 @@ export function syncNewChatAgentModelPicker() {
   const selected = picker.options.find((row) => row.value === choice);
   const label = harnesses.find((row) => row.id === harness)?.label || harness;
   picker.value = choice;
-  picker.displayLabel = `${label} · ${selected?.label || chatRuntime.chatModelSelectApi.getModelLabelByValue(model, harness) || t('chat.newNoModels')}`;
+  applyNewChatPickerDisplay(picker, { harness, harnessLabel: label, model, option: selected });
   const hint = document.getElementById('chat-new-sdk-hint');
-  picker.displayDescription = hint ? hint.textContent : selected?.status || '';
+  const note = hint ? hint.textContent : selected?.status || '';
+  // The harness is no longer in the title (the model glyph and bars take its place), so it leads the note.
+  picker.displayDescription = [label, note].filter(Boolean).join(' · ');
   applyCombinedModelPickerLabels(picker);
 }
 

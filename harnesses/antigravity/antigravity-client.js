@@ -1,7 +1,12 @@
+import { isMutatingPlanModeShellCommand, readPlanModeShellCommand } from '../../lib/sdk/sdk-plan-guard.ts';
+import { isReviewReadOnlyAssignment } from '../../lib/delegation-review-policy.js';
+import { configureAntigravitySession } from './antigravity-session-config.js';
+import { buildSdkPromptMessage } from '../../lib/sdk/sdk-prompt-images.ts';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { resolveAntigravityCli } from './antigravity-config.js';
 import { buildAssistantDeltaEvent, buildToolCallEvent } from '../../lib/agent-harness/event-normalizer.ts';
+import { readAntigravityCommandNames } from './antigravity-context.js';
 
 /** ACP v1 uses one JSON-RPC object per line on stdio. */
 export class AntigravityConnection {
@@ -108,6 +113,80 @@ export function createAntigravityEventNormalizer(onEvent) {
   };
 }
 
+/**
+ * Antigravity reports an exhausted account quota as the turn's only assistant
+ * text ("⚠ Individual quota reached. … Resets in 166h45m41s.") and still ends
+ * the turn with `end_turn`. Returns that notice, or '' for a normal answer.
+ *
+ * @param {unknown} text the turn's whole assistant text
+ * @returns {string}
+ */
+export function readAntigravityQuotaNotice(text) {
+  const notice = String(text || '').replace(/^(?:\s|⚠|️)+/u, '').trim();
+  return notice.length <= 500 && /\bquota\s+reached\b/i.test(notice) ? notice : '';
+}
+
+/** @param {unknown} value @returns {number|null} */
+function readTokenCount(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+/**
+ * Turn the ACP usage signals of one prompt into the shared harness events.
+ *
+ * `usage_update { used, size }` is the session's current context occupancy
+ * and window; the `session/prompt` result carries the turn's token split.
+ * Antigravity reports `inputTokens` without cached tokens (disjoint) and
+ * counts thought tokens inside `outputTokens`, so the prompt size is
+ * input + cache read + cache write.
+ *
+ * @param {{ result?: any, usageUpdate?: { used?: unknown, size?: unknown } | null, model?: string, observedAt?: string, turnId?: string }} input
+ * @returns {Array<Record<string, any>>} `context_usage` (meter/cache samples) and `usage` (ledger) events
+ */
+export function buildAntigravityUsageEvents({ result, usageUpdate = null, model = '', observedAt = new Date().toISOString(), turnId = '' }) {
+  const raw = result?.usage && typeof result.usage === 'object' ? result.usage : null;
+  if (!raw) return [];
+  const input = readTokenCount(raw.inputTokens);
+  const output = readTokenCount(raw.outputTokens);
+  if (input == null && output == null) return [];
+  const cacheRead = readTokenCount(raw.cachedReadTokens) ?? 0;
+  const cacheWrite = readTokenCount(raw.cachedWriteTokens) ?? 0;
+  const reasoning = readTokenCount(raw.thoughtTokens);
+  const promptTokens = (input ?? 0) + cacheRead + cacheWrite;
+  const used = readTokenCount(usageUpdate?.used);
+  const window = readTokenCount(usageUpdate?.size);
+  const total = used != null && used > 0 ? used : readTokenCount(raw.totalTokens) ?? promptTokens + (output ?? 0);
+  const ledgerUsage = {
+    inputTokens: input ?? 0,
+    outputTokens: output ?? 0,
+    cacheReadTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
+    ...(reasoning != null && output != null && reasoning <= output ? { reasoningTokens: reasoning } : {}),
+  };
+  const events = [];
+  if (promptTokens > 0 && total > 0) {
+    events.push({
+      type: 'context_usage',
+      source: 'antigravity-acp',
+      model,
+      usage: {
+        inputTokens: promptTokens,
+        outputTokens: output,
+        totalTokens: total,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        ...(ledgerUsage.reasoningTokens != null ? { reasoningTokens: ledgerUsage.reasoningTokens } : {}),
+      },
+      contextWindowTokens: window != null && window > 0 ? window : null,
+      observedAt,
+      ...(turnId ? { turnId } : {}),
+    });
+  }
+  events.push({ type: 'usage', model, usage: ledgerUsage, final: true, ...(turnId ? { turnId } : {}) });
+  return events;
+}
+
 export function acpMcpServers(servers) {
   return Object.entries(servers || {}).map(([name, server]) => {
     if (!server.command) throw new Error('Antigravity MCP requires the managed stdio bridge');
@@ -116,17 +195,41 @@ export function acpMcpServers(servers) {
 }
 
 /** A fresh ACP process per turn gives bounded lifetime and reloads MCP policy. */
-export async function runAntigravityPrompt({ cwd, model, sessionId, prompt, mode, assignment, scoutReadOnly, mcpServers, signal, checkPermission, onSession, onEvent, connectionFactory = (options) => new AntigravityConnection(options) }) {
+export async function runAntigravityPrompt({ cwd, model, sessionId, prompt, mode, assignment, scoutReadOnly, mcpServers, signal, checkPermission, onSession, onEvent, onConfiguration = (_config) => {}, promptImageOptions = {}, turnId = '', onCommands = (_names) => {}, onSessionDropped = async () => {}, connectionFactory = (options) => new AntigravityConnection(options) }) {
   if (signal?.aborted) throw new Error('Antigravity run cancelled');
-  // ACP permission callbacks alone do not certify a hard read-only boundary.
-  if (assignment === 'review' || scoutReadOnly) throw new Error('Antigravity is not certified for read-only review or scout runs');
+  // Scout requires certified enforcement; review has a separate uncertified opt-in.
+  if (scoutReadOnly) throw new Error('Antigravity is not certified for read-only scout runs');
+  const review = isReviewReadOnlyAssignment(assignment);
+  if (review) mode = 'plan';
   let replaying = true;
   let activeSession = '';
+  /** @type {{ used?: unknown, size?: unknown } | null} */
+  let usageUpdate = null;
+  let replayed = 0;
+  let assistantText = '';
+  let toolCalls = 0;
   const normalize = createAntigravityEventNormalizer(onEvent);
   const connection = connectionFactory({
     cwd,
     onUpdate: (params) => {
-      if (!replaying && params.sessionId === activeSession) normalize(params.update);
+      const kind = params.update?.sessionUpdate;
+      if (kind === 'available_commands_update') {
+        const names = readAntigravityCommandNames(params.update);
+        if (names.length) onCommands(names);
+        return;
+      }
+      if (replaying) {
+        // History replay of the resumed session proves it still exists.
+        if (sessionId && params.sessionId === sessionId && !['usage_update', 'session_info_update'].includes(kind)) replayed += 1;
+        return;
+      }
+      if (params.sessionId !== activeSession) return;
+      if (kind === 'usage_update') usageUpdate = params.update;
+      else {
+        if (kind === 'agent_message_chunk' && params.update.content?.type === 'text') assistantText += params.update.content.text;
+        else if (kind === 'tool_call') toolCalls += 1;
+        normalize(params.update);
+      }
     },
     onPermission: async (params) => {
       if (replaying || params.sessionId !== activeSession || signal?.aborted) return { outcome: { outcome: 'cancelled' } };
@@ -135,16 +238,37 @@ export async function runAntigravityPrompt({ cwd, model, sessionId, prompt, mode
       if (!option) return { outcome: { outcome: 'cancelled' } };
       const tool = params.toolCall || {};
       const name = ({ execute: 'run_terminal_command', edit: 'edit_file', delete: 'delete_file', read: 'read_file', search: 'grep', fetch: 'web_fetch' })[tool.kind] || tool.name || 'antigravity_tool';
+      let input = tool.rawInput || {};
       if (mode === 'plan' || mode === 'ask') {
-        if (!['read', 'search', 'think'].includes(tool.kind)) return { outcome: { outcome: 'cancelled' } };
+        if (review && tool.kind === 'execute') {
+          // ACP uses CommandLine; the shared host permission gate expects command.
+          const command = readPlanModeShellCommand(input.CommandLine ?? input.command ?? input.commandLine ?? input.cmd);
+          if (!command || isMutatingPlanModeShellCommand(command)) return { outcome: { outcome: 'cancelled' } };
+          input = { ...input, command };
+        } else if (!['read', 'search', 'think'].includes(tool.kind)) {
+          return { outcome: { outcome: 'cancelled' } };
+        }
       }
-      const decision = await checkPermission(name, tool.rawInput || {});
+      const decision = await checkPermission(name, input);
       return { outcome: decision.outcome === 'proceed' ? { outcome: 'selected', optionId: option.optionId } : { outcome: 'cancelled' } };
     },
   });
-  const abort = () => connection.close(new Error('Antigravity run cancelled'));
+  let cancelTimer;
+  const abort = () => {
+    const error = new Error('Antigravity run cancelled');
+    if (!replaying && activeSession && typeof connection.write === 'function') {
+      try {
+        connection.write({ method: 'session/cancel', params: { sessionId: activeSession } });
+        cancelTimer = setTimeout(() => connection.close(error), 1500);
+        cancelTimer.unref();
+        return;
+      } catch { /* A broken pipe still needs immediate process cleanup. */ }
+    }
+    connection.close(error);
+  };
   signal?.addEventListener('abort', abort, { once: true });
   try {
+    if (signal?.aborted) abort();
     const init = await connection.request('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'cretli', version: '0.5.0' } });
     if (init.protocolVersion !== 1) throw new Error('Antigravity returned an unsupported ACP version');
     if (sessionId && !init.agentCapabilities?.loadSession) throw new Error('This Antigravity CLI cannot resume saved sessions; start a new chat');
@@ -152,27 +276,33 @@ export async function runAntigravityPrompt({ cwd, model, sessionId, prompt, mode
     const session = await connection.request(sessionId ? 'session/load' : 'session/new', params);
     activeSession = sessionId || session.sessionId;
     if (!activeSession) throw new Error('Antigravity did not return a session id');
+    // Loading an unknown id silently yields an empty session; the model lost the history.
+    if (sessionId && replayed === 0) await onSessionDropped();
     await onSession(activeSession);
-    if (model && model !== 'default') {
-      const config = session.configOptions?.find((item) => item.category === 'model');
-      if (config) await connection.request('session/set_config_option', { sessionId: activeSession, configId: config.id, value: model });
-      else await connection.request('session/set_model', { sessionId: activeSession, modelId: model });
+    const configuration = await configureAntigravitySession(connection, activeSession, session, { model, mode });
+    onConfiguration(configuration);
+    const message = await buildSdkPromptMessage(prompt, promptImageOptions);
+    /** @type {Array<{ type: string, text?: string, data?: string, mimeType?: string }>} */
+    const promptBlocks = [{ type: 'text', text: typeof message === 'string' ? message : message.text }];
+    if (typeof message !== 'string') {
+      if (!init.agentCapabilities?.promptCapabilities?.image) throw new Error('This Antigravity CLI does not support image attachments');
+      for (const image of message.images) promptBlocks.push({ type: 'image', data: image.data, mimeType: image.mimeType });
     }
-    if (mode === 'plan' || mode === 'ask') {
-      const plan = session.modes?.availableModes?.find((item) => item.id === 'plan');
-      if (!plan) throw new Error('This Antigravity CLI does not advertise a native Plan mode');
-      await connection.request('session/set_mode', { sessionId: activeSession, modeId: plan.id });
-    } else if (session.modes?.currentModeId === 'plan') {
-      const agent = session.modes.availableModes.find((item) => ['agent', 'default', 'code'].includes(item.id));
-      if (!agent) throw new Error('This Antigravity session cannot switch from Plan to Agent');
-      await connection.request('session/set_mode', { sessionId: activeSession, modeId: agent.id });
-    }
+    if (signal?.aborted) throw new Error('Antigravity run cancelled');
     replaying = false;
-    const result = await connection.request('session/prompt', { sessionId: activeSession, prompt: [{ type: 'text', text: prompt }] }, 0);
+    const result = await connection.request('session/prompt', { sessionId: activeSession, prompt: promptBlocks }, 0);
     if (signal?.aborted || result.stopReason === 'cancelled') throw new Error('Antigravity run cancelled');
+    // Usage is reported before an error stop too: those tokens were still spent.
+    const usageModel = String(model && model !== 'default' ? model : configuration?.modelId || '');
+    for (const event of buildAntigravityUsageEvents({ result, usageUpdate, model: usageModel, turnId })) onEvent(event);
     if (result.stopReason !== 'end_turn') throw new Error(`Antigravity stopped: ${result.stopReason || 'unknown reason'}`);
+    // A quota notice is a provider refusal, not an answer: fail the run so the
+    // shared usage-limit store locks the harness until the stated reset.
+    const quota = toolCalls === 0 ? readAntigravityQuotaNotice(assistantText) : '';
+    if (quota) throw new Error(`Antigravity usage limit: ${quota}`);
     return result;
   } finally {
+    clearTimeout(cancelTimer);
     signal?.removeEventListener('abort', abort);
     connection.close();
   }

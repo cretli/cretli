@@ -266,6 +266,8 @@ export function initSidebarChatDrag({
     const li = target.closest('.sidebar-chat-item');
     if (!li || !(li instanceof HTMLElement) || !li.dataset.chatId) return;
     if (li.dataset.archived === '1' || li.hidden || li.classList.contains('is-subchat-hidden')) return;
+    // The flat view is ordered by last open; reorder / nest would act across workspaces.
+    if (li.closest('.sidebar-workspace.is-all-chats')) return;
     const list = li.closest('.sidebar-chat-list');
     const items = list?.querySelectorAll('.sidebar-chat-item');
     if (!items || items.length < 2) return;

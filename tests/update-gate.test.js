@@ -35,7 +35,7 @@ import {
   registerMockChatRunAdapter,
   resetMockChatRuns,
 } from '../lib/chat-run/mock-adapter.ts';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { msg } from '../lib/messages.js';
 
 resetUpdateGateForTest();

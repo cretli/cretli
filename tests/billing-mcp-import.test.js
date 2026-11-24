@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test, { after } from 'node:test';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { BILLING_MCP_TOOLS } from '../lib/mcp/builtin/billing-tools.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';

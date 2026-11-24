@@ -42,6 +42,9 @@ assert.deepEqual(missingInPl, [], `Keys present in en.js but missing in pl.js: $
 const missingInEn = [...actualPl.keys()].filter((key) => !actualEn.has(key));
 assert.deepEqual(missingInEn, [], `Keys present in pl.js but missing in en.js: ${missingInEn.join(', ')}`);
 
+assert.ok(actualEn.has('chat.contextRestored'));
+assert.ok(actualEn.has('chat.contextLost'));
+
 const emptyValues = [...actualEn.entries()]
   .filter(([, value]) => value.trim().length === 0)
   .map(([key]) => key)

@@ -134,6 +134,8 @@ runCase('isValidSdkHistoryRecord: meta variants', () => {
     isValidSdkHistoryRecord({ kind: 'meta', variant: 'contextSeed', payload: 'summary' }),
     true
   );
+  assert.equal(isValidSdkHistoryRecord({ kind: 'meta', variant: 'contextNotice', payload: '{"code":"context_restored","turns":7}' }), true);
+  assert.equal(isValidSdkHistoryRecord({ kind: 'meta', variant: 'futureUnknown', payload: '{}' }), false);
   assert.equal(
     isValidSdkHistoryRecord({ kind: 'meta', variant: 'delegation', payload: '{}' }),
     true

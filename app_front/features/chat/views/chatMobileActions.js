@@ -3,6 +3,7 @@
  */
 import { isChatArchived, isForkSubtreeBusy } from '../../../../lib/chat-tree.js';
 import { t } from '../../../i18n/index.js';
+import { operatorChatActions } from '../operatorChat.js';
 import { hasLiveHarnessWork } from '../chatStatusMeta.js';
 import {
   requestArchiveChatConfirmed,
@@ -42,7 +43,7 @@ export function mountChatMobileOverscrollActions({ chat, pane, container, viewpo
   mobileActions.style.transform = 'translateY(100%)';
   let gesture = null;
   let actionsOpen = false;
-  const isAtBottom = () => container.scrollTop + container.clientHeight >= container.scrollHeight - 2;
+  const isAtBottom = () => chat._sdkRichView?.isViewportAtBottom?.() === true;
   // The bar overlaps the chat's bottom padding so the visible gap above the buttons equals
   // GAP_ABOVE_BUTTONS_PX regardless of the padding value in CSS (computed, not hardcoded).
   const GAP_ABOVE_BUTTONS_PX = 10;
@@ -86,12 +87,14 @@ export function mountChatMobileOverscrollActions({ chat, pane, container, viewpo
   const setActionsOpen = (open) => {
     actionsOpen = open;
     viewportWrap.classList.toggle('chat-mobile-actions-open', open);
-    if (open) container.scrollTop = container.scrollHeight;
+    if (open) chat._sdkRichView?.scrollToBottom({ force: true });
     setSlide(open ? getOpenDistance() : 0, true);
   };
   const refreshArchiveButton = () => {
     const archiveButton = mobileActions.querySelector('[data-chat-action="archive"]');
     if (!archiveButton) return;
+    // The operator thread has no archive action.
+    /** @type {HTMLElement} */ (archiveButton).hidden = !operatorChatActions(chat).archive;
     const archived = isChatArchived(chat);
     archiveButton.querySelector('.chat-mobile-action-label').textContent = t(archived ? 'chat.restore' : 'chat.archive');
     archiveButton.querySelector('.mdi')?.classList.toggle('mdi-archive-arrow-up-outline', archived);
@@ -140,8 +143,7 @@ export function mountChatMobileOverscrollActions({ chat, pane, container, viewpo
   // pulled); the bar belongs to the bottom edge only, so tuck it away as soon as that happens.
   container.addEventListener('scroll', () => {
     if (!actionsOpen && slidePx <= 0) return;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom <= 24) return;
+    if (isAtBottom()) return;
     gesture = null;
     setActionsOpen(false);
   }, { passive: true });

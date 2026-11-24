@@ -20,7 +20,12 @@ import {
 import { registerChatContextRoutes } from '../lib/routes/chat-context-routes.js';
 import {
   compareSendWithPreview,
+  describeContextEntry,
+  formatContextEntryReason,
   groupContextEntries,
+  splitContextEntriesByReason,
+  sumContextEntryBytes,
+  sumInlinedContextBytes,
 } from '../app_front/features/chat/chatContextPanelModel.js';
 import { useChatsBackendFromEnv, registerChatsBackendTeardown, seedChatRows } from './helpers/chats-backends.js';
 
@@ -107,6 +112,22 @@ test('entries are grouped into the panel categories', () => {
   assert.equal(compareSendWithPreview(null, snapshot), 'no_send');
   assert.equal(compareSendWithPreview(snapshot, snapshot), 'same');
   assert.equal(compareSendWithPreview({ revision: 'x' }, snapshot), 'changed');
+});
+
+test('panel rows read as a short name, a folder, a total and a translated reason', () => {
+  assert.deepEqual(describeContextEntry({ relPath: '.agents/skills/cretli-ui/SKILL.md' }), { label: 'cretli-ui', folder: '.agents/skills' });
+  assert.deepEqual(describeContextEntry({ relPath: '.cursor/rules/cretli-system.mdc' }), { label: 'cretli-system', folder: '.cursor/rules' });
+  assert.deepEqual(describeContextEntry({ relPath: 'CLAUDE.md' }), { label: 'CLAUDE', folder: '' });
+  assert.deepEqual(describeContextEntry({}), { label: '—', folder: '' });
+  assert.equal(sumContextEntryBytes([{ sizeBytes: 1000 }, { sizeBytes: 24 }, { sizeBytes: 'x' }, {}]), 1024);
+  const translate = (key) => (key === 'chat.ctxPanelReason_rule' ? 'full text' : key);
+  assert.equal(formatContextEntryReason(translate, 'rule'), 'full text');
+  assert.equal(formatContextEntryReason(translate, 'brand_new_code'), 'brand_new_code');
+  assert.equal(formatContextEntryReason(translate, ''), '');
+  const rows = [{ reason: 'rule', sizeBytes: 100 }, { reason: 'catalog', sizeBytes: 9000 }, { reason: 'rule', sizeBytes: 50 }];
+  assert.deepEqual(splitContextEntriesByReason(rows).map((part) => [part.reason, part.entries.length]), [['rule', 2], ['catalog', 1]]);
+  // A catalog skill sends only its name and description, not the file.
+  assert.equal(sumInlinedContextBytes(rows), 150);
 });
 
 test('retention: idempotent by sendId, capped per chat, aged rows dropped, deleted with the chat', () => {

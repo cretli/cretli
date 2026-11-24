@@ -11,7 +11,6 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, unlinkSync, writeFile
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import {
   applyUsageCorrections,
@@ -268,8 +267,8 @@ test('a tampered committed line fails its checksum and is ignored', () => {
 
 test('concurrent writers commit one logical key exactly once', async () => {
   const dataDir = tempDir();
-  const moduleUrl = pathToFileURL(path.resolve('lib/persist/usage-persist.js')).href;
-  const eventUrl = pathToFileURL(path.resolve('lib/usage/usage-event.js')).href;
+  const moduleUrl = new URL('../lib/persist/usage-persist.js', import.meta.url).href;
+  const eventUrl = new URL('../lib/usage/usage-event.js', import.meta.url).href;
   const worker = `
     import { commitUsageEvent } from ${JSON.stringify(moduleUrl)};
     import { createUsageEvent } from ${JSON.stringify(eventUrl)};
@@ -615,7 +614,7 @@ test('explicit repair rebuilds the read-model from the committed journal', () =>
   assert.equal(commitUsageEvent(durable, { dataDir }).status, 'duplicate');
 });
 
-test('room-kernel production path persists run-start, one run-ended and late coverage', () => {
+test('room-kernel production path persists run-start, one run-ended and late coverage', async () => {
   const dataDir = tempDir();
   const kernel = createAgentRoomKernel({
     transport: 'codex',
@@ -636,6 +635,8 @@ test('room-kernel production path persists run-start, one run-ended and late cov
     event: { type: 'usage', final: true, usage: { input_tokens: 60, output_tokens: 6 } },
   });
 
+  // Measurement writes follow the asynchronous chat workspace lookup.
+  await room._usageWorkspaceFilePromise;
   const state = readUsageLedgerState({ dataDir });
   assert.equal(state.runCount, 1, 'exactly one durable run');
   assert.equal(state.endedRuns, 1);
@@ -705,8 +706,8 @@ test('concurrent writers reclaim a dead lock owner and dedupe commits', async ()
   const lockDir = path.join(resolveUsageDataDir(dataDir), '.ledger.lock');
   mkdirSync(lockDir, { recursive: true });
   writeFileSync(path.join(lockDir, 'owner'), '999999:deadbeef:0\n');
-  const moduleUrl = pathToFileURL(path.resolve('lib/persist/usage-persist.js')).href;
-  const eventUrl = pathToFileURL(path.resolve('lib/usage/usage-event.js')).href;
+  const moduleUrl = new URL('../lib/persist/usage-persist.js', import.meta.url).href;
+  const eventUrl = new URL('../lib/usage/usage-event.js', import.meta.url).href;
   const worker = `
     import { commitUsageEvent } from ${JSON.stringify(moduleUrl)};
     import { createUsageEvent } from ${JSON.stringify(eventUrl)};

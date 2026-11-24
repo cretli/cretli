@@ -18,10 +18,16 @@ import {
 import { createRafDebouncer } from '../chat/chatListStateRefresh.js';
 import { hasLiveHarnessWork } from '../chat/chatStatusMeta.js';
 import { getChatActivityAt } from '../chat/chatStore.js';
+import { t } from '../../i18n/index.js';
+import { ALL_CHATS_KEY } from './sidebarWorkspaceMarker.js';
+import { haptic } from '../../lib/haptics.js';
 import { getUiFreezeCounters } from '../../lib/uiFreezeCounters.js';
 import { createSidebarSearchService } from './services/sidebarSearchService.js';
 import {
   readOpenFlag,
+  readViewMode,
+  writeViewMode,
+  invalidateViewModeCache,
   readPinFlag,
   normalizePath,
 } from './state/sidebarPersistence.js';
@@ -201,6 +207,22 @@ export function createSidebarView(deps) {
 
   ctx.forceRerender = forceRerender;
 
+  /**
+   * Workspaces the list renders. In the flat view mode that is the one virtual
+   * "all chats" workspace, so rows, signature, search and caps keep using the
+   * regular workspace pipeline; other modes use the real registry.
+   * @returns {any[]}
+   */
+  let allChatsWorkspace = null;
+  ctx.getListWorkspaces = () => {
+    if (readViewMode() !== 'all') return getWorkspaces();
+    const name = t('sidebar.viewAllTitle');
+    if (!allChatsWorkspace || allChatsWorkspace.name !== name) {
+      allChatsWorkspace = { sidebarKey: ALL_CHATS_KEY, workspaceFile: ALL_CHATS_KEY, name, isAllChats: true, folders: [] };
+    }
+    return [allChatsWorkspace];
+  };
+
   // Layout state first: it owns the persisted sets the other modules destructure.
   Object.assign(ctx, createSidebarLayoutState(ctx));
   Object.assign(ctx, createSidebarRenderPass(ctx));
@@ -233,6 +255,7 @@ export function createSidebarView(deps) {
     initPinActiveWorkspaceSetting,
     initWorkspaceDrag,
     initChatDrag,
+    initChatSwipeArchive,
     initArchiveVirtualGestureGuard,
     initSwipe,
   } = ctx;
@@ -241,8 +264,10 @@ export function createSidebarView(deps) {
     initMenuButton();
     initSearchInput();
     initPinActiveWorkspaceSetting();
+    initViewModeSwitch();
     initWorkspaceDrag();
     initChatDrag();
+    initChatSwipeArchive();
     initArchiveVirtualGestureGuard();
     applySidebarWidth();
     initResizer();
@@ -275,6 +300,126 @@ export function createSidebarView(deps) {
       if (ok) updateScheduler.schedule();
     });
     render();
+  }
+
+  /** Segmented control under the search row: Workspaces | All | Agents. */
+  function initViewModeSwitch() {
+    const group = typeof document !== 'undefined' ? document.getElementById('sidebar-view-modes') : null;
+    if (!group) return;
+    const thumb = /** @type {HTMLElement | null} */ (group.querySelector('.sidebar-view-modes-thumb'));
+    /** Slide the highlight under the active button (CSS animates the transform). */
+    const moveThumb = () => {
+      const active = /** @type {HTMLElement | null} */ (group.querySelector('[data-view-mode].is-active'));
+      if (!thumb || !active || !active.offsetWidth) return;
+      group.style.setProperty('--thumb-x', active.offsetLeft + 'px');
+      group.style.setProperty('--thumb-w', active.offsetWidth + 'px');
+    };
+    const paint = () => {
+      const mode = readViewMode();
+      document.getElementById('app-sidebar')?.setAttribute('data-view-mode', mode);
+      group.querySelectorAll('[data-view-mode]').forEach((btn) => {
+        const active = btn.getAttribute('data-view-mode') === mode;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      moveThumb();
+    };
+    paint();
+    // The drawer starts hidden (zero widths) and labels change with the language:
+    // re-measure on any size change; enable the slide only after the first placement.
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => {
+        moveThumb();
+        if (group.style.getPropertyValue('--thumb-w')) requestAnimationFrame(() => group.classList.add('is-ready'));
+      }).observe(group);
+    }
+    /** @param {string} next */
+    const setMode = (next) => {
+      if (!next || next === readViewMode()) return;
+      haptic('tick');
+      writeViewMode(next);
+      paint();
+      forceRerender();
+    };
+    let swiped = false;
+    group.addEventListener('click', (event) => {
+      // The click that ends a swipe must not re-select the button under the finger.
+      if (swiped) return;
+      const btn = event.target instanceof Element ? event.target.closest('[data-view-mode]') : null;
+      if (btn) setMode(btn.getAttribute('data-view-mode') || '');
+    });
+    /** Step to the neighbouring mode (-1 previous, +1 next); stops at the ends. */
+    const stepMode = (delta) => {
+      const order = ['workspaces', 'all', 'agents'];
+      const at = order.indexOf(readViewMode());
+      const next = order[Math.min(order.length - 1, Math.max(0, at + delta))];
+      setMode(next);
+    };
+    // Dragging over the switch: the highlight follows the finger, a tick fires each time it
+    // moves over another option, and the option under it is chosen on release.
+    /** @type {{ id: number, x: number, y: number, baseX: number, over: string, active: boolean } | null} */
+    let drag = null;
+    const buttons = () => /** @type {HTMLElement[]} */ (Array.from(group.querySelectorAll('[data-view-mode]')));
+    /** Option under the thumb centre. */
+    const optionAt = (centre) => {
+      const list = buttons();
+      return list.find((btn) => centre < btn.offsetLeft + btn.offsetWidth) || list[list.length - 1];
+    };
+    group.addEventListener('pointerdown', (event) => {
+      const active = /** @type {HTMLElement | null} */ (group.querySelector('[data-view-mode].is-active'));
+      if (!active) return;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, baseX: active.offsetLeft, over: readViewMode(), active: false };
+      swiped = false;
+    });
+    group.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const dx = event.clientX - drag.x;
+      if (!drag.active) {
+        if (Math.abs(dx) < 6 || Math.abs(dx) < Math.abs(event.clientY - drag.y)) return;
+        drag.active = true;
+        group.classList.add('is-thumb-dragging');
+        try { group.setPointerCapture(event.pointerId); } catch (_) { /* optional */ }
+      }
+      const list = buttons();
+      const first = list[0];
+      const last = list[list.length - 1];
+      const width = list.find((btn) => btn.classList.contains('is-active'))?.offsetWidth || first.offsetWidth;
+      const x = Math.min(last.offsetLeft, Math.max(first.offsetLeft, drag.baseX + dx));
+      group.style.setProperty('--thumb-x', x + 'px');
+      const over = optionAt(x + width / 2).getAttribute('data-view-mode') || '';
+      if (over !== drag.over) {
+        drag.over = over;
+        haptic('tick');
+      }
+    });
+    const endDrag = (commit) => {
+      const current = drag;
+      drag = null;
+      if (!current || !current.active) return;
+      group.classList.remove('is-thumb-dragging');
+      swiped = true;
+      setTimeout(() => { swiped = false; }, 0);
+      if (commit && current.over !== readViewMode()) {
+        writeViewMode(current.over);
+        paint();
+        forceRerender();
+      } else {
+        moveThumb();
+      }
+    };
+    group.addEventListener('pointerup', () => endDrag(true));
+    group.addEventListener('pointercancel', () => endDrag(false));
+    group.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') { event.preventDefault(); stepMode(1); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); stepMode(-1); }
+    });
+    window.addEventListener('storage', (event) => {
+      if (event.key && event.key.includes('sidebar-view-mode')) {
+        invalidateViewModeCache();
+        paint();
+        forceRerender();
+      }
+    });
   }
 
   function forceRerender() {

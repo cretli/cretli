@@ -7,8 +7,10 @@ import {
   CHAT_CATALOG_ERROR_CODES,
   CHAT_CATALOG_PAGE_MAX_LIMIT,
   createChatCatalog,
+  readChatCatalog,
 } from '../lib/chat-catalog.js';
-import { countArchivedChatsByWorkspace } from '../lib/chat-list-payload.js';
+import { toChatListDtos } from '../lib/chat-list-dto.js';
+import { mapChatsForClientList, countArchivedChatsByWorkspace } from '../lib/chat-list-payload.js';
 import { registerChatsRoutes } from '../lib/routes/chats-routes.js';
 
 const folders = [0, 1, 2].map((i) => path.join(ISOLATED_DATA_DIR, `ws-${i}`));
@@ -253,4 +255,100 @@ test('tree mode: independent full walk across page boundaries yields literal ids
   assert.deepEqual(walked.ids, ['x4', 'x3', 'x2', 'x1', 'p2', 'p1', 'c2', 'c1']);
   assert.deepEqual(walked.sizes, [3, 3, 2]);
   assert.deepEqual(walk(catalog, { archived: 'exclude', limit: 3 }).ids, ['x4', 'x3', 'x2', 'x1', 'c2', 'c1']);
+});
+
+test('GET /api/chats/page bounds all views, reduces hostile rows and walks without loss', async () => {
+  // These persisted strings have no universal length cap. Exercise generous
+  // title/path/session/summary sizes plus a multi-MiB row instead of assuming one.
+  const rows = Array.from({ length: 103 }, (_, i) => ({
+    id: `bounded-${String(i).padStart(3, '0')}`,
+    title: '界'.repeat(i === 102 || i === 50 ? 1024 * 1024 : 1000),
+    summaries: ['s'.repeat(16000)],
+    executionFolder: 'e'.repeat(4096),
+    workspaceFolder: folders[0],
+    opencodeSessionId: 'p'.repeat(4096),
+    codexThreadId: 'c'.repeat(4096),
+    claudeSessionId: 'a'.repeat(4096),
+    createdAt: '2026-01-01T00:00:00Z',
+  }));
+  fs.writeFileSync(path.join(ISOLATED_DATA_DIR, 'chats.json'), JSON.stringify({ chats: rows }));
+  const call = makeRouteCaller();
+  for (const view of ['', 'list']) {
+    for (const includeSummaries of ['', '1']) {
+      const ids = [];
+      let cursor = '';
+      do {
+        const { status, body } = await call({ view, includeSummaries, limit: '100', cursor });
+        assert.equal(status, 200);
+        assert.ok(Buffer.byteLength(JSON.stringify(body)) <= 128 * 1024);
+        assert.ok(body.chats.length > 0 && body.chats.length <= 100);
+        if (!cursor) {
+          assert.equal(body.chats[0].id, 'bounded-102');
+          assert.equal(body.chats[0].truncated, true);
+          assert.equal(body.chats[0].title.length, 256);
+          assert.equal(body.chats[0].summaries, undefined);
+          assert.ok(body.nextCursor);
+        }
+        ids.push(...body.chats.map((row) => row.id));
+        cursor = body.nextCursor || '';
+        assert.ok(ids.length <= rows.length, 'cursor makes progress');
+      } while (cursor);
+      assert.deepEqual(ids, catalogOrder(rows).map((row) => row.id));
+    }
+  }
+});
+
+test('GET /api/chats/page returns a bounded error for oversized identity or metadata', async () => {
+  const call = makeRouteCaller();
+  for (const row of [
+    { id: 'x'.repeat(256 * 1024), title: 'T' },
+    { id: 'a', archivedAt: '2026-01-01', workspaceFolder: 'w'.repeat(256 * 1024) },
+  ]) {
+    fs.writeFileSync(path.join(ISOLATED_DATA_DIR, 'chats.json'), JSON.stringify({ chats: [row] }));
+    for (const view of ['', 'list']) {
+      const { status, body } = await call({ view, archived: 'include' });
+      assert.equal(status, 413);
+      assert.equal(body.code, 'CHAT_PAGE_TOO_LARGE');
+      assert.ok(Buffer.byteLength(JSON.stringify(body)) <= 128 * 1024);
+    }
+  }
+});
+
+
+test('GET /api/chats/page normal wire body matches the existing default/list response', async () => {
+  const rows = [
+    { id: 'normal-b', title: 'B', summaries: ['summary'], executionFolder: '/execution', codexThreadId: 'thread' },
+    { id: 'normal-a', title: 'A', workspaceFolder: folders[0] },
+  ];
+  fs.writeFileSync(path.join(ISOLATED_DATA_DIR, 'chats.json'), JSON.stringify({ chats: rows }));
+  const catalog = await readChatCatalog();
+  const page = catalog.page({ archived: 'include', limit: 1 });
+  const call = makeRouteCaller();
+  for (const view of ['', 'list']) {
+    for (const includeSummaries of ['', '1']) {
+      const { status, body } = await call({ view, includeSummaries, limit: '1', archived: 'include' });
+      assert.equal(status, 200);
+      const expected = {
+        ok: true, revision: page.revision, sync: body.sync, nextCursor: page.nextCursor,
+        archivedCounts: catalog.archivedCountsByWorkspace({ scope: {} }),
+      };
+      if (view === 'list') expected.dtoVersion = 1;
+      expected.chats = view === 'list' ? toChatListDtos(page.items)
+        : mapChatsForClientList(page.items, { includeSummaries: includeSummaries === '1' });
+      assert.equal(JSON.stringify(body), JSON.stringify(expected));
+      assert.ok(body.chats.every((row) => !('truncated' in row)));
+    }
+  }
+});
+
+test('GET /api/chats/page bounds the asynchronous local-harness-state response too', async () => {
+  fs.writeFileSync(path.join(ISOLATED_DATA_DIR, 'chats.json'), JSON.stringify({ chats: [
+    { id: 'local-huge', agentTransport: 'unavailable-local-harness', title: 'x'.repeat(2 * 1024 * 1024) },
+  ] }));
+  const { status, body } = await makeRouteCaller()({});
+  assert.equal(status, 200);
+  assert.ok(Buffer.byteLength(JSON.stringify(body)) <= 128 * 1024);
+  assert.equal(body.chats[0].id, 'local-huge');
+  assert.equal(body.chats[0].truncated, true);
+  assert.equal(body.nextCursor, null);
 });

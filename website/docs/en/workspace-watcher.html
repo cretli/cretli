@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace Watcher</title>
+<meta name="description" content="Choose Watcher modes and understand execution, integration, and restart.">
+<link rel="canonical" href="https://cretli.com/docs/en/workspace-watcher.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/workspace-watcher.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/workspace-watcher.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/workspace-watcher.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/en/workspace-watcher.html">
+<meta property="og:title" content="Workspace Watcher">
+<meta property="og:description" content="Choose Watcher modes and understand execution, integration, and restart.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Documentation</a>
+  <a href="../pl/workspace-watcher.html" hreflang="pl">Polski</a>
+  <a href="/" class="home-link">Home</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Getting started</h2><ul><li><a href="index.html">Cretli documentation</a></li><li><a href="getting-started.html">Getting started</a></li><li><a href="install-docker.html">Install with Docker</a></li></ul></section>
+<section class="nav-section"><h2>Harnesses</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Workspaces</h2><ul><li><a href="workspaces.html">Workspaces</a></li><li><a href="settings.html">Settings</a></li></ul></section>
+<section class="nav-section"><h2>Working surfaces</h2><ul><li><a href="chat-and-agents.html">Working surfaces</a></li></ul></section>
+<section class="nav-section"><h2>Todo and plans</h2><ul><li><a href="todos.html">Todo and plans</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html" aria-current="page">Workspace Watcher</a></li></ul></section>
+<section class="nav-section"><h2>Delegation and review</h2><ul><li><a href="delegation-review.html">Delegation and independent review</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">MCP tools and external clients</a></li></ul></section>
+<section class="nav-section"><h2>Remote access</h2><ul><li><a href="remote-access.html">Remote access, PWA and notifications</a></li><li><a href="security-basics.html">Security basics</a></li></ul></section>
+<section class="nav-section"><h2>Backups and data</h2><ul><li><a href="backups-and-data.html">Backups and data</a></li></ul></section>
+<section class="nav-section"><h2>Troubleshooting and FAQ</h2><ul><li><a href="troubleshooting.html">Troubleshooting</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Workspace Watcher</h1>
+<p>Watcher checks a workspace for ready work and coordinates bounded execution cycles. Configure it in <strong>Settings → Workspace Watcher</strong> after choosing harnesses, models, and a policy for your workspace.</p>
+<h2 id="choose-a-mode">Choose a mode</h2>
+<ul>
+<li><strong>off</strong>: the scheduling tick does nothing and starts no work.</li>
+<li><strong>observe</strong>: records decisions and can notify you that work is waiting; it does not start task execution agents.</li>
+<li><strong>autopilot</strong>: can start eligible work within the configured budgets, concurrency limits, quiet hours, and approval requirements.</li>
+</ul>
+<p>Optional Scout and feedback features have their own settings. Inspect those separately when deciding which background activity to allow.</p>
+<h2 id="what-a-cycle-does">What a cycle does</h2>
+<p>Watcher checks tasks, live chats, and available capacity, reserves a task, and starts an orchestrator chat for one cycle. That chat coordinates implementation, independent review, and any required fixes. It reports the result before the cycle releases its slot. Human plan approval remains required wherever the workspace policy demands it: <strong>Watcher never approves plans</strong>.</p>
+<p>Open the task report and the Watcher's decision view when work waits. A missing credential, an earlier sibling, a budget, or a human decision can explain the delay. After a server restart, Cretli reconciles interrupted cycles rather than blindly starting duplicates.</p>
+<h2 id="integration-and-restart">Integration and restart</h2>
+<p>Automatic integration is <strong>off by default</strong>. With explicit workspace opt-in, independently verified work can be tested and integrated as a local commit. Conflicts or failed checks stop integration; unrelated local changes are preserved. Without opt-in, finished work awaits the integration action.</p>
+<p>After integration, Cretli can coordinate a server restart for affected runtime changes, waiting for active cycles to drain. If frontend and backend changed together, it builds the frontend before requesting restart; a failed build skips restart. Inspect failures before resuming automation. <strong>Watcher never pushes changes</strong> to a remote repository.</p>
+<p><img src="../img/watcher-panel.png" alt="Watcher panel" width="1280" height="720" loading="lazy"></p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="todos.html">&larr; Todo and plans</a>
+      <a rel="next" href="delegation-review.html">Delegation and independent review &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>
+      <li><a href="#choose-a-mode">Choose a mode</a></li>
+      <li><a href="#what-a-cycle-does">What a cycle does</a></li>
+      <li><a href="#integration-and-restart">Integration and restart</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Documentation</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

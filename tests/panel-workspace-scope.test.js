@@ -6,7 +6,13 @@ import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
 import { registerTasksAgentsRoutes } from '../lib/routes/tasks-agents-routes.js';
 import { buildBrowserWsUrl } from '../app_front/features/browser/browserWsClient.js';
-import { setSharedViewContextStore } from '../app_front/app/appShell/viewContextBridge.js';
+import {
+  getViewContextRuntimeScope,
+  setSharedViewContextStore,
+  whenViewContextRuntimeReady,
+} from '../app_front/app/appShell/viewContextBridge.js';
+import { createViewContextStore, VIEW_CONTEXT_STATUS } from '../app_front/app/appShell/viewContext.js';
+import { watcherApi } from '../app_front/features/settings/watcher/api.js';
 
 function load(file, globals, typescript = false) {
   let source = readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -96,6 +102,119 @@ test('Browser socket sends the tab workspace with session and tab ids', () => {
     assert.equal(url.searchParams.get('workspaceFolder'), scope.workspaceFolder);
     assert.equal(url.searchParams.get('session'), 'session');
   } finally {
+    setSharedViewContextStore(null);
+  }
+});
+
+
+test('Browser policy waits for runtime scope and sends it on reads and mutations', async () => {
+  const requests = [];
+  let ready;
+  const pending = new Promise((resolve) => { ready = resolve; });
+  let runtime = { workspaceFile: '', workspaceFolder: '' };
+  const api = load('../app_front/core/api/settings.js', {
+    getViewContextRuntimeScope: () => runtime,
+    whenViewContextRuntimeReady: () => pending,
+    dedupeGetJson: async (url) => { requests.push({ url }); return { ok: true }; },
+    apiFetchJson: async (url, options) => { requests.push({ url, options }); return { ok: true }; },
+  });
+  const read = api.getBrowserPolicy();
+  assert.equal(requests.length, 0, 'boot must not send an unscoped request');
+  runtime = scope;
+  ready();
+  await read;
+  await api.patchBrowserPolicy({ allowSelfOrigin: true });
+  await api.deleteBrowserFolderOverride('/ws/acme/override');
+  for (const request of [requests[0], requests[2]]) {
+    const params = new URL(request.url, 'http://localhost').searchParams;
+    assert.equal(params.get('workspaceFile'), scope.workspaceFile);
+    assert.equal(params.get('workspaceFolder'), scope.workspaceFolder);
+  }
+  const body = JSON.parse(requests[1].options.body);
+  assert.equal(body.workspaceFile, scope.workspaceFile);
+  assert.equal(body.workspaceFolder, scope.workspaceFolder);
+  assert.equal(body.policy.allowSelfOrigin, true);
+});
+
+test('Watcher production wrapper waits for scope and serializes scope for reads and writes', async () => {
+  const requests = [];
+  let ready;
+  const pending = new Promise((resolve) => { ready = resolve; });
+  let folder = '';
+  const { scopeWatcherRequestToWorkspace } = await import('../app_front/features/watcher/watcherWorkspaceScope.js');
+  const api = load('../app_front/features/settings/watcher/api.js', {
+    whenViewContextRuntimeReady: () => pending,
+    getWatcherWorkspaceFolder: () => folder,
+    scopeWatcherRequestToWorkspace,
+    isWorkspaceWatcherRead: () => false,
+    getCurrentLang: () => 'en',
+    cretliApiFetch: async (url, options) => {
+      requests.push({ url, options });
+      return { status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  const read = api.watcherApi('/api/workspace-watcher/stats');
+  assert.equal(requests.length, 0);
+  // Runtime control is global and remains available before workspace boot.
+  await api.watcherApi('/api/workspace-watcher/runtime-control');
+  assert.equal(requests[0].url, '/api/workspace-watcher/runtime-control');
+  folder = scope.workspaceFolder;
+  ready();
+  await read;
+  await api.watcherApi('/api/workspace-watcher/pause', { method: 'POST' });
+  await api.watcherApi('/api/workspace-watcher', { method: 'PATCH', body: { mode: 'off' } });
+  assert.equal(new URL(requests[1].url, 'http://localhost').searchParams.get('workspaceFolder'), folder);
+  for (const request of requests.slice(2)) {
+    assert.equal(JSON.parse(request.options.body).workspaceFolder, folder);
+    assert.equal(request.options.headers['Content-Type'], 'application/json');
+  }
+  assert.equal(JSON.parse(requests[3].options.body).mode, 'off');
+});
+
+
+test('resolved route-only boot with empty runtime parks Watcher and Browser policy until settings supply scope', async () => {
+  const store = createViewContextStore({
+    readLocation: () => ({ pathname: '/chat', search: '' }),
+    getDefaultContext: async () => ({ workspaceFile: ' ', workspaceFolder: ' ' }),
+  });
+  await store.applyRouteContext();
+  assert.equal(store.getState().status, VIEW_CONTEXT_STATUS.RESOLVED);
+  assert.deepEqual(store.getState().runtime, { workspaceFile: '', workspaceFolder: '' });
+  setSharedViewContextStore(store);
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url, options });
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  const browserApi = load('../app_front/core/api/settings.js', {
+    getViewContextRuntimeScope,
+    whenViewContextRuntimeReady,
+    dedupeGetJson: async (url) => { requests.push({ url }); return { ok: true }; },
+    apiFetchJson: async (url, options) => { requests.push({ url, options }); return { ok: true }; },
+  });
+  try {
+    const calls = [
+      watcherApi('/api/workspace-watcher/stats'),
+      watcherApi('/api/workspace-watcher/pause', { method: 'POST' }),
+      browserApi.getBrowserPolicy(),
+      browserApi.patchBrowserPolicy({ allowSelfOrigin: true }),
+    ];
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests.length, 0, 'resolved status alone must not send requests');
+    store.markDefaultReady({});
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests.length, 0, 'empty default settings must not release requests');
+    store.markDefaultReady(scope);
+    await Promise.all(calls);
+    assert.equal(requests.length, 4);
+    for (const request of requests) {
+      const params = new URL(request.url, 'http://localhost').searchParams;
+      const body = JSON.parse(request.options?.body || '{}');
+      assert.equal(params.get('workspaceFolder') || body.workspaceFolder, scope.workspaceFolder);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
     setSharedViewContextStore(null);
   }
 });

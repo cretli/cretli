@@ -167,7 +167,7 @@ export function createChatView(deps) {
           (hasPendingRemoteHistory(c)
             ? '<span class="chat-list-item-sync-badge" title="' +
               escapeHtml(getPendingRemoteHistoryLabel()) +
-              '">●</span>'
+              '"></span>'
             : '') +
           '</span>' +
           '<span class="chat-list-item-awaiting chat-list-item-awaiting--' +

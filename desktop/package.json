@@ -1,0 +1,14 @@
+{
+  "name": "cretli-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal Electron window for the Cretli server UI",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^45.4.1"
+  }
+}

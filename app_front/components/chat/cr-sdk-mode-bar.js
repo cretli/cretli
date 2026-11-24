@@ -6,8 +6,11 @@ import { t } from '../../i18n/index.js';
 import { normalizeSdkMode } from '../../../lib/sdk/sdk-mode.ts';
 import { getHarnessUiMeta, listHarnessUiMeta } from '../../core/harness/harnessUiRegistry.js';
 import { formatContextRingCenterLabel } from '../../../lib/sdk/sdk-context-advisory.ts';
-import { getHarnessBadge } from '../../core/harness/harnessBadge.js';
+import { getModelIconSrc } from '../../features/chat/modelIcon.js';
 import { effortBarCount, formatModelDisplay } from '../../features/chat/modelDisplay.js';
+import { swipeNeighbour } from '../../features/chat/modelSwipeNav.js';
+import { attachModelSwipe } from '../../lib/modelSwipeGesture.js';
+
 
 const BUSY_TONES = new Set(['active', 'generating', 'running', 'grepping', 'reading', 'thinking', 'editing']);
 const ATTENTION_TONES = new Set(['awaiting', 'waiting', 'attention', 'approval', 'question', 'choice', 'textarea']);
@@ -82,6 +85,11 @@ class CrSdkModeBar extends LitElement {
     this._modeDropdownApi = null;
     this._modeMenuEl = null;
     this._modeTriggerEl = null;
+    this._swipePickerEl = null;
+    /** Model shown while a swipe is in progress, before it is committed. */
+    this._swipePreview = '';
+    this._swipePreviewHarness = '';
+    this._swipeDetach = null;
   }
 
   connectedCallback() {
@@ -92,18 +100,77 @@ class CrSdkModeBar extends LitElement {
 
   disconnectedCallback() {
     window.removeEventListener('cr-lang-changed', this._onLangChanged);
+    this._swipeDetach?.();
+    this._swipePickerEl = null;
     this.destroyModeMenu();
     this.destroyBuildMenu();
     super.disconnectedCallback();
   }
 
-  updated() {
+  updated(changed) {
+    if (changed?.has('model') || changed?.has('harness')) { this._swipePreview = ''; this._swipePreviewHarness = ''; }
+    this.ensureModelSwipe();
     this.ensureModeMenu();
     if (!this.showBuild) {
       if (this._buildMenuReady) this.destroyBuildMenu();
       return;
     }
     this.ensureBuildMenu();
+  }
+
+  /**
+   * Swipe on the closed model picker: up/down steps through the models of the harness,
+   * left/right lowers/raises the thinking level. Every step ticks; the real switch happens
+   * once the finger rests, so the chat is not reconfigured on each step.
+   */
+  ensureModelSwipe() {
+    const picker = /** @type {HTMLElement | null | undefined} */ (this.renderRoot?.querySelector('.combined-picker'));
+    if (!picker || picker === this._swipePickerEl) return;
+    this._swipeDetach?.();
+    this._swipePickerEl = picker;
+    this._swipeDetach = attachModelSwipe(picker, {
+      step: (axis, dir) => this.swipeStep(axis, dir),
+      commit: () => this.commitSwipe(),
+    });
+  }
+
+  /**
+   * @param {'model' | 'effort'} axis
+   * @param {number} dir
+   * @returns {boolean} false at the end of the list
+   */
+  swipeStep(axis, dir) {
+    const harness = this._swipePreviewHarness || this.normalizeBarHarness(this.harness, 'sdk');
+    const model = this._swipePreview || String(this.model || '').trim() || 'auto';
+    const next = swipeNeighbour(this._swipePickerEl?.filteredOptions?.() || this.pickerOptions, harness, model, axis, dir > 0 ? 1 : -1);
+    if (!next) return false;
+    this._swipePreview = next.model;
+    this._swipePreviewHarness = next.harness;
+    this.requestUpdate();
+    return true;
+  }
+
+  commitSwipe() {
+    const model = this._swipePreview;
+    const harness = this._swipePreviewHarness;
+    if (!model) return;
+    const ownHarness = this.normalizeBarHarness(this.harness, 'sdk');
+    const clear = () => { this._swipePreview = ''; this._swipePreviewHarness = ''; this.requestUpdate(); };
+    if (model === this.model && harness === ownHarness) { clear(); return; }
+    // Same events as the dropdown: a harness change commits harness and model together.
+    if (harness && harness !== ownHarness) {
+      this.dispatchEvent(new CustomEvent('cr-sdk-harness-commit', {
+        detail: { harness, model }, bubbles: true, composed: true,
+      }));
+    } else {
+      this.dispatchEvent(new CustomEvent('cr-sdk-model-change', {
+        detail: { model }, bubbles: true, composed: true,
+      }));
+    }
+    // The preview stays until the host applies the choice so the label does not flicker back.
+    setTimeout(() => {
+      if (this._swipePreview === model) clear();
+    }, 3000);
   }
 
   normalizeBarHarness(value, fallback = '') {
@@ -546,7 +613,7 @@ class CrSdkModeBar extends LitElement {
       .map((id) => harnessById.get(id))
       .filter(Boolean);
     const models = this._getNormalizedModels();
-    const rawModelValue = String(this.model || '').trim();
+    const rawModelValue = this._swipePreview || String(this.model || '').trim();
     const modelValue = rawModelValue || 'auto';
     const selectedModel = models.find((item) => item.value === modelValue);
     const modelLabel = selectedModel?.label || modelValue;
@@ -575,12 +642,13 @@ class CrSdkModeBar extends LitElement {
     const combinedDisplayLabel = pickerStep === 'harness' && modelLabel
       ? t('sdkBlock.pickerClosedLabel', { harness: selectedHarnessLabel, model: modelLabel })
       : '';
-    const groupedHarnessLabel = this.pickerHarnessLabels?.[this.normalizeBarHarness(this.harness, 'sdk')] || selectedHarnessLabel;
-    const groupedChoice = JSON.stringify([this.normalizeBarHarness(this.harness, 'sdk'), modelValue]);
+    const shownHarness = this._swipePreviewHarness || this.normalizeBarHarness(this.harness, 'sdk');
+    const groupedHarnessLabel = this.pickerHarnessLabels?.[shownHarness] || selectedHarnessLabel;
+    const groupedChoice = JSON.stringify([shownHarness, modelValue]);
     const groupedSelected = (this.pickerOptions || []).find((row) => row.value === groupedChoice);
-    const groupedHarnessId = this.normalizeBarHarness(this.harness, 'sdk');
+    const groupedHarnessId = shownHarness;
     const modelDisplay = formatModelDisplay(modelValue, groupedSelected?.name || selectedModel?.label || '');
-    const harnessBadge = getHarnessBadge(groupedHarnessId, groupedHarnessLabel);
+    const modelIconSrc = getModelIconSrc(modelValue, groupedHarnessId);
     const effortCount = effortBarCount(modelDisplay.effort);
     const effortText = modelDisplay.effort ? t(`sdkBlock.effortLevel.${modelDisplay.effort}`) : '';
     const groupedPickerAria = `${t('sdkBlock.harnessModelAria')} (${effortText
@@ -634,7 +702,7 @@ class CrSdkModeBar extends LitElement {
                   @click=${this.handleBuildMenuToggle}
                 >
                   ${t('sdkBlock.buildPlan')}
-                  <span class="build-arrow" aria-hidden="true">▾</span>
+                  <span class="build-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path fill="currentColor" d="M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6-6-6z" /></svg></span>
                 </button>
               `
             : null}
@@ -646,10 +714,14 @@ class CrSdkModeBar extends LitElement {
             size="sm"
             search-threshold="0"
             panel-min-width="460"
-            .value=${JSON.stringify([this.normalizeBarHarness(this.harness, 'sdk'), modelValue])}
+            .value=${groupedChoice}
             .options=${this.pickerOptions}
             .displayLabel=${modelDisplay.name}
             .displayTitle=${`${groupedHarnessLabel} · ${modelValue}`}
+            .displayIconSrc=${modelIconSrc}
+            .displayEffortBars=${effortCount}
+            .displayEffortMax=${modelDisplay.effort === 'max' || modelDisplay.effort === 'ultra'}
+            .displayEffortTitle=${effortText ? t('sdkBlock.effortTitle', { effort: effortText }) : ''}
             .favoritesEnabled=${this.pickerLabels.favoritesEnabled === true}
             .favoritesOnly=${this.pickerLabels.defaultFavoritesOnly === true}
             .availableOnly=${this.pickerLabels.availableFilterEnabled === true}
@@ -668,19 +740,6 @@ class CrSdkModeBar extends LitElement {
             @cr-favorite-toggle=${this.handleGroupedFavoriteToggle}
             @cr-open=${() => this.dispatchEvent(new CustomEvent('cr-sdk-picker-open', { bubbles: true, composed: true }))}
           >
-            <span slot="start" class="harness-badge harness-badge--${harnessBadge.tone}" aria-hidden="true">${harnessBadge.text}</span>
-            ${effortCount > 0 ? html`
-              <span
-                slot="end"
-                class="effort ${modelDisplay.effort === 'max' || modelDisplay.effort === 'ultra' ? 'effort--max' : ''}"
-                title=${t('sdkBlock.effortTitle', { effort: effortText })}
-                aria-hidden="true"
-              >
-                <span class="effort-bars">
-                  ${[0, 1, 2, 3].map((index) => html`<i class=${index < effortCount ? 'is-on' : ''}></i>`)}
-                </span>
-                <span class="effort-label">${effortText}</span>
-              </span>` : null}
           </cr-searchable-select>` : html`<cr-searchable-select
             class="combined-picker"
             size="sm"

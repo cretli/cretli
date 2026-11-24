@@ -1509,3 +1509,390 @@ test('G4 client abort during plaintext connect destroys upstream socket', async 
   await proxy.close();
   await upstream.close();
 });
+
+// ---- F6–F8 hardening: connection caps, deadlines, strict header cap ----
+
+/**
+ * Collects everything a socket receives until it closes (or the timeout fires).
+ * @param {net.Socket} socket
+ * @param {number} [timeoutMs]
+ * @returns {Promise<{ raw: string, closedMs: number }>}
+ */
+function readUntilClose(socket, timeoutMs = 4000) {
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    /** @type {Buffer[]} */
+    const chunks = [];
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error('readUntilClose timeout'));
+    }, timeoutMs);
+    socket.on('data', (c) => chunks.push(c));
+    socket.on('error', () => {});
+    socket.on('close', () => {
+      clearTimeout(timer);
+      resolve({ raw: Buffer.concat(chunks).toString('latin1'), closedMs: Date.now() - started });
+    });
+  });
+}
+
+/** @param {number} port */
+function connectRaw(port) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port }, () => resolve(socket));
+  });
+}
+
+const authFor = (token) => Buffer.from(`x:${token}`).toString('base64');
+
+test('F7 slow-drip request head is closed by the total deadline with one 408', async () => {
+  const policyFile = writePolicyFile({ tok: { policy: literalOriginPolicy(['http://x.test']) } });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, headerDeadlineMs: 400 }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const socket = await connectRaw(port);
+  const done = readUntilClose(socket);
+  const drip = setInterval(() => { if (!socket.destroyed) socket.write('X'); }, 50);
+  const res = await done;
+  clearInterval(drip);
+  assert.match(res.raw, /^HTTP\/1\.1 408 Request Timeout/);
+  assert.equal((res.raw.match(/HTTP\/1\.1/g) || []).length, 1);
+  assert.match(res.raw, /X-Egress-Deny: header-timeout/);
+  assert.ok(res.closedMs < 2500, `closed after ${res.closedMs}ms`);
+  await proxy.close();
+});
+
+test('F6 global connection cap rejects with complete 503 and frees on close', async () => {
+  const policyFile = writePolicyFile({ tok: { policy: literalOriginPolicy(['http://x.test']) } });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, maxConnections: 2, maxConnectionsPerToken: 2, headerDeadlineMs: 5000 }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const a = await connectRaw(port);
+  const b = await connectRaw(port);
+  await new Promise((r) => setTimeout(r, 50));
+  const c = await connectRaw(port);
+  const res = await readUntilClose(c);
+  assert.match(res.raw, /^HTTP\/1\.1 503 Service Unavailable/);
+  assert.match(res.raw, /X-Egress-Deny: connection-limit/);
+  assert.match(res.raw, /Too many connections\n$/);
+  a.destroy();
+  await new Promise((r) => setTimeout(r, 100));
+  const ok = await rawProxyRequest({
+    proxyPort: port,
+    request: 'GET /_egress_ready HTTP/1.1\r\nHost: x\r\n\r\n',
+  });
+  assert.match(ok.statusLine, /200/);
+  b.destroy();
+  await proxy.close();
+});
+
+test('F6 per-token cap rejects with 503, other tokens unaffected, slots release', async () => {
+  const upstream = await startFakeUpstream((socket) => {
+    socket.on('data', () => {});
+  });
+  const policy = literalOriginPolicy([`http://127.0.0.1:${upstream.port}`]);
+  const policyFile = writePolicyFile({ one: { policy }, two: { policy } });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, maxConnections: 10, maxConnectionsPerToken: 2 }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const reqFor = (token) => [
+    `GET http://127.0.0.1:${upstream.port}/ HTTP/1.1`,
+    'Host: 127.0.0.1',
+    `Proxy-Authorization: Basic ${authFor(token)}`,
+    'Content-Length: 5',
+    '',
+    '',
+  ].join('\r\n');
+  /** Open a connection that stays held (body never completes). */
+  const hold = async (token) => {
+    const s = await connectRaw(port);
+    s.on('error', () => {});
+    s.write(reqFor(token));
+    return s;
+  };
+  const h1 = await hold('one');
+  const h2 = await hold('one');
+  await new Promise((r) => setTimeout(r, 150));
+  const s3 = await connectRaw(port);
+  s3.write(reqFor('one'));
+  const res = await readUntilClose(s3);
+  assert.match(res.raw, /^HTTP\/1\.1 503 Service Unavailable/);
+  assert.match(res.raw, /X-Egress-Deny: connection-limit/);
+  // A different token is still served (reaches upstream, which holds it).
+  const other = await hold('two');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(other.destroyed, false);
+  // Releasing slots (including a repeated close/error) leaves the count correct.
+  h1.destroy();
+  h2.destroy();
+  await new Promise((r) => setTimeout(r, 150));
+  const again = await hold('one');
+  const again2 = await hold('one');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(again.destroyed, false);
+  assert.equal(again2.destroyed, false);
+  const s5 = await connectRaw(port);
+  s5.write(reqFor('one'));
+  assert.match((await readUntilClose(s5)).raw, /503/);
+  for (const s of [other, again, again2]) s.destroy();
+  await proxy.close();
+  await upstream.close();
+});
+
+test('F8 single-read terminated head larger than the cap gets a complete 431', async () => {
+  const policyFile = writePolicyFile({ tok: { policy: literalOriginPolicy(['http://x.test']) } });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, maxHeaderBytes: 4096 }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const head = `GET http://x.test/ HTTP/1.1\r\nHost: x.test\r\nX-Pad: ${'a'.repeat(5000)}\r\n\r\n`;
+  const socket = await connectRaw(port);
+  socket.write(head);
+  const res = await readUntilClose(socket);
+  assert.match(res.raw, /^HTTP\/1\.1 431 /);
+  assert.match(res.raw, /X-Egress-Deny: header-too-large/);
+  assert.match(res.raw, /Request header too large\n$/);
+  await proxy.close();
+});
+
+test('F7 never-resolving DNS lookup is denied dns-failed within the timeout, no upstream', async () => {
+  let upstreamHits = 0;
+  const upstream = await startFakeUpstream((socket) => {
+    upstreamHits += 1;
+    socket.end();
+  });
+  const policyFile = writePolicyFile({
+    tok: { policy: literalOriginPolicy([`http://slow.test:${upstream.port}`]) },
+  });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, dnsTimeoutMs: 300 }),
+    lookup: () => new Promise(() => {}),
+  });
+  const { port } = await proxy.listen(0);
+  const started = Date.now();
+  const res = await proxyRequest({
+    proxyPort: port,
+    token: 'tok',
+    request: `GET http://slow.test:${upstream.port}/ HTTP/1.1\r\nHost: slow.test\r\n\r\n`,
+  });
+  assert.match(res.statusLine, /403/);
+  assert.equal(res.headers['x-egress-deny'], 'dns-failed');
+  assert.ok(Date.now() - started < 2500);
+  assert.equal(upstreamHits, 0);
+  await proxy.close();
+  await upstream.close();
+});
+
+/**
+ * Starts a WS-upgrade request through the proxy and returns the raw reply.
+ * @param {(socket: net.Socket) => void} onUpstream
+ * @param {Record<string, unknown>} cfg
+ */
+async function hostileWsRun(onUpstream, cfg) {
+  const upstream = await startFakeUpstream(onUpstream);
+  const policyFile = writePolicyFile({
+    tok: { policy: literalOriginPolicy([`http://127.0.0.1:${upstream.port}`]) },
+  });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, ...cfg }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const client = await connectRaw(port);
+  const done = readUntilClose(client);
+  client.write([
+    `GET ws://127.0.0.1:${upstream.port}/sock HTTP/1.1`,
+    'Host: 127.0.0.1',
+    'Connection: Upgrade',
+    'Upgrade: websocket',
+    'Sec-WebSocket-Version: 13',
+    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+    `Proxy-Authorization: Basic ${authFor('tok')}`,
+    '',
+    '',
+  ].join('\r\n'));
+  const res = await done;
+  await proxy.close();
+  await upstream.close();
+  return res;
+}
+
+test('F7 hostile WS upstream: oversized response head is answered with 502 and closed', async () => {
+  const res = await hostileWsRun((socket) => {
+    socket.on('data', () => {
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nX-Pad: ${'a'.repeat(9000)}`);
+    });
+    socket.on('error', () => {});
+  }, { maxHeaderBytes: 4096 });
+  assert.match(res.raw, /^HTTP\/1\.1 502 /);
+  assert.doesNotMatch(res.raw, /101/);
+});
+
+test('F7 hostile WS upstream: never-completing head hits the upgrade deadline', async () => {
+  const res = await hostileWsRun((socket) => {
+    socket.on('data', () => socket.write('HTTP/1.1 101 Switching'));
+    socket.on('error', () => {});
+  }, { upgradeResponseDeadlineMs: 1000 });
+  assert.match(res.raw, /^HTTP\/1\.1 502 /);
+  assert.ok(res.closedMs < 3500);
+});
+
+test('F7 hostile WS upstream: oversized non-101 head is rejected with 502', async () => {
+  const res = await hostileWsRun((socket) => {
+    socket.on('data', () => {
+      socket.write(`HTTP/1.1 200 OK\r\nX-Pad: ${'a'.repeat(9000)}\r\n\r\n`);
+    });
+    socket.on('error', () => {});
+  }, { maxHeaderBytes: 4096 });
+  assert.match(res.raw, /^HTTP\/1\.1 502 /);
+  assert.doesNotMatch(res.raw, /X-Pad/);
+});
+
+test('F7 established CONNECT and WS tunnels survive past the head/upgrade deadlines', async () => {
+  const upstream = await startFakeUpstream((socket) => {
+    socket.on('data', (chunk) => {
+      const text = chunk.toString('latin1');
+      if (text.startsWith('GET /sock')) {
+        socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n');
+        return;
+      }
+      socket.write('echo:' + text);
+    });
+    socket.on('error', () => {});
+  });
+  const policyFile = writePolicyFile({
+    tok: { policy: literalOriginPolicy([`http://127.0.0.1:${upstream.port}`, `https://127.0.0.1:${upstream.port}`]) },
+  });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile, headerDeadlineMs: 1000, upgradeResponseDeadlineMs: 1000 }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const wsHead = [
+    `GET ws://127.0.0.1:${upstream.port}/sock HTTP/1.1`,
+    'Host: 127.0.0.1',
+    'Connection: Upgrade',
+    'Upgrade: websocket',
+    'Sec-WebSocket-Version: 13',
+    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+    `Proxy-Authorization: Basic ${authFor('tok')}`,
+    '',
+    '',
+  ].join('\r\n');
+  const ws = await connectRaw(port);
+  ws.on('error', () => {});
+  let wsRaw = '';
+  ws.on('data', (c) => { wsRaw += c.toString('latin1'); });
+  ws.write(wsHead);
+  const connectSock = await connectRaw(port);
+  connectSock.on('error', () => {});
+  let connRaw = '';
+  connectSock.on('data', (c) => { connRaw += c.toString('latin1'); });
+  connectSock.write(`CONNECT 127.0.0.1:${upstream.port} HTTP/1.1\r\nHost: 127.0.0.1\r\nProxy-Authorization: Basic ${authFor('tok')}\r\n\r\n`);
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.match(wsRaw, /101 Switching Protocols/);
+  assert.match(connRaw, /200 Connection Established/);
+  ws.write('ws-after-deadline');
+  connectSock.write('conn-after-deadline');
+  await new Promise((r) => setTimeout(r, 200));
+  assert.match(wsRaw, /echo:ws-after-deadline/);
+  assert.match(connRaw, /echo:conn-after-deadline/);
+  ws.destroy();
+  connectSock.destroy();
+  await proxy.close();
+  await upstream.close();
+});
+
+test('F7 WS tunnel applies backpressure to upstream when the client does not read', async () => {
+  /** @type {net.Socket|null} */
+  let upSock = null;
+  const upstream = await startFakeUpstream((socket) => {
+    upSock = socket;
+    socket.on('error', () => {});
+    socket.once('data', () => {
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n');
+      const blob = Buffer.alloc(64 * 1024, 0x61);
+      let sent = 0;
+      const pump = () => {
+        while (sent < 256 * 1024 * 1024) {
+          sent += blob.length;
+          if (!socket.write(blob)) {
+            socket.once('drain', pump);
+            return;
+          }
+        }
+      };
+      pump();
+    });
+  });
+  const policyFile = writePolicyFile({
+    tok: { policy: literalOriginPolicy([`http://127.0.0.1:${upstream.port}`]) },
+  });
+  const proxy = createEgressProxyServer({
+    config: proxyConfig({ policyFile }),
+    lookup: async () => [{ address: loopbackPin }],
+  });
+  const { port } = await proxy.listen(0);
+  const client = await connectRaw(port);
+  client.on('error', () => {});
+  client.pause();
+  client.write([
+    `GET ws://127.0.0.1:${upstream.port}/sock HTTP/1.1`,
+    'Host: 127.0.0.1',
+    'Connection: Upgrade',
+    'Upgrade: websocket',
+    'Sec-WebSocket-Version: 13',
+    'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+    `Proxy-Authorization: Basic ${authFor('tok')}`,
+    '',
+    '',
+  ].join('\r\n'));
+  await new Promise((r) => setTimeout(r, 800));
+  // Upstream must have been throttled: its writable buffer is full rather than draining.
+  assert.ok(upSock);
+  assert.ok(upSock.writableLength > 0, 'upstream should be backed up while the client is paused');
+  // Resuming the client lets data flow again.
+  let received = 0;
+  client.on('data', (c) => { received += c.length; });
+  client.resume();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(received > 64 * 1024);
+  client.destroy();
+  await proxy.close();
+  await upstream.close();
+});
+
+test('F6/F7 config parses new env vars and rejects invalid values', () => {
+  const cfg = loadEgressProxyConfig({
+    CRETLI_EGRESS_MAX_CONNECTIONS: '100',
+    CRETLI_EGRESS_MAX_CONNECTIONS_PER_TOKEN: '10',
+    CRETLI_EGRESS_HEADER_DEADLINE_MS: '2000',
+    CRETLI_EGRESS_DNS_TIMEOUT_MS: '1000',
+    CRETLI_EGRESS_UPGRADE_DEADLINE_MS: '3000',
+  });
+  assert.equal(cfg.maxConnections, 100);
+  assert.equal(cfg.maxConnectionsPerToken, 10);
+  assert.equal(cfg.headerDeadlineMs, 2000);
+  assert.equal(cfg.dnsTimeoutMs, 1000);
+  assert.equal(cfg.upgradeResponseDeadlineMs, 3000);
+  const defaults = loadEgressProxyConfig({});
+  assert.equal(defaults.maxConnections, 256);
+  assert.equal(defaults.maxConnectionsPerToken, 64);
+  assert.equal(defaults.headerDeadlineMs, 10_000);
+  assert.equal(defaults.dnsTimeoutMs, 5000);
+  assert.equal(defaults.upgradeResponseDeadlineMs, 15_000);
+  assert.throws(() => loadEgressProxyConfig({ CRETLI_EGRESS_MAX_CONNECTIONS: '0' }));
+  assert.throws(() => loadEgressProxyConfig({ CRETLI_EGRESS_HEADER_DEADLINE_MS: '10' }));
+  assert.throws(() => loadEgressProxyConfig({ CRETLI_EGRESS_DNS_TIMEOUT_MS: 'abc' }));
+  assert.throws(() => loadEgressProxyConfig({
+    CRETLI_EGRESS_MAX_CONNECTIONS: '5',
+    CRETLI_EGRESS_MAX_CONNECTIONS_PER_TOKEN: '6',
+  }));
+});

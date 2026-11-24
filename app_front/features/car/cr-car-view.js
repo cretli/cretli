@@ -44,7 +44,7 @@ export class CrCarView extends SignalWatcher(LitElement) {
     this.notice = null;
     this.typing = false;
     this.draft = '';
-    /** @type {{ cardId: string, text: string, loading: boolean }|null} */
+    /** @type {{ cardId: string, text?: string, brief?: object|null, loading: boolean }|null} */
     this.summary = null;
     this.timer = null;
     this.countdownTimer = null;
@@ -151,7 +151,7 @@ export class CrCarView extends SignalWatcher(LitElement) {
 
   #choose(card, index) {
     const result = getCarChoiceFlow().choose({ cardId: card.id, option: index, source: CAR_TOUCH });
-    this.notice = result.ok ? null : { kind: 'error', text: t(`car.err.${result.code}`) };
+    this.notice = result.ok === false ? { kind: 'error', text: t(`car.err.${result.code}`) } : null;
     this.requestUpdate();
   }
 

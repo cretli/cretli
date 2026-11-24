@@ -74,9 +74,9 @@ assert.equal(deltaTokens(cur, cur).textInput, 0);
 // MCP tool: read-only, resolves chat from args or session.
 const tool = CACHE_MCP_TOOLS[0];
 assert.equal(tool.readOnly, true);
-const result = tool.handler({ chat_id: 'c2' }, { session: {} });
+const result = await tool.handler({ chat_id: 'c2' }, { session: {} });
 assert.equal(result.structuredContent.chatId, 'c2');
-assert.throws(() => tool.handler({}, { session: {} }));
+await assert.rejects(() => tool.handler({}, { session: {} }));
 
 console.log('usage-cache-freshness ok');
 

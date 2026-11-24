@@ -4,13 +4,14 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { normalizeWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from '../app_front/features/watcher/watcherWorkspaceScope.js';
 
-function makePanel() {
+function makePanel(whenReady = async () => {}) {
   let folder = '/projects';
   const bar = { hidden: false, innerHTML: '', classList: { toggle() {} }, querySelector: () => null };
   const why = { hidden: false, innerHTML: '' };
   const pending = [];
   const context = vm.createContext({
     probeSync: (_name, fn) => fn(),
+    whenViewContextRuntimeReady: whenReady,
     document: { getElementById: (id) => id === 'todo-watcher-bar' ? bar : (id === 'todo-watcher-why' ? why : null), querySelector: () => null },
     window: { dispatchEvent() {} },
     CustomEvent: class {},
@@ -26,6 +27,7 @@ function makePanel() {
     escapeWatcherHtml: (value) => value,
     renderTodoBlockedHtml: () => '',
     paintWatcherAutomation: () => {},
+    paintWatcherRestartActions: () => {},
     t: (key) => key,
   });
   const source = fs.readFileSync(new URL('../app_front/features/watcher/watcherPanel.js', import.meta.url), 'utf8')
@@ -40,6 +42,8 @@ function makePanel() {
   };
 }
 
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
 function response(cwd, chatId) {
   return { json: { ok: true, cwd, watcher: { mode: 'autopilot', orchestratorChatId: chatId } } };
 }
@@ -47,13 +51,16 @@ function response(cwd, chatId) {
 test('switching from projects to Backend clears the old controls and ignores a delayed response', async () => {
   const panel = makePanel();
   const first = panel.refresh();
+  await settle();
   panel.pending[0].resolve(response('/projects', 'acme-chat'));
   await first;
   assert.equal(panel.bar.innerHTML, 'acme-chat');
   const old = panel.refresh();
+  await settle();
   panel.switchTo('/backend');
   assert.equal(panel.view(), null);
   const next = panel.refresh();
+  await settle();
   assert.equal(panel.bar.innerHTML, '');
   assert.equal(panel.bar.hidden, true);
   assert.equal(panel.why.hidden, true);
@@ -69,8 +76,10 @@ test('switching from projects to Backend clears the old controls and ignores a d
 test('a delayed failure from the previous workspace cannot replace Backend with an error', async () => {
   const panel = makePanel();
   const old = panel.refresh();
+  await settle();
   panel.switchTo('/backend');
   const next = panel.refresh();
+  await settle();
   panel.pending[1].resolve(response('/backend', 'backend-chat'));
   await next;
   panel.pending[0].reject(new Error('Old request failed'));
@@ -82,8 +91,28 @@ test('a response for another workspace is never painted', async () => {
   const panel = makePanel();
   panel.switchTo('/backend');
   const next = panel.refresh();
+  await settle();
   panel.pending[0].resolve(response('/projects', 'acme-chat'));
   await next;
   assert.equal(panel.bar.innerHTML, '');
   assert.equal(panel.view(), null);
+});
+
+
+test('panel boot waits for the active folder before issuing or caching a request', async () => {
+  let ready;
+  const pendingScope = new Promise((resolve) => { ready = resolve; });
+  const panel = makePanel(() => pendingScope);
+  const refresh = panel.refresh();
+  await settle();
+  assert.equal(panel.pending.length, 0);
+  panel.switchTo('/backend');
+  ready();
+  await settle();
+  assert.equal(panel.pending.length, 1);
+  assert.match(panel.pending[0].url, /workspaceFolder=%2Fbackend/);
+  panel.pending[0].resolve(response('/backend', 'backend-chat'));
+  await refresh;
+  assert.equal(panel.bar.innerHTML, 'backend-chat');
+  assert.equal(panel.view().cwd, '/backend');
 });

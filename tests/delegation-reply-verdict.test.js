@@ -2,7 +2,7 @@ import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { loadMailboxMessages } from '../lib/persist/delegation-mailbox-persist.js';
 import { sendDelegationReply } from '../lib/delegation-mailbox.js';

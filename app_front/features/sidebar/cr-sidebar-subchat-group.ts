@@ -1,5 +1,5 @@
 import { LitElement, html, nothing } from 'lit';
-import { formatSubchatCount, formatSubchatSummary } from './sidebarSubchatGroups.js';
+import { formatSubchatCount, formatSubchatSummary, formatSubchatSummaryText } from './sidebarSubchatGroups.js';
 import { MAX_SIDEBAR_NEST_INDENT } from './sidebarChatDragBlock.js';
 import {
   getSidebarSubchatGroupRegistration,
@@ -75,7 +75,7 @@ class CrSidebarSubchatGroup extends LitElement {
       ? (reg.deps?.t || ((key) => key))('sidebar.collapseGroup', { label: labelledCount })
       : (reg.deps?.t || ((key) => key))('sidebar.expandGroup', { label: labelledCount });
     const translate = reg.deps?.t || ((key: string) => key);
-    const summaryTitle = summary ? translate('sidebar.subchatSummary', { summary }) : '';
+    const summaryTitle = summary ? translate('sidebar.subchatSummary', { summary: formatSubchatSummaryText(group.summary, translate) }) : '';
     const canArchive = reg.deps?.canArchive === true && (group.allChildIds?.length || 0) > 0;
     const level = Math.min(MAX_SIDEBAR_NEST_INDENT, Math.max(1, Number(group.level) || 1));
     return html`

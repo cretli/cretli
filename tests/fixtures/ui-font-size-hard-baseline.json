@@ -1,0 +1,12 @@
+{
+  "rule": "Per-file count of hard font-size literals (rem|px|em) in app_front/css/**/*.scss, excluding the legacy layer and tokens.scss. Counts may only decrease; a file absent from this map must have 0. Tighten with node scripts/ui-font-size-baseline.js --write.",
+  "excluded": [
+    "app_front/css/features/chat/",
+    "app_front/css/features/sidebar/",
+    "app_front/css/cr-recipes.scss",
+    "app_front/css/tokens.scss"
+  ],
+  "counts": {
+    "app_front/css/features/tasks/_task-picker.scss": 4
+  }
+}

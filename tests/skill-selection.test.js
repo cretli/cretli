@@ -29,7 +29,7 @@ import { createCodexSteering } from '../lib/codex/codex-steer.ts';
 import { recordSteerManifest } from '../lib/context/context-send-manifest.ts';
 import { listContextSendManifests } from '../lib/persist/context-send-manifests-persist.js';
 import { registerChatContextRoutes } from '../lib/routes/chat-context-routes.js';
-import { saveChats } from '../lib/persist/chats-persist.js';
+import { saveChats } from '../lib/persist/chats-legacy-store.js';
 import { disposeOpenRouterRoom, ensureOpenRouterRoom, handleOpenRouterAgentWebSocket } from '../harnesses/openrouter/openrouter-agent-ws.js';
 
 test.after(() => removeIsolatedDataDir());

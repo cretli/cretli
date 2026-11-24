@@ -2,6 +2,7 @@
  * Settings → Delegations subtabs UI contract (source assertions, no jsdom).
  * Pattern: tests/workspace-watcher-policy-editor-ui.test.js.
  */
+import './helpers/isolated-data-dir.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,7 +33,7 @@ test('Delegations has Center / Limits / Review / Sessions / Models subtabs in th
   for (const tab of ['limits', 'review', 'sessions', 'models']) {
     assert.ok(html.includes(`id="settings-delegation-${tab}-root"`), `${tab} root`);
   }
-  assert.match(html, /data-settings-tab="delegations" role="tabpanel">[\s\S]*id="delegation-center-list"/, 'Center keeps the existing view');
+  assert.match(html, /data-settings-tab="delegations"[^>]*role="tabpanel"[^>]*>[\s\S]*id="delegation-center-list"/, 'Center keeps the existing view');
 });
 
 test('subtabs expose every workspace and server delegation field', () => {
@@ -137,7 +138,7 @@ test('Delegation panels opt into .cr-form and the tab rules stay on tokens', () 
   const recipes = read('app_front/css/cr-recipes.scss');
   // Every Delegation subtab wrapper opts into the native form recipe, the same
   // way watcherPanelAttrs() does for the Watcher panels.
-  assert.match(html, /<section class="settings-section cr-form" data-settings-tab="delegations" role="tabpanel">/);
+  assert.match(html, /<section class="settings-section cr-form" data-settings-tab="delegations"[^>]*role="tabpanel"[^>]*>/);
   for (const tab of ['limits', 'review', 'models', 'lessons']) {
     assert.match(html, new RegExp(`id="settings-delegation-${tab}-root" class="cr-form"`), `${tab} root opts into cr-form`);
   }
@@ -321,7 +322,7 @@ function mountDelegationSettingsRoutes(dataDir, workspace) {
       status(code) { status = code; return res; },
       json(value) { payload = value; return res; },
     };
-    await handler({ query: {}, body }, res);
+    await handler({ query: {}, body, requestScope: { folder: workspace } }, res);
     return { status, body: payload };
   };
 }

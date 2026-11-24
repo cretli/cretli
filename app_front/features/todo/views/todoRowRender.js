@@ -53,7 +53,7 @@ export function repaintTodoRowBadges() {
  * server's `batchEligibility.mode` decides eligibility, never the client.
  *
  * @param {HTMLElement} el
- * @param {object} item
+ * @param {Record<string, any>} item
  */
 export function paintTodoRowSelection(el, item) {
   const box = el.querySelector('.todo-row-select');
@@ -79,7 +79,7 @@ export function paintTodoRowSelection(el, item) {
  * The banner stays the place for reasons and actions.
  *
  * @param {HTMLElement} el
- * @param {object} item
+ * @param {Record<string, any>} item
  */
 export function paintTodoRowBatchBadge(el, item) {
   const badge = el.querySelector('.todo-row-batch-badge');

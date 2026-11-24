@@ -7,5 +7,7 @@
     "types": ["node"]
   },
   "include": ["server.js", "lib/**/*", "scripts/**/*", "harnesses/**/*"],
-  "exclude": ["node_modules", "data", ".tmp", ".vendor", "harnesses/*/front.js", "harnesses/*/tests"]
+  // Harness front modules (front.js and the browser-only model-settings.js it
+  // imports) pull in app_front code and are not server code.
+  "exclude": ["node_modules", "data", ".tmp", ".vendor", "harnesses/*/front.js", "harnesses/*/model-settings.js", "harnesses/*/tests"]
 }

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureAuthenticatedPage } from './chat-e2e-helpers.js';
+import { clickSidebarFooterButton, ensureAuthenticatedPage } from './chat-e2e-helpers.js';
 import {
   buildGitScopedPath,
   ensureScopedRouteContext,
@@ -88,7 +88,7 @@ async function assertSettingsTabRoute(page, scope, tabId) {
   await expect(page.locator('#settings-panel.active')).toBeVisible({ timeout: 60_000 });
   const tabBtn = page.locator(`#settings-tabs .settings-tab[data-settings-tab="${tabId}"]`).first();
   await expect(tabBtn).toHaveClass(/active/);
-  await expect(tabBtn).toHaveAttribute('aria-selected', 'true');
+  await expect(tabBtn).toHaveAttribute('aria-current', 'page');
 }
 
 test('from /git/worktrees open Settings tab keeps scope and back returns to worktrees', async ({ page }) => {
@@ -99,9 +99,9 @@ test('from /git/worktrees open Settings tab keeps scope and back returns to work
     waitUntil: 'domcontentloaded',
   });
   await assertGitWorktreesSubview(page, scope);
-  await page.locator('#header-settings-btn').click();
+  await clickSidebarFooterButton(page, '#header-settings-btn');
   await expect(page.locator('#settings-panel.active')).toBeVisible({ timeout: 60_000 });
-  await page.locator(`#settings-tabs .settings-tab[data-settings-tab="${settingsTabId}"]`).click();
+  await page.locator(`#sidebar-settings-tree [data-settings-node="${settingsTabId}"]`).click();
   await assertSettingsTabRoute(page, scope, settingsTabId);
   await page.goBack({ waitUntil: 'domcontentloaded' });
   await page.goBack({ waitUntil: 'domcontentloaded' });

@@ -8,9 +8,10 @@ import { getUiFreezeMetrics, presenceFrameReason } from '../../sidebar/sidebarRe
 import { resolveAgentStateFromMessage } from '../sdkStateResolver.js';
 import { isSdkChatGoneErrorCode } from '../../../../lib/sdk/sdk-ws-chat-gone.ts';
 import { resolveAgentStateFromRoomState, shouldSyncHistoryFromRoomState } from '../../../../lib/sdk/sdk-room-state.ts';
-import { dispatchAppsChangedEvent, dispatchBrowserConsentEvent, dispatchPortExposeConsentEvent, dispatchTodoChangedEvent } from './events.js';
+import { dispatchAppsChangedEvent, dispatchBrowserConsentEvent, dispatchPortExposeConsentEvent,
+  dispatchDeviceRunConsentEvent, dispatchTodoChangedEvent } from './events.js';
 import { t } from '../../../i18n/index.js';
-import { applyClaudeMeasuredContextUsage, applyClaudeContextBreakdown, applyCodexMeasuredContextUsage, applyServerContextOccupancy, isClaudeContextMeterChat, resetChatContextMeterState } from '../chatContextMeter.js';
+import { applyClaudeMeasuredContextUsage, applyClaudeContextBreakdown, applyCodexMeasuredContextUsage, applyServerContextOccupancy, isClaudeContextMeterChat, isMeasuredContextTransportChat, resetChatContextMeterState } from '../chatContextMeter.js';
 import { ROOM_STATE_GAP_SYNC_COOLDOWN_MS, ROOM_STATE_MISSING_INTERACTIVE_SYNC_COOLDOWN_MS, shouldHttpCatchUpAfterWsReplay } from '../chatResumePolicy.js';
 import { recordPongReceived, shouldMarkResumeSocketHealthy } from '../chatPingPolicy.js';
 import { markPageResumeStage, notePageResumeFirstMessage } from '../pageResumeTrace.js';
@@ -147,8 +148,8 @@ export function createSocketMessageHandler(chat, socket, ctx) {
         dispatchAppsChangedEvent();
         return;
       }
-      if (msg.type === 'portExposeConsentChanged') {
-        dispatchPortExposeConsentEvent(msg);
+      if (msg.type === 'deviceRunConsentChanged' || msg.type === 'portExposeConsentChanged') {
+        (msg.type === 'deviceRunConsentChanged' ? dispatchDeviceRunConsentEvent : dispatchPortExposeConsentEvent)(msg);
         return;
       }
       if (msg.type === 'sidebarLayout') {
@@ -255,6 +256,7 @@ export function createSocketMessageHandler(chat, socket, ctx) {
         return;
       }
       if (msg.type === 'sdkRoomState') {
+        handleSdkPromptLifecycleMessage(chat, msg, ctx);
         if (typeof msg.eventStreamId === 'string') {
           syncSdkEventStream(chat, msg.eventStreamId);
         }
@@ -644,7 +646,7 @@ export function createSocketMessageHandler(chat, socket, ctx) {
           renderChatTerminalState(chat);
           noteInAppSignalIfLive(msg, 'permission', msg.event.requestId, chat);
         }
-        if (msg.event.type === 'context_usage' && chat.agentTransport === 'codex') {
+        if (msg.event.type === 'context_usage' && isMeasuredContextTransportChat(chat)) {
           if (applyCodexMeasuredContextUsage(chat, msg.event)) renderChatTerminalState(chat);
           noteRenderedSdkRoomEvent(chat, msg);
           return;
@@ -655,7 +657,7 @@ export function createSocketMessageHandler(chat, socket, ctx) {
           return;
         }
         if (msg.event && typeof msg.event === 'object' && msg.event.type === 'usage') {
-          const transport = String(chat.agentTransport || 'sdk').trim() || 'sdk';
+          const measured = isMeasuredContextTransportChat(chat);
           // Claude run usage is not current context occupancy (sdk-limits-context-contract §6).
           if (isClaudeContextMeterChat(chat)) {
             applyClaudeMeasuredContextUsage(
@@ -664,12 +666,12 @@ export function createSocketMessageHandler(chat, socket, ctx) {
               msg.event.lastCallModel,
               msg.event.lastCallContextWindowTokens,
             );
-          } else if (transport !== 'codex') {
+          } else if (!measured) {
             // Billing totals are not occupancy: only the server-stamped
             // snapshot (usageMeta) feeds the meter for these harnesses.
             applyServerContextOccupancy(chat, msg.event);
           }
-          if (transport !== 'codex') delete chat._sdkContextFreshSession;
+          if (!measured) delete chat._sdkContextFreshSession;
           renderChatTerminalState(chat);
         }
         setAgentState(chat, 'active');

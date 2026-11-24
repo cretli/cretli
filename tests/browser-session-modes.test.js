@@ -387,7 +387,7 @@ async function startRoutes(manager) {
   const base = `http://127.0.0.1:${server.address().port}`;
   return {
     base,
-    post: (body) => fetch(`${base}/api/browser/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    post: (body) => fetch(`${base}/api/browser/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workspaceFolder: '/ws/a', ...body }) }),
     close: async () => { await new Promise((resolve) => server.close(resolve)); rmSync(dataDir, { recursive: true, force: true }); },
   };
 }

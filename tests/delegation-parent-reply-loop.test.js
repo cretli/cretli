@@ -1,7 +1,7 @@
 import './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
-import { addChat, loadChats } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats } from '../lib/persist/chats-legacy-store.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/mcp-builtin-tools.js';
 import { buildMailboxDeliveryPrompt, enqueueMailboxMessage, sendDelegationReply } from '../lib/delegation-mailbox.js';

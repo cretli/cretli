@@ -3,14 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
-import {
-  getChatById,
-  getChatsReadStats,
-  peekChats,
-  saveChats,
-  setChatClaudeSessionId,
-  updateChat,
-} from '../lib/persist/chats-persist.js';
+import { getChatById, getChatsReadStats, peekChats, saveChats, setChatClaudeSessionId, updateChat } from '../lib/persist/chats-legacy-store.js';
 
 const rows = Array.from({ length: 300 }, (_, i) => ({
   id: `c${i}`,

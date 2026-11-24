@@ -9,7 +9,7 @@ import './fixtures/fake-transport.js';
 process.env.CRETLI_LEAF_MATERIAL_CHECKPOINT = '0';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { addChat, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { getDelegationById, loadDelegations } from '../lib/persist/delegations-persist.js';
 import { saveDelegationSettings } from '../lib/persist/delegation-settings-persist.js';
 import { clearDelegationEnvCache } from '../lib/delegation-settings.js';

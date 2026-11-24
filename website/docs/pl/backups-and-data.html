@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kopie zapasowe i dane</title>
+<meta name="description" content="Gdzie Cretli trzyma dane, jakie są narzędzia kopii i jak bezpiecznie przywracać.">
+<link rel="canonical" href="https://cretli.com/docs/pl/backups-and-data.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/backups-and-data.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/backups-and-data.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/backups-and-data.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/pl/backups-and-data.html">
+<meta property="og:title" content="Kopie zapasowe i dane">
+<meta property="og:description" content="Gdzie Cretli trzyma dane, jakie są narzędzia kopii i jak bezpiecznie przywracać.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Przejdź do treści</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Dokumentacja</a>
+  <a href="../en/backups-and-data.html" hreflang="en">English</a>
+  <a href="/pl/" class="home-link">Strona główna</a>
+  <input class="search" type="search" placeholder="Szukaj w dokumentacji" aria-label="Szukaj w dokumentacji" hidden>
+  <button class="theme-toggle" type="button" aria-label="Motyw">Motyw</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Dokumentacja">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Pierwsze kroki</h2><ul><li><a href="index.html">Dokumentacja Cretli</a></li><li><a href="getting-started.html">Pierwsze kroki</a></li><li><a href="install-docker.html">Instalacja przez Docker</a></li></ul></section>
+<section class="nav-section"><h2>Silniki agentów</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Obszary robocze</h2><ul><li><a href="workspaces.html">Obszary robocze</a></li><li><a href="settings.html">Ustawienia</a></li></ul></section>
+<section class="nav-section"><h2>Narzędzia pracy</h2><ul><li><a href="chat-and-agents.html">Panele pracy</a></li></ul></section>
+<section class="nav-section"><h2>Zadania i plany</h2><ul><li><a href="todos.html">Zadania i plany</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Watcher obszaru roboczego</a></li></ul></section>
+<section class="nav-section"><h2>Delegowanie i przegląd</h2><ul><li><a href="delegation-review.html">Delegowanie i niezależny przegląd</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">Narzędzia MCP i klienci zewnętrzni</a></li></ul></section>
+<section class="nav-section"><h2>Dostęp zdalny</h2><ul><li><a href="remote-access.html">Dostęp zdalny, PWA i powiadomienia</a></li><li><a href="security-basics.html">Podstawy bezpieczeństwa</a></li></ul></section>
+<section class="nav-section"><h2>Kopie zapasowe i dane</h2><ul><li><a href="backups-and-data.html" aria-current="page">Kopie zapasowe i dane</a></li></ul></section>
+<section class="nav-section"><h2>Rozwiązywanie problemów i FAQ</h2><ul><li><a href="troubleshooting.html">Rozwiązywanie problemów</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Kopie zapasowe i dane</h1>
+<p>Cretli zapisuje wszystko, co tworzy, w folderze <code>data/</code> w katalogu instalacji: czaty, zadania, ustawienia, certyfikaty i poświadczenia. To prywatny stan działania. <strong>Nigdy go nie commituj</strong>, nie kopiuj do repozytorium i nie wklejaj jego plików do czatów. Reguły ignorowania w git już go wykluczają.</p>
+<h2 id="wybierz-narzędzie">Wybierz narzędzie</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Potrzeba</th>
+<th>Narzędzie</th>
+<th>Serwer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Przeniesienie ustawień bez sekretów</td>
+<td>Ustawienia → Dane i kopie, eksport ustawień przenośnych</td>
+<td>działa</td>
+</tr>
+<tr>
+<td>Kopia lub archiwum czatów</td>
+<td>Eksport rozmów; import tworzy <strong>nowe</strong> czaty</td>
+<td>działa</td>
+</tr>
+<tr>
+<td>Co godzinę lokalne migawki</td>
+<td>Kopie automatyczne w <code>data/backups/auto/</code></td>
+<td>działa</td>
+</tr>
+<tr>
+<td>Odtwarzanie po awarii wszystkich danych</td>
+<td><code>node scripts/cretli-offline-data.mjs</code></td>
+<td><strong>zatrzymany</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="automatyczne-kopie-lokalne">Automatyczne kopie lokalne</h2>
+<p>Serwer zapisuje migawkę przy starcie i co godzinę. Przechowuje ostatnie kopie godzinowe, dzienne i tygodniowe, każdą z manifestem rozmiarów i sum kontrolnych. Leżą na tym samym dysku, więc nie chronią przed utratą komputera. Wypisz je poleceniem <code>node scripts/backup-restore.mjs --list</code>. Przywracanie jest próbą bez zmian, dopóki nie dodasz <code>--apply</code>; wcześniej zatrzymaj Cretli i wstrzymaj Watchery.</p>
+<h2 id="pełna-kopia-offline">Pełna kopia offline</h2>
+<p>Przy zatrzymanym serwerze <code>backup --dest DIR</code> zapisuje zweryfikowaną kopię wszystkich zarządzanych plików. Dodaj <code>--encrypt</code>, aby dostać jeden zaszyfrowany plik <code>.cretlibak</code>. Sekrety są pomijane, chyba że podasz też <code>--include-secrets</code>, więc chroń ten plik i jego hasło. Przed poleganiem na kopii sprawdź ją poleceniem <code>verify</code>, a przywracaj przez <code>restore --backup ŚCIEŻKA --yes</code>. Po przywróceniu zbiór danych pozostaje wstrzymany: sprawdź wynik, a potem uruchom <code>node scripts/cretli-offline-data.mjs finalize</code> i <code>node scripts/cretli-offline-data.mjs resume</code>. Dopóki nie wznowisz, praca automatyczna, np. Watchery, pozostaje wyłączona.</p>
+<h2 id="dobre-nawyki">Dobre nawyki</h2>
+<ul>
+<li>Regularnie kopiuj kopie na inny komputer lub dysk.</li>
+<li>Zrób kopię przed aktualizacją lub zmianą konfiguracji.</li>
+<li>Od czasu do czasu przetestuj przywracanie na zapasowej kopii.</li>
+<li>Nie udostępniaj publicznie eksportowanych archiwów; czaty mogą zawierać prywatny kod i tokeny.</li>
+</ul>
+    </article>
+    <nav class="prev-next" aria-label="Poprzednia i następna strona">
+      <a rel="prev" href="security-basics.html">&larr; Podstawy bezpieczeństwa</a>
+      <a rel="next" href="troubleshooting.html">Rozwiązywanie problemów &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="Na tej stronie">
+    <p class="toc-title">Na tej stronie</p>
+    <ul>
+      <li><a href="#wybierz-narzędzie">Wybierz narzędzie</a></li>
+      <li><a href="#automatyczne-kopie-lokalne">Automatyczne kopie lokalne</a></li>
+      <li><a href="#pełna-kopia-offline">Pełna kopia offline</a></li>
+      <li><a href="#dobre-nawyki">Dobre nawyki</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Dokumentacja</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

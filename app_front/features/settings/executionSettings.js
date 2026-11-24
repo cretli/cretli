@@ -5,7 +5,9 @@
  */
 
 import '../../components/ui/cr-bar-button.js';
+import '../../components/ui/cr-bar-input.js';
 import '../../components/ui/cr-bar-select.js';
+import '../../components/ui/cr-bar-textarea.js';
 import { t, getCurrentLang } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { getWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from '../watcher/watcherWorkspaceScope.js';
@@ -64,7 +66,7 @@ function render(root, data) {
   const wt = eff.worktree || {};
   const isWorktree = eff.executionMode === 'worktree';
   state.proposal = data.proposal || null;
-  const field = (id, key, label, placeholder) => `<label class="cr-field"><span class="cr-field-label">${esc(t(label))}</span><input id="${id}" type="text" placeholder="${esc(placeholder)}" value="${esc(wt[key] || '')}"></label>`;
+  const field = (id, key, label, placeholder) => `<label class="cr-field"><span class="cr-field-label">${esc(t(label))}</span><cr-bar-input id="${id}" type="text" aria-label="${esc(t(label))}" placeholder="${esc(placeholder)}" value="${esc(wt[key] || '')}"></cr-bar-input></label>`;
   root.innerHTML = `
     <div class="cr-execution-body">
       <p class="cr-hint">${esc(t('settings.executionHint'))}</p>
@@ -82,7 +84,7 @@ function render(root, data) {
         <cr-bar-select id="execution-dirty-policy" value="${DIRTY_POLICIES.includes(wt.dirtyPolicy) ? wt.dirtyPolicy : 'block'}"></cr-bar-select>
         <p class="cr-hint">${esc(t('settings.executionDirtyPolicyHint'))}</p>
       </div>
-      <label class="cr-field"><span class="cr-field-label">${esc(t('settings.executionPrepare'))}</span><textarea id="execution-prepare" rows="3" placeholder="npm&#10;ci">${esc(prepareLines(wt.prepareCommand).join('\n'))}</textarea></label>
+      <label class="cr-field"><span class="cr-field-label">${esc(t('settings.executionPrepare'))}</span><cr-bar-textarea id="execution-prepare" rows="3" aria-label="${esc(t('settings.executionPrepare'))}" placeholder="npm&#10;ci" value="${esc(prepareLines(wt.prepareCommand).join('\n'))}"></cr-bar-textarea></label>
       <p class="cr-hint">${esc(t('settings.executionPrepareHint'))}</p>
       ${data.proposal?.available ? `<p class="cr-hint">${esc(t('settings.executionProposalHint'))} <code>${esc(data.proposal.repoRoot || '')}</code></p>` : ''}
       <p class="cr-status" id="execution-status" data-tone=""></p>

@@ -1,7 +1,7 @@
 import { createHostedToolPermissionGate, handleHostedToolPermissionReply } from '../../lib/approval/hosted-tool-permission.ts';
 /**
  * WebSocket rooms for the Antigravity agent harness — SDK-compatible event
- * protocol over the OpenAI-compatible Antigravity API.
+ * protocol over the official Antigravity ACP runtime.
  */
 
 import { randomUUID } from 'crypto';
@@ -38,6 +38,8 @@ import { canAcceptNewRun } from '../../lib/update-gate.js';
 import { msg } from '../../lib/messages.js';
 import { buildMcpRuntimeContext, markMcpConfigApplied, prepareHarnessMcp } from '../../lib/mcp/mcp-session.js';
 import { isScoutReadOnlyChatId } from '../../lib/workspace-scout-chat.js';
+import { advanceRoomContextEpoch, CONTEXT_RESTART_REASON, recordContextRestart } from '../../lib/usage/context-restarts.ts';
+import { classifyAntigravityContextReading, parseAntigravityNativeCommand } from './antigravity-context.js';
 import {
   enforceWatcherOrchestratorMcpGate,
   stampWatcherOrchestratorRoom,
@@ -62,12 +64,61 @@ const {
 const DEFAULT_ANTIGRAVITY_MODEL = 'default';
 
 /**
+ * Clear the meter for a context that no longer exists (compaction or a lost
+ * session) and tell the user why.
+ *
+ * @param {any} room
+ * @param {string} noticeType
+ * @param {string} message
+ */
+function emitAntigravityContextReset(room, noticeType, message) {
+  room._antigravityLastContextTotal = null;
+  broadcastRoom(room, { type: 'sdkEvent', event: { type: 'context_usage', reset: true, observedAt: new Date().toISOString() } });
+  broadcastRoom(room, { type: 'sdkEvent', event: { kind: 'notice', noticeType, message } });
+}
+
+/**
+ * The resumed session replayed no history: Antigravity created an empty one.
+ *
+ * @param {any} room
+ */
+function handleAntigravitySessionDrop(room) {
+  recordContextRestart({ chatId: room.chatId, harness: 'antigravity', reason: CONTEXT_RESTART_REASON.SESSION_DROP, room });
+  emitAntigravityContextReset(room, 'session_drop',
+    'Antigravity no longer has this conversation (its saved session is gone); the model starts without the earlier messages.');
+}
+
+/**
+ * Route one `context_usage` reading through compaction detection.
+ *
+ * @param {any} room
+ * @param {Record<string, any>} event
+ * @param {string} command native command of this turn, '' for a normal prompt
+ * @returns {boolean} true when the reading should still be broadcast
+ */
+function applyAntigravityContextReading(room, event, command) {
+  const kind = classifyAntigravityContextReading({ previousTotal: room._antigravityLastContextTotal, event, command });
+  if (kind === 'compacted_by_command') {
+    advanceRoomContextEpoch(room, 'compaction');
+    emitAntigravityContextReset(room, 'compact', 'Antigravity compacted the conversation context.');
+    return false;
+  }
+  if (kind === 'compacted') {
+    advanceRoomContextEpoch(room, 'compaction');
+    emitAntigravityContextReset(room, 'compact', 'Antigravity compacted the conversation context automatically.');
+  }
+  const total = Number(event?.usage?.totalTokens);
+  room._antigravityLastContextTotal = Number.isFinite(total) && total > 0 ? total : null;
+  return true;
+}
+
+/**
  * @param {any} room
  * @param {any} chat
  */
 function drainAntigravityQueue(room, chat) {
   drainOnePendingPrompt(room, (/** @type {any} */ next) => {
-    void runAntigravityPrompt(room, chat, next.text, next.mode, next.displayText || '', next.selection);
+    void runAntigravityPrompt(room, chat, next.text, next.mode, next.displayText || '', next.selection, undefined, true);
   });
 }
 
@@ -83,7 +134,7 @@ function enqueueAntigravityPrompt(room, text, modeOverride, displayText, selecti
   if (uiText && uiText !== text) item.displayText = uiText;
   withSkillSelection(item, selection);
   room.pendingPrompts.push(item);
-  broadcastRoom(room, { type: 'sdkQueued', text: uiText || text });
+  broadcastRoom(room, { type: 'sdkQueued', text: uiText || text, position: room.pendingPrompts.length });
   kernel.sendRoomState(room);
 }
 
@@ -146,8 +197,15 @@ export async function ensureAntigravityRoom(sessionKey, deps) {
  * @param {string} [displayText]
  * @param {unknown} [selection] Explicit skill IDs / mention policy of this prompt.
  */
-async function runAntigravityPrompt(room, chat, text, modeOverride, displayText = '', selection = null, onStarted = (_runId) => {}) {
-  if (await rejectArchivedRoomPromptAsync(room, broadcastRoom)) return;
+async function runAntigravityPrompt(room, chat, text, modeOverride, displayText = '', selection = null, onStarted = (_runId) => {}, fromQueue = false) {
+  // Callers fire this without awaiting: a storage error here must not become a
+  // fatal unhandled rejection.
+  try {
+    if (await rejectArchivedRoomPromptAsync(room, broadcastRoom)) return;
+  } catch (error) {
+    broadcastRoom(room, { type: 'sdkError', code: 'chat_lookup_failed', message: error instanceof Error ? error.message : String(error) });
+    return;
+  }
   const trimmed = String(text || '').trim();
   if (!trimmed) return;
   const uiText = resolvePromptUiText(trimmed, displayText);
@@ -173,9 +231,9 @@ async function runAntigravityPrompt(room, chat, text, modeOverride, displayText 
   room.sdkMode = mode;
   beginEnforcedSdkMode(room, mode);
   syncRoomDelegationAssignment(room);
-  broadcastRoom(room, { type: 'sdkPromptStarted', runId });
+  broadcastRoom(room, { type: 'sdkPromptStarted', runId, text: uiText, fromQueue, remaining: room.pendingPrompts.length });
   onStarted(runId);
-  broadcastRoom(room, { type: 'sdkBusy', busy: true });
+  broadcastRoom(room, { type: 'sdkBusy', busy: true }, { log: false });
   persistRoomEvent(room, { kind: 'localUser', text: uiText }, true);
   broadcastRoom(room, { type: 'sdkEvent', event: buildUserEvent(uiText) });
   let reportsConfirmed = false;
@@ -187,7 +245,9 @@ async function runAntigravityPrompt(room, chat, text, modeOverride, displayText 
   let status = 'completed';
   let detail = '';
   try {
-    const prompt = await decorateHarnessPrompt(room, trimmed, 'antigravity');
+    // A native command only works as the first text of the prompt: send it bare.
+    const command = parseAntigravityNativeCommand(trimmed, room.antigravityCommands);
+    const prompt = command ? trimmed : await decorateHarnessPrompt(room, trimmed, 'antigravity');
     const mcpContext = buildMcpRuntimeContext({ chat, room, harness: 'antigravity', mode });
     const mcpPrep = prepareHarnessMcp(mcpContext);
     const mcpBlock = await enforceWatcherOrchestratorMcpGate({
@@ -204,7 +264,11 @@ async function runAntigravityPrompt(room, chat, text, modeOverride, displayText 
       scoutReadOnly: isScoutReadOnlyChatId(room.chatId),
       mcpServers: mcpPrep.mcpServers,
       signal: room.abortController.signal,
+      turnId: runId,
       checkPermission: createHostedToolPermissionGate({ harness: 'antigravity', room, broadcastRoom, sendRoomState: kernel.sendRoomState }),
+      onConfiguration: (configuration) => { room.effectiveConfiguration = configuration; },
+      onCommands: (names) => { room.antigravityCommands = names; },
+      onSessionDropped: async () => { handleAntigravitySessionDrop(room); },
       onSession: async (sessionId) => {
         room.antigravitySessionId = sessionId;
         await updateChatAsync(chat.id, { antigravitySessionId: sessionId });
@@ -212,6 +276,7 @@ async function runAntigravityPrompt(room, chat, text, modeOverride, displayText 
       },
       onEvent: (event) => {
         confirmReports();
+        if (event?.type === 'context_usage' && !applyAntigravityContextReading(room, event, command)) return;
         broadcastRoom(room, { type: 'sdkEvent', event });
       },
     });
@@ -384,6 +449,7 @@ export function getAntigravityRoomDiag(sessionKey) {
     clients: room.clients.size,
     eventSeq: room.eventSeq,
     sessionId: room.antigravitySessionId,
+    effectiveConfiguration: room.effectiveConfiguration || null,
   };
 }
 
@@ -395,5 +461,9 @@ export function syncAntigravityRoomModelFromChat(sessionKey, model) {
   const room = antigravityRooms.get(sessionKey);
   if (!room) return;
   const nextModel = String(model || '').trim();
-  if (nextModel) room.modelId = nextModel;
+  if (!nextModel || nextModel === room.modelId) return;
+  room.modelId = nextModel;
+  // Same ACP session, but the new model starts with a cold cache and another window.
+  room._antigravityLastContextTotal = null;
+  recordContextRestart({ chatId: room.chatId, harness: 'antigravity', reason: CONTEXT_RESTART_REASON.MODEL_CHANGE, room });
 }

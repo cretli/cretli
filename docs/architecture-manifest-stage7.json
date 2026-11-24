@@ -26,8 +26,8 @@
     {
       "path": "CHANGELOG.md",
       "group": "source",
-      "sha256": "b631ca89f52ed08d53a9c846e73d211adb8a736e80122b78c58dcbd120959343",
-      "bytes": 185455
+      "sha256": "c6e72131c0dfd10d3b0a29514cced83eb97b07fac24d7e2aca50fd0b909d0a3c",
+      "bytes": 233643
     },
     {
       "path": "README.md",
@@ -116,8 +116,8 @@
     {
       "path": "docs/architecture-baseline.md",
       "group": "document",
-      "sha256": "59733ebec92a778beaa8914332267147bcaa41c498259504c87750041041532c",
-      "bytes": 15139
+      "sha256": "888ca84c76943e6ca555351f2456bc70fccdcbed2325cffc66f01cc08f4d2805",
+      "bytes": 15635
     },
     {
       "path": "docs/architecture-chat-catalog-contract.md",
@@ -152,8 +152,8 @@
     {
       "path": "docs/architecture-http-baseline.md",
       "group": "document",
-      "sha256": "c08d67be43e680fc4af74ddf205703b7a50d74e710e8a13aae24ba0027c353dd",
-      "bytes": 5755
+      "sha256": "3a998f0d1305ba2969eea3de6831eb91539fef09c12fd77690afed5742253df6",
+      "bytes": 6290
     },
     {
       "path": "docs/architecture-list-sync-contract.md",
@@ -260,8 +260,8 @@
     {
       "path": "lib/chat-catalog.js",
       "group": "source",
-      "sha256": "8eff6b89f5cc616e44a55234db604abf5a332c5d515e1c5ad545fc22cfbff7c9",
-      "bytes": 12063
+      "sha256": "cda93091ed31bdc209b871851fe1d5f73dbf1ff40f32ffc80c34be4e2c3fa806",
+      "bytes": 13770
     },
     {
       "path": "lib/chat-list-dto.js",
@@ -392,8 +392,8 @@
     {
       "path": "lib/routes/chats-routes.js",
       "group": "source",
-      "sha256": "87a60a5932b1b230fa619b6d242d4580dacf117ed2494a1c80cb03e3ce2ea0fd",
-      "bytes": 62247
+      "sha256": "609fb172ba70d6eed7a49aa42bd8d7d7c8c52344fc6cead797a699d22cd55670",
+      "bytes": 66539
     },
     {
       "path": "lib/routes/delegations-routes.js",
@@ -632,8 +632,8 @@
     {
       "path": "scripts/architecture-stall-profile.mjs",
       "group": "script",
-      "sha256": "e075881019a4c4c4d93f9436e9d9d664332a5570af6a49d4c639bc674be6adbf",
-      "bytes": 39379
+      "sha256": "ac9bc5c4ee42bf7d21bef5409d0c55da82d8b4805a4f85904c70f583444632b1",
+      "bytes": 73842
     },
     {
       "path": "scripts/architecture-sync-io-inventory.mjs",
@@ -680,8 +680,8 @@
     {
       "path": "tests/architecture-stall-profile.test.js",
       "group": "test",
-      "sha256": "b9d3ccee59c7503fe88f80203485aed71fd8f061a0d7e9672d10e0c22e684cd4",
-      "bytes": 3923
+      "sha256": "bc9db99ecf9ebfb1c3ecf0cbc056c586d30a9f5e7ace46e8943bcbf9a0efef32",
+      "bytes": 5269
     },
     {
       "path": "tests/can-use-tool-adapter.test.js",
@@ -698,8 +698,8 @@
     {
       "path": "tests/chat-catalog-pagination.test.js",
       "group": "test",
-      "sha256": "5d8bc95225f2d7dad956436ebe1a64a1314398a68033d7eaa8f6614711a4a60e",
-      "bytes": 11641
+      "sha256": "e45d8f60f78002d85b7924e4dffbefffdf14c5b5e1f3bb59a4fa8dccc0b23152",
+      "bytes": 16972
     },
     {
       "path": "tests/chat-history-cache.test.js",

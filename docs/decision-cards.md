@@ -16,6 +16,7 @@ The first producers derive cards from a todo whose plan awaits approval or whose
 | `integration` | high | no | yes |
 | `policy_upgrade` | high | no | yes |
 | `doc_proposal` | medium | no | yes |
+| `operator_proposal` | medium | no | no (never auto-decided, no metacard, no push token) |
 | `needs_human`, `permission`, `question`, `browser_consent`, `scout_finding`, `lesson_candidate`, `rescope` | medium | no | no |
 
 A producer may raise risk or mark a card irreversible; it cannot lower risk or make a kind reversible. Each option receives at least the card's risk and no more reversibility than its kind. `onTimeout=recommended` requires server-classified low risk, reversibility, and a non-human-only kind; with the current table, no kind qualifies. Human-only cards must be decided by an explicit UI action, with no gesture, push action token, timeout recommendation, automatic decision, or autonomy policy.
@@ -26,6 +27,18 @@ Docs proposals are reserved for the Docs service and `doc_propose_*` tools;
 apply uses the Docs service; rejection changes nothing. Conflicts mark the card
 stale. See [Workspace Docs](docs-module.md#agent-proposals-and-human-approval).
 They never get autonomy metacards, gestures, voice approval or push action tokens.
+
+## Operator proposals
+
+`operator_proposal` cards carry a typed proposal about a todo (`lib/decisions/operator-proposal.js`). An operator (agent, MCP bearer) can only **create** one, with `operator_propose` (or `createOperatorProposalCard`); it cannot resolve it. The owner resolves it on the human route `POST /api/decisions/:id` (cookie session + CSRF, `isAgentSessionRequest` is rejected with 403). The route claims the card (`pending` to `deciding`, CAS on `revision`) and `executeDecision` dispatches the kind to `executeOperatorProposal`; no new route and no LLM rerun. Options: `approve`, `reject`.
+
+| Action | Params | Effect on approve |
+| --- | --- | --- |
+| `extend_scope` | `files?`, `reason?` | `acceptWorkspaceWatcherScopeRequest` for the open scope request (fails if none) |
+| `defer_todo` | `reason`, `until?` | status `deferred` with reason / date |
+| `mark_ready_for_integration` | `reason?` | changelog mark only; confirmation stays the human-only `integration` card |
+
+Params are validated at creation and again at execution. Unsupported actions, and human-only matters (`approve_plan`, `confirm_integration`, `policy_upgrade`, `doc_proposal`), are refused (`VALIDATION` at creation, `unsupported_action` at execution); for those the operator uses the existing `plan_approval` / `integration` cards. The subject holds the todo `updatedAt`; every effect compares it with the current todo, and a changed todo makes the card `stale` with no effect (the pending-card sync also stales it). `dedupeKey` is `operator_proposal:<workspace>:<todoId>:<hash(action, params)>`, so the same todo revision and matter give one card. Approval and rejection are written to the operator journal (`decision` note) in addition to `decisions-audit.jsonl`. The kind is excluded from autonomy promotion (`AUTONOMY_EXCLUDED_KINDS`) and from push tokens.
 
 ## Human channel and threat model
 
@@ -73,6 +86,58 @@ contains `decisionId`, `kind`, `optionId`, `option`, `text` and related `todoIds
 The decided card also retains this structured `response`. Options describe work
 for the source orchestrator; the adapter does not execute producer-supplied code.
 The decision stack UI is implemented in a separate leaf.
+
+## Decision graph foundation and continuation
+
+A card may carry a versioned `origin` (`schemaVersion`, `kind`: `watcher_report`
+with `cycleId`/`chatId`/`reportId`; absent on legacy cards, which read as
+`origin.kind = "unknown"`) and `relations` (`todoIds`, `chatId`, `cycleId`,
+`scopeVersion`, `supersedes`; `supersededBy` on the replaced card). References are
+kept as recorded; the read model flags todos that no longer exist
+(`todos[].missing`) and a changed scope (`scopeChanged`). No Git or patch evidence
+is invented: only real evidence is attached.
+
+Each card holds an append-only, idempotent `events[]` log (cap 200). Events are
+keyed (`proposed`, `answered`, `superseded`, `continuation_*`); a key already
+present changes nothing. The `proposed` and `answered` snapshots are written once
+and never rewritten. The `proposed` snapshot is deliberately compact (title, option ids + short labels, recommendation, origin/relations) so it does not duplicate the card body into the pending byte budget. `GET /api/decisions/:id/events?cursor=<seq>&limit=<n>`
+pages the log (`nextCursor` is the last seen `seq`).
+
+`needs_human` options carry an explicit `continuation` intent (`resume`, `defer`,
+`none`); “Inna odpowiedź…” on a structured card means `resume`. The `continuation`
+record on a decided card moves `saved → applying → waiting | applied | none |
+failed`, and `waiting → resumed` only when a Watcher cycle really started with the
+answer in its prompt, tracked per todo (`resumedTodoIds`): a multi-todo card becomes
+`resumed` once every todo got its context. When one todo's cycle prompt cannot carry the
+answer (`prompt_too_long`), the continuation stays `waiting` and the error is recorded per todo in
+`continuationState.deliveryErrors`; sibling todos and later cycles still receive the answer. Answer-only options (no explicit
+`continuation`, legacy cards) also go to `waiting` (`waitingFor: next_cycle`) without
+resuming or nudging the scheduler, so the choice and free text still reach the
+next cycle of each blocked todo. `applying` is a compare-and-swap claim (`decisions.annotate`),
+a stale claim (>60 s) can be taken over. `GET /api/decisions` (needs_human cards),
+`GET /api/decisions/:id` and the resolve response return the read model:
+`projectName` (last path segment, never a full path), `todos[{id,title,missing}]`,
+`question`, `continuationState` (`status`, `waitingFor`, `error`, `retryable`,
+`answer`). `POST /api/decisions/:id/continuation/retry` (human session + CSRF,
+workspace-scoped, idempotent) re-runs a failed or stranded continuation without
+changing the choice and without bypassing any scheduler gate. A decision never
+approves plans, reviews, integration or permissions. See
+[Workspace Watcher](workspace-watcher.md#durable-answer-and-continuation).
+
+The Decisions panel renders the safe `projectName`, `todos`, `question`, option
+labels/effects, recommendation and continuation state from this read model. A
+free-text answer draft is kept in browser local storage by decision ID until a
+successful response. The answered card displays the stored response and current
+continuation state separately from task completion; `resumed` means the answer
+reached a real cycle, not that the todo succeeded. Retryable continuation states
+expose the retry route above, and failures remain visible if retry fails.
+
+For `needs_human` cards, Details loads `GET /api/decisions/:id/events` in pages
+of 50 using `nextCursor`. The timeline shows proposal, answer and continuation
+events, provenance, related todos and typed references. Missing todo or source
+records are labeled unavailable; the UI does not reconstruct deleted artifacts.
+The history is a linear list rather than a full relation graph. Existing
+non-`needs_human` cards keep their current details and resolution flow.
 
 ## Host-gate adapters
 

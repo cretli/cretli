@@ -53,7 +53,7 @@ import { executeTool } from '../lib/agent-harness/tool-executor.ts';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { createCretliMcpToolHandlers } from '../lib/mcp/builtin/catalog.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 
 let failed = 0;

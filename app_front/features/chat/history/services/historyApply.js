@@ -9,6 +9,14 @@ import { resolveEventStreamId, resolveViewOrderKey, viewOrderIdentity } from '..
 import { removeHistoryRecordFromMountedParking } from '../../chatHistoryMountedParking.js';
 import { isMountedHistoryRecordApplied, isMountedViewOrderKeyApplied, resolveMountedRecordIdentity } from '../../../../lib/sdkHistoryMountedWindow.js';
 
+export function resolveContextNoticeText(payload, translate = t) {
+  let info = {};
+  try { info = JSON.parse(String(payload || '')); } catch {}
+  if (info.code === 'context_restored') return translate('chat.contextRestored', { n: Number(info.turns) || 0 });
+  if (info.code === 'context_lost') return translate('chat.contextLost');
+  return String(info.text || payload || '').trim();
+}
+
 /**
  * Ordered apply of live events and persisted history records.
  *
@@ -384,6 +392,9 @@ export function installHistoryApply(rv) {
     } else if (variant === 'contextSeed') {
       if (!payload.trim()) return;
       rv.createContextSeedBlock(payload.trim(), createdAt);
+    } else if (variant === 'contextNotice') {
+      const text = resolveContextNoticeText(payload);
+      if (text) rv.lineMeta('sdk-rich-line--notice', escapeHtml(text), createdAt);
     } else if (variant === 'delegation') {
       rv.renderDelegationCard(payload, createdAt);
     } else if (variant === 'mailbox') {

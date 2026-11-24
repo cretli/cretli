@@ -33,6 +33,7 @@ const {
   resolveClaudeBackgroundHoldMs,
   buildClaudeAuthSignature,
   buildClaudeTuningSignature,
+  buildClaudeSessionStartKey,
   resolveClaudeRunTuning,
 } = await import('../lib/claude/claude-session.ts');
 const {
@@ -42,6 +43,11 @@ const {
 } = await import('../lib/claude/claude-models.ts');
 const { clearMcpBridgeToolsListed, markMcpBridgeToolsListed } = await import('../lib/mcp/mcp-bridge-ready.js');
 const { ORCHESTRATOR_MCP_CONTRACT_TOOLS } = await import('../lib/mcp/mcp-orchestrator-contract.js');
+const { saveSettings, loadSettings } = await import('../lib/persist/settings.js');
+const { noteChatRowsForOperatorIndex } = await import('../lib/operator/operator-run-chat-registry.js');
+const { noteChatRowsForScoutIndex } = await import('../lib/scout-chat-registry.js');
+const { clearClaudePromptSuggestions, shouldAcceptClaudePromptSuggestion } = await import('../lib/claude/prompt-suggestion-state.ts');
+const { buildHarnessHandoffPrompt } = await import('../lib/conversation-fork.js');
 
 const { buildSdkRoomStatePayload } = await import('../lib/sdk/sdk-room-state.ts');
 const SDK_SESSION_ID = 'sess-1';
@@ -72,6 +78,9 @@ function extractText(message) {
  *   interruptReceipt?: Record<string, unknown>,
  *   endSilently?: boolean,
  *   supportedModels?: Array<Record<string, unknown>>,
+ *   promptSuggestion?: string,
+ *   promptSuggestionSessionId?: string,
+ *   endAfterPromptSuggestion?: boolean,
  * }} [config]
  */
 function createFakeClaudeSdk(config = {}) {
@@ -86,6 +95,9 @@ function createFakeClaudeSdk(config = {}) {
     interruptSilent: config.interruptSilent === true,
     endSilently: config.endSilently === true,
     supportedModels: config.supportedModels || [],
+    promptSuggestion: config.promptSuggestion || '',
+    promptSuggestionSessionId: config.promptSuggestionSessionId || '',
+    endAfterPromptSuggestion: config.endAfterPromptSuggestion === true,
     interruptReceipt: config.interruptReceipt,
   };
   let resumeFailureEmitted = false;
@@ -170,6 +182,13 @@ function createFakeClaudeSdk(config = {}) {
           ...overrides,
         },
       });
+      if (state.promptSuggestion) {
+        enqueue({ value: {
+          type: 'prompt_suggestion', suggestion: state.promptSuggestion,
+          session_id: state.promptSuggestionSessionId || state.sessionId,
+        } });
+        if (state.endAfterPromptSuggestion) endNow();
+      }
       call.pendingResult = null;
     }
 
@@ -342,6 +361,8 @@ function createRunner(options) {
   const persisted = [];
   const roomStates = [];
   const broadcastOptions = [];
+  const notices = [];
+  const writeOrder = [];
   const revision = typeof options.mcpRevision === 'function' ? options.mcpRevision : () => 1;
   const claudeMcp = typeof options.claudeMcp === 'function' ? options.claudeMcp : () => ({});
   const runner = createClaudePromptRunner({
@@ -352,10 +373,19 @@ function createRunner(options) {
         broadcastOptions.push(options);
       },
       sendRoomState: () => { roomStates.push(buildSdkRoomStatePayload(options.room)); },
-      persistRoomEvent: (event) => { persisted.push(event); },
-      flushPersist: () => {},
+      persistRoomEvent: (event) => { persisted.push(event); writeOrder.push({ type: 'history', event }); },
+      flushPersist: () => typeof options.flushPersist === 'function' ? options.flushPersist() : options.flushResult || { ok: true, pending: 0, deadLettered: 0 },
+      getChatHistoryPage: async () => ({ events: options.historyEvents || [] }),
+      getChatRow: async () => ({
+        id: options.room.chatId,
+        workspaceFolder: options.room.cwd,
+        agentTransport: 'claude',
+        summaries: options.summaries || [],
+        ...(typeof options.chatRow === 'function' ? options.chatRow() : {}),
+      }),
+      appendContextNotice: async (_chatId, text, meta) => { notices.push({ text, meta }); writeOrder.push({ type: 'notice', meta }); return { ok: true }; },
       recordPeerMessage: options.recordPeerMessage,
-      loadSdk: async () => options.sdk,
+      loadSdk: typeof options.loadSdk === 'function' ? options.loadSdk : async () => options.sdk,
       buildEnv: typeof options.buildEnv === 'function'
         ? options.buildEnv
         : () => ({ ANTHROPIC_API_KEY: 'test-key', CLAUDE_CONFIG_DIR: tempDir }),
@@ -372,9 +402,10 @@ function createRunner(options) {
       },
       streamingEnabled: () => options.streamingEnabled !== false,
       sessionIdleMs: () => options.idleMs ?? 60_000,
+      enforceOneShotMcpGate: options.enforceOneShotMcpGate,
     },
   });
-  return { runner, events, persisted, roomStates, broadcastOptions };
+  return { runner, events, persisted, roomStates, broadcastOptions, notices, writeOrder };
 }
 
 /** @param {Record<string, unknown>[]} events */
@@ -401,6 +432,53 @@ try {
   // --- explicit claude_code preset system prompt ---
   const optionsProbe = buildClaudeQueryOptions({ cwd: '/tmp', sdkMode: 'agent' }, 'agent');
   assert.deepEqual(optionsProbe.systemPrompt, { type: 'preset', preset: 'claude_code' });
+  assert.equal(optionsProbe.promptSuggestions, true);
+  assert.deepEqual(
+    buildClaudeSessionStartKey({ cwd: tempDir, promptSuggestionEnabled: false }),
+    buildClaudeSessionStartKey({ cwd: tempDir, promptSuggestionEnabled: true }),
+    'toggling prompt suggestions must not change the session start key',
+  );
+  const suggestionGate = {
+    enabled: true, busy: false, pendingPromptCount: 0, sessionId: 'sess-1',
+    expectedSessionId: 'sess-1', resultStatus: 'completed', runMode: 'agent',
+  };
+  assert.equal(shouldAcceptClaudePromptSuggestion(suggestionGate), true);
+  for (const patch of [
+    { enabled: false }, { busy: true }, { pendingPromptCount: 1 },
+    { sessionId: 'stale' }, { resultStatus: 'error' }, { runMode: 'plan' }, { apiError: true },
+  ]) assert.equal(shouldAcceptClaudePromptSuggestion({ ...suggestionGate, ...patch }), false);
+  {
+    const room = { chatId: 'clear-test', promptSuggestion: { text: 'next', turnRunId: 'r1' } };
+    const frames = [];
+    assert.equal(clearClaudePromptSuggestions([room], (target, frame) => frames.push([target, frame])), 1);
+    assert.equal(room.promptSuggestion, null);
+    assert.deepEqual(frames[0][1], { type: 'promptSuggestion', chatId: 'clear-test', text: '', turnRunId: '' });
+  }
+  {
+    const frames = [];
+    const room = {
+      chatId: 'session-close-test',
+      promptSuggestion: { text: 'stale after close', turnRunId: 'r2' },
+      _claudeSession: null,
+    };
+    const { closeClaudeSession } = await import('../lib/claude/claude-session.ts');
+    closeClaudeSession(room, null, (frame) => frames.push(frame));
+    assert.equal(room.promptSuggestion, null);
+    assert.deepEqual(frames, [{
+      type: 'promptSuggestion', chatId: 'session-close-test', text: '', turnRunId: '',
+    }]);
+  }
+  assert.equal(buildClaudeQueryOptions({ delegationAssignment: { id: 'd' } }, 'agent').promptSuggestions, undefined);
+  assert.equal(buildClaudeQueryOptions({ chatId: 'operator-test-id' }, 'agent').promptSuggestions, undefined);
+  noteChatRowsForOperatorIndex({ id: 'regular-test-id', pickPurpose: '' });
+  noteChatRowsForScoutIndex({ id: 'scout-test-id', readOnlyScout: true });
+  assert.equal(buildClaudeQueryOptions({ chatId: 'scout-test-id' }, 'agent').promptSuggestions, undefined);
+  assert.equal(buildClaudeQueryOptions({ watcherOrchestrator: true }, 'agent').promptSuggestions, undefined);
+  assert.equal(buildClaudeQueryOptions({ chatId: 'regular-test-id' }, 'plan').promptSuggestions, undefined);
+  assert.equal(buildClaudeQueryOptions({ chatId: 'regular-test-id' }, 'ask').promptSuggestions, undefined);
+  saveSettings({ ...loadSettings(), claudePromptSuggestionEnabled: false });
+  assert.equal(buildClaudeQueryOptions({ chatId: 'regular-test-id' }, 'agent').promptSuggestions, undefined);
+  saveSettings({ ...loadSettings(), claudePromptSuggestionEnabled: true });
   assert.equal(CLAUDE_SYSTEM_PROMPT.append, undefined);
 
   // --- auth signature never exposes the secret but detects rotation ---
@@ -446,7 +524,9 @@ try {
     const room = createRoom();
     const { runner, events } = createRunner({ room, sdk: fake.sdk });
     await runner.startPrompt('one');
+    room.promptSuggestion = { text: 'next turn', turnRunId: 'before-second-turn', createdAt: Date.now() };
     await runner.startPrompt('two');
+    assert.equal(events.some((event) => event.type === 'promptSuggestion' && event.text === ''), true);
     assert.equal(fake.calls.length, 1, 'one streaming query for two prompts');
     assert.equal(fake.calls[0].isStreaming, true);
     assert.equal(fake.calls[0].messages.length, 2);
@@ -461,6 +541,209 @@ try {
     assert.equal(finished.length, 2);
     assert.deepEqual(finished.map((event) => event.status), ['completed', 'completed']);
     assert.equal(room.claudeSessionId, SDK_SESSION_ID);
+  }
+
+  // Fresh native sessions receive prior history in the SDK prompt only; stored and echoed user text stays intact.
+  {
+    const historyEvents = [
+      { seq: 1, rec: { kind: 'localUser', text: 'Earlier task' } },
+      { seq: 2, rec: { kind: 'sdk', event: { type: 'user', message: { content: 'Earlier task' } } } },
+      { seq: 3, rec: { kind: 'sdk', event: { type: 'assistant', message: { content: [{ type: 'text', text: 'Earlier answer' }] } } } },
+    ];
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-fresh-room' });
+    const { runner, events, notices, writeOrder } = createRunner({ room, sdk: fake.sdk, historyEvents });
+    await runner.startPrompt('Current request');
+    const sdkPrompt = String(fake.calls[0].messages[0].message.content);
+    assert.match(sdkPrompt, /Earlier answer/);
+    assert.match(sdkPrompt, /Current request/);
+    assert.deepEqual(notices.map((row) => [row.meta.code, row.meta.turns]), [['context_restored', 1]]);
+    assert.equal(writeOrder[0].type, 'notice');
+    assert.equal(writeOrder[1].event.kind, 'localUser');
+    assert.equal(writeOrder[1].event.text, 'Current request');
+    assert.equal(extractText(events.find((row) => row.type === 'sdkEvent')?.event), 'Current request');
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-plan-only' });
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk, historyEvents: [{ seq: 1, rec: { kind: 'meta', variant: 'contextSeed', payload: 'prior' } }], summaries: [{ summary: '## Chrome extension plan\nExisting plan details' }] });
+    await runner.startPrompt('ok realize it');
+    const sdkPrompt = String(fake.calls[0].messages[0].message.content);
+    assert.match(sdkPrompt, /Chrome extension plan/);
+    assert.match(sdkPrompt, /Current request:\nok realize it/);
+    assert.equal(notices[0].meta.code, 'context_restored');
+    assert.equal(notices[0].meta.turns, 0);
+  }
+
+  // A tool-heavy turn (40+ tool_call rows) must still carry the earlier user request into the SDK prompt.
+  for (const withAnswer of [false, true]) {
+    const historyEvents = [{ seq: 1, rec: { kind: 'localUser', text: 'Realize the Chrome extension plan' } }];
+    for (let i = 0; i < 45; i += 1) {
+      historyEvents.push({ seq: 2 + i * 2, rec: { kind: 'sdk', event: { type: 'tool_call', id: `c${i}`, name: 'Bash', status: 'running' } } });
+      historyEvents.push({ seq: 3 + i * 2, rec: { kind: 'sdk', event: { type: 'tool_call', id: `c${i}`, name: 'Bash', status: 'completed' } } });
+    }
+    if (withAnswer) historyEvents.push({ seq: 500, rec: { kind: 'sdk', event: { type: 'assistant', message: { content: [{ type: 'text', text: 'Plan answer' }] } } } });
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: `digest-tools-${withAnswer}` });
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk, historyEvents });
+    await runner.startPrompt('ok go');
+    const sdkPrompt = String(fake.calls[0].messages[0].message.content);
+    assert.match(sdkPrompt, /Realize the Chrome extension plan/);
+    assert.deepEqual(notices.map((row) => [row.meta.code, row.meta.turns]), [['context_restored', 1]]);
+  }
+
+  {
+    const fake = createFakeClaudeSdk({ resumeFailureOnce: true });
+    const room = createRoom({ chatId: 'digest-stale-retry', claudeSessionId: SDK_SESSION_ID });
+    const steerId = 'recovered-steer-current-id';
+    const historyEvents = [
+      { seq: 1, rec: { kind: 'localUser', text: 'Previous' } },
+      { seq: 2, rec: { kind: 'sdk', event: { type: 'assistant', message: { content: [{ type: 'text', text: 'Previous answer' }] } } } },
+      { seq: 3, rec: { kind: 'localUser', text: 'Retry current', contextMessageId: steerId } },
+      { seq: 4, rec: { kind: 'sdk', event: { type: 'user', contextMessageId: steerId, message: { content: 'Retry current' } } } },
+    ];
+    const { runner, notices, writeOrder } = createRunner({ room, sdk: fake.sdk, historyEvents });
+    await runner.startPrompt('Retry current', undefined, false, '', false, null, undefined, '', steerId);
+    assert.equal(fake.calls.length, 2);
+    assert.equal(fake.calls[0].options.resume, SDK_SESSION_ID);
+    assert.match(String(fake.calls[1].messages[0].message.content), /Previous answer/);
+    assert.equal((String(fake.calls[1].messages[0].message.content).match(/Retry current/g) || []).length, 1, 'recovered steer appears only as the current request, not again in the digest');
+    assert.equal(notices.filter((row) => row.meta.code === 'context_restored').length, 1);
+    assert.equal(writeOrder[0].event.kind, 'localUser');
+    assert.equal(writeOrder[1].type, 'notice');
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-flush-failed' });
+    const historyEvents = [{ seq: 1, rec: { kind: 'localUser', text: 'Previous' } }];
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk, historyEvents, flushResult: { ok: false, pending: 1, deadLettered: 0 } });
+    await runner.startPrompt('Current');
+    assert.equal(notices[0].meta.code, 'context_lost');
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-flush-timeout' });
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk, historyEvents: [{ seq: 1, rec: { kind: 'localUser', text: 'Previous' } }], flushPersist: () => new Promise(() => {}) });
+    await runner.startPrompt('Current');
+    assert.equal(notices[0].meta.code, 'context_lost');
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-empty' });
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('First message');
+    assert.equal(notices.length, 0);
+    assert.match(extractText(fake.calls[0].messages[0]), /First message/);
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-history-without-text' });
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk, historyEvents: [{ seq: 1, rec: { kind: 'sdk', event: { type: 'tool_result', content: 'omitted payload' } } }] });
+    await runner.startPrompt('Continue');
+    assert.equal(notices[0].meta.code, 'context_lost');
+    assert.doesNotMatch(String(fake.calls[0].messages[0].message.content), /omitted payload/);
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-one-shot' });
+    const { runner, persisted } = createRunner({ room, sdk: fake.sdk, streamingEnabled: false, historyEvents: [{ seq: 1, rec: { kind: 'localUser', text: 'Earlier' } }, { seq: 2, rec: { kind: 'sdk', event: { type: 'assistant', message: { content: [{ type: 'text', text: 'One-shot prior answer' }] } } } }] });
+    await runner.startPrompt('One-shot current');
+    assert.match(String(fake.calls[0].prompt), /One-shot prior answer/);
+    assert.equal(persisted.find((row) => row.kind === 'localUser').text, 'One-shot current');
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-resume-valid', claudeSessionId: SDK_SESSION_ID });
+    const { runner, notices, persisted, events } = createRunner({ room, sdk: fake.sdk, historyEvents: [{ seq: 1, rec: { kind: 'localUser', text: 'Prior' } }] });
+    await runner.startPrompt('Unchanged prompt');
+    assert.equal(notices.length, 0);
+    assert.match(String(fake.calls[0].messages[0].message.content), /Unchanged prompt/);
+    assert.doesNotMatch(String(fake.calls[0].messages[0].message.content), /Prior/);
+    assert.equal(persisted.filter((row) => row.kind === 'localUser').length, 1);
+    const userEchoIndex = events.findIndex((row) => row.type === 'sdkEvent' && row.event?.type === 'user');
+    const assistantEchoIndex = events.findIndex((row) => row.type === 'sdkEvent' && row.event?.type === 'assistant');
+    assert.ok(userEchoIndex >= 0 && assistantEchoIndex > userEchoIndex, 'user echo precedes streamed assistant output');
+  }
+
+  {
+    const room = createRoom({ chatId: 'persist-user-after-sdk-error' });
+    const { runner, persisted, events } = createRunner({ room, sdk: createFakeClaudeSdk().sdk, loadSdk: async () => { throw new Error('SDK load failed'); } });
+    await runner.startPrompt('Keep this request');
+    assert.equal(persisted.filter((row) => row.kind === 'localUser' && row.text === 'Keep this request').length, 1);
+    assert.equal(events.filter((row) => row.type === 'sdkEvent' && row.event?.type === 'user').length, 1);
+  }
+
+  {
+    const room = createRoom({ chatId: 'persist-user-one-shot-block', watcherOrchestrator: true });
+    const { runner, persisted, events } = createRunner({
+      room,
+      sdk: createFakeClaudeSdk().sdk,
+      streamingEnabled: false,
+      enforceOneShotMcpGate: async () => ({ code: 'mcp_tools_missing', message: 'Missing tools.', missing: [] }),
+    });
+    await runner.startPrompt('Keep blocked request');
+    assert.equal(persisted.filter((row) => row.kind === 'localUser' && row.text === 'Keep blocked request').length, 1);
+    assert.equal(events.filter((row) => row.type === 'sdkEvent' && row.event?.type === 'user').length, 1);
+  }
+
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom({ chatId: 'digest-handoff' });
+    const wrapped = buildHarnessHandoffPrompt({ sourceHarness: 'opencode', targetHarness: 'claude', transcript: 'Prior context', followUp: 'Continue' });
+    const { runner, notices } = createRunner({ room, sdk: fake.sdk, historyEvents: [{ seq: 1, rec: { kind: 'localUser', text: 'Prior' } }] });
+    await runner.startPrompt(wrapped);
+    assert.equal(notices.length, 0);
+    assert.doesNotMatch(String(fake.calls[0].messages[0].message.content), /Earlier history/);
+  }
+
+  {
+    const fake = createFakeClaudeSdk({ promptSuggestion: 'Add a test' });
+    const room = createRoom({ chatId: 'regular-test-id' });
+    const { runner, events, roomStates } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('first');
+    await waitFor(() => room.promptSuggestion?.text === 'Add a test');
+    assert.equal(events.some((event) => event.type === 'promptSuggestion' && event.text === 'Add a test'), true);
+    assert.equal(roomStates.at(-1).promptSuggestion.text, 'Add a test');
+  }
+
+  {
+    const fake = createFakeClaudeSdk({ promptSuggestion: 'Stale', promptSuggestionSessionId: 'other-session' });
+    const room = createRoom({ chatId: 'regular-test-id' });
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('first');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room.promptSuggestion, undefined);
+    assert.equal(events.some((event) => event.type === 'promptSuggestion' && event.text), false);
+  }
+
+  {
+    const fake = createFakeClaudeSdk({ promptSuggestion: 'Too late', endAfterPromptSuggestion: true });
+    const room = createRoom({ chatId: 'ended-before-suggestion-timer', promptSuggestion: null });
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('finish before timer');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room._claudeSession, null, 'the SDK iterator ended before the deferred callback');
+    assert.equal(room.promptSuggestion, null);
+    assert.equal(events.some((event) => event.type === 'promptSuggestion' && event.text), false);
+  }
+
+  {
+    saveSettings({ ...loadSettings(), claudePromptSuggestionEnabled: false });
+    const fake = createFakeClaudeSdk({ promptSuggestion: 'Disabled' });
+    const room = createRoom({ chatId: 'regular-test-id' });
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('first');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(room.promptSuggestion, undefined);
+    assert.equal(events.some((event) => event.type === 'promptSuggestion' && event.text), false);
+    saveSettings({ ...loadSettings(), claudePromptSuggestionEnabled: true });
   }
 
   {
@@ -813,6 +1096,34 @@ try {
     assert.equal(fake.calls[1].options.effort, 'low');
   }
 
+  // --- Per-chat auto-compression drives Claude's native compaction ---
+  {
+    const fake = createFakeClaudeSdk();
+    const room = createRoom();
+    const chat = { autoContextCompressionEnabled: true, autoContextCompressionThreshold: 50 };
+    const { runner } = createRunner({
+      room,
+      sdk: fake.sdk,
+      buildEnv: () => ({ ANTHROPIC_API_KEY: 'test-key', CLAUDE_CONFIG_DIR: tempDir, DISABLE_AUTO_COMPACT: '1' }),
+      chatRow: () => ({ ...chat }),
+    });
+    await runner.startPrompt('one');
+    assert.equal(fake.calls[0].options.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, '50');
+    assert.equal(fake.calls[0].options.env.DISABLE_AUTO_COMPACT, undefined, 'chat opt-in wins over global disable');
+    await runner.startPrompt('two');
+    assert.equal(fake.calls.length, 1, 'unchanged threshold must not restart');
+    chat.autoContextCompressionThreshold = 70;
+    await runner.startPrompt('three');
+    assert.equal(fake.calls.length, 2, 'threshold change must restart the process');
+    assert.equal(fake.calls[1].options.resume, SDK_SESSION_ID, 'restart keeps the transcript');
+    assert.equal(fake.calls[1].options.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, '70');
+    chat.autoContextCompressionEnabled = false;
+    await runner.startPrompt('four');
+    assert.equal(fake.calls.length, 3);
+    assert.equal(fake.calls[2].options.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, undefined);
+    assert.equal(fake.calls[2].options.env.DISABLE_AUTO_COMPACT, '1', 'opt-out restores the global env');
+  }
+
   // --- Task D/startKey: tuning signature is stable and compared ---
   {
     assert.equal(
@@ -885,6 +1196,20 @@ try {
     const failed = finishedEvents(events).at(-1);
     assert.equal(failed.status, 'error');
     assert.equal(failed.lastErrorMessage, 'fatal: claude binary crashed');
+  }
+
+  {
+    const room = createRoom({ chatId: 'session-end-suggestion' });
+    const fake = createFakeClaudeSdk({
+      endSilently: true,
+      onQuery: () => {
+      room.promptSuggestion = { text: 'stale after session end', turnRunId: 'run-end' };
+      },
+    });
+    const { runner, events } = createRunner({ room, sdk: fake.sdk });
+    await runner.startPrompt('trigger session end');
+    assert.equal(room.promptSuggestion, null);
+    assert.equal(events.some((event) => event.type === 'promptSuggestion' && event.text === ''), true);
   }
 
   // --- Task R: rejected setModel restarts the session with resume ---

@@ -22,8 +22,8 @@ export const WATCHER_WAIT_GUARDRAILS = new Set([
 ]);
 
 /**
- * @param {object | null | undefined} watcher
- * @returns {object[]}
+ * @param {Record<string, any> | null | undefined} watcher
+ * @returns {Record<string, any>[]}
  */
 function liveWatcherCycles(watcher) {
   if (Array.isArray(watcher?.activeCycles) && watcher.activeCycles.length) return watcher.activeCycles;
@@ -54,7 +54,7 @@ export function escapeWatcherAttr(value) {
 /**
  * Map one `GET /api/workspace-watcher` payload onto the top-bar status.
  *
- * @param {object | null | undefined} view
+ * @param {Record<string, any> | null | undefined} view
  * @param {(id: string) => string} [getTodoTitle]
  * @returns {{ key: 'off'|'paused'|'blocked'|'working'|'waiting'|'idle', label: string, reason: string, todoId: string, cycleCount?: number }}
  */
@@ -126,7 +126,7 @@ export function deriveWatcherStatus(view, getTodoTitle = () => '') {
 }
 
 /**
- * @param {object | null | undefined} view
+ * @param {Record<string, any> | null | undefined} view
  * @param {{ getTodoTitle?: (id: string) => string, whyOpen?: boolean }} [options]
  * @returns {string}
  */
@@ -194,7 +194,7 @@ export function renderWatcherBarHtml(view, options = {}) {
 /**
  * Reason column for decision logs: append blocking chat ids when persisted.
  *
- * @param {object | null | undefined} decision
+ * @param {Record<string, any> | null | undefined} decision
  * @returns {string}
  */
 export function formatWatcherDecisionReasonText(decision = {}) {
@@ -259,11 +259,11 @@ export function formatWatcherDecisionReasonText(decision = {}) {
 }
 
 /**
- * @param {object[]} decisions
+ * @param {Record<string, any>[]} decisions
  * @returns {string}
  */
 /**
- * @param {object | null | undefined} view
+ * @param {Record<string, any> | null | undefined} view
  * @param {{ getTodoTitle?: (id: string) => string }} [options]
  * @returns {string}
  */
@@ -305,7 +305,7 @@ export function renderWatcherDoingRecoveryHtml(view, options = {}) {
 }
 
 /**
- * @param {object[]} decisions
+ * @param {Record<string, any>[]} decisions
  * @returns {string}
  */
 export function renderWatcherDecisionsHtml(decisions = []) {

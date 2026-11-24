@@ -14,7 +14,7 @@ import { CretliApiClient, BRIDGE_VERIFY_TIMEOUT_MS } from '../lib/remote-api-cli
 import { MCP_CRETILI_BRIDGE_PREFIX } from '../lib/mcp/mcp-tool-names.js';
 import { DELEGATION_MCP_TOOLS } from '../lib/mcp/builtin/delegation-tools.js';
 import { executeTool } from '../lib/agent-harness/tool-executor.ts';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { registerMcpRoutes } from '../lib/routes/mcp-routes.js';
 import { mintMcpIntegrationToken } from '../lib/mcp/mcp-integration-token.js';

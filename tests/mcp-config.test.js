@@ -1,13 +1,15 @@
 import { removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
-import { createMcpServer, listMcpServers, updateMcpServer } from '../lib/mcp/mcp-service.js';
+import { createMcpServer, listMcpServers, updateMcpServer, resolveContextServers, callContextTool } from '../lib/mcp/mcp-service.js';
 import { McpRevisionConflictError, loadMcpDocument } from '../lib/persist/mcp-persist.js';
 import { getMcpSecrets } from '../lib/mcp/mcp-secrets.js';
-import { MCP_KINDS, normalizeMcpServer, resolveMcpServersForContext } from '../lib/mcp/mcp-config.js';
+import { MCP_KINDS, normalizeMcpServer, resolveMcpServersForContext, resolveExternalMcpPolicy } from '../lib/mcp/mcp-config.js';
 import { isMcpPlanCallDenied } from '../lib/mcp/mcp-policy.js';
 import { callTool } from '../lib/mcp/mcp-runtime.js';
 import { encodeMcpToolName, decodeMcpToolName, MCP_BUILTIN_SERVER_KIND } from '../lib/mcp/mcp-tool-names.js';
 import { installWidgetApiGate } from '../lib/widget/widget-http.ts';
+import { addChatAsync, getChatByIdAsync, updateChatAsync } from '../lib/persist/chats-persist.js';
+import { buildMcpRuntimeContext } from '../lib/mcp/mcp-session.js';
 
 const created = await createMcpServer({
   name: 'Docs',
@@ -63,6 +65,34 @@ const forSdk = resolveMcpServersForContext({
 }, document.servers);
 assert.equal(forSdk.length, 1);
 assert.equal(forSdk[0].kind, 'builtin-cretli');
+
+const external = document.servers.find((row) => row.kind === 'external');
+assert.equal(external.availableToAutomaticAgents, false);
+assert.equal(resolveExternalMcpPolicy({ id: 'ordinary-chat' }), 'all');
+assert.equal(resolveExternalMcpPolicy({ id: 'delegation-chat', delegationId: 'delegation' }), 'allowlist');
+assert.equal(resolveExternalMcpPolicy({ id: 'review-chat', delegationAssignment: 'review' }), 'allowlist');
+assert.equal(resolveExternalMcpPolicy({ id: 'watcher-chat', pickPurpose: 'watcher-orchestrator' }), 'allowlist');
+assert.equal(resolveExternalMcpPolicy({ id: 'scout-chat', pickPurpose: 'scout' }), 'allowlist');
+assert.equal(resolveExternalMcpPolicy({ id: 'plan-chat', todoPlanCoordinator: true, title: 'Renamed plan chat' }), 'allowlist');
+assert.equal(resolveExternalMcpPolicy({ id: 'plan-chat', title: '[Todo plan] Review' }), 'all', 'title alone is not a trusted role marker');
+const scoutChat = await addChatAsync('mcp-scout-role-test', 'Scout', '', '/tmp/project', '', { agentTransport: 'codex', pickPurpose: 'scout', readOnlyScout: true });
+const scoutContext = buildMcpRuntimeContext({ chat: scoutChat, room: { sessionKey: scoutChat.cursorSessionId, chatId: scoutChat.id }, harness: 'codex' });
+assert.equal(scoutContext.automaticMcpPolicy, 'allowlist');
+assert.equal(resolveContextServers(scoutContext).some((row) => row.kind === 'external'), false);
+const scoutCall = await callContextTool(scoutContext, external.id, 'ping_read', {});
+assert.equal(scoutCall.denied, true);
+assert.match(scoutCall.error, /not available to automatic agents/i);
+assert.equal(resolveContextServers({ ...scoutContext, automaticMcpPolicy: 'all' }).some((row) => row.kind === 'external'), false, 'trusted scout fields keep restriction if a stale/missing policy field is encountered');
+const watcherChat = await addChatAsync('mcp-watcher-role-test', 'Watcher', '', '/tmp/project', '', { agentTransport: 'codex', pickPurpose: 'watcher-orchestrator' });
+const watcherContext = buildMcpRuntimeContext({ chat: watcherChat, room: { sessionKey: watcherChat.cursorSessionId, chatId: watcherChat.id }, harness: 'codex' });
+assert.equal(resolveContextServers(watcherContext).some((row) => row.kind === 'external'), false);
+const durablePlanChat = await addChatAsync('mcp-plan-marker-test', '[Todo plan] Draft', '', '/tmp/project', '', { todoId: 'todo-marker-test', todoPlanCoordinator: true });
+await updateChatAsync(durablePlanChat.id, { title: 'Renamed by user' });
+assert.equal(resolveExternalMcpPolicy(await getChatByIdAsync(durablePlanChat.id)), 'allowlist');
+assert.deepEqual(resolveMcpServersForContext({ harness: 'codex', chatId: 'delegation-chat', delegationId: 'd' }, document.servers).map((row) => row.kind), ['builtin-cretli']);
+const allowedExternal = normalizeMcpServer({ ...external, availableToAutomaticAgents: true });
+assert.equal(resolveMcpServersForContext({ harness: 'codex', chatId: 'delegation-chat', delegationId: 'd' }, [allowedExternal]).some((row) => row.id === external.id), true);
+assert.deepEqual(resolveMcpServersForContext({ harness: 'codex', chatId: 'operator-unknown' }, [allowedExternal]).map((row) => row.kind), ['builtin-cretli']);
 
 assert.equal(isMcpPlanCallDenied({
   mode: 'plan',

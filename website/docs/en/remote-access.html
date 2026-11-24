@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote access, PWA and notifications</title>
+<meta name="description" content="Open Cretli from a phone or another computer safely, and understand the defaults.">
+<link rel="canonical" href="https://cretli.com/docs/en/remote-access.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/remote-access.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/remote-access.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/remote-access.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/en/remote-access.html">
+<meta property="og:title" content="Remote access, PWA and notifications">
+<meta property="og:description" content="Open Cretli from a phone or another computer safely, and understand the defaults.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Documentation</a>
+  <a href="../pl/remote-access.html" hreflang="pl">Polski</a>
+  <a href="/" class="home-link">Home</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Getting started</h2><ul><li><a href="index.html">Cretli documentation</a></li><li><a href="getting-started.html">Getting started</a></li><li><a href="install-docker.html">Install with Docker</a></li></ul></section>
+<section class="nav-section"><h2>Harnesses</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Workspaces</h2><ul><li><a href="workspaces.html">Workspaces</a></li><li><a href="settings.html">Settings</a></li></ul></section>
+<section class="nav-section"><h2>Working surfaces</h2><ul><li><a href="chat-and-agents.html">Working surfaces</a></li></ul></section>
+<section class="nav-section"><h2>Todo and plans</h2><ul><li><a href="todos.html">Todo and plans</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Workspace Watcher</a></li></ul></section>
+<section class="nav-section"><h2>Delegation and review</h2><ul><li><a href="delegation-review.html">Delegation and independent review</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">MCP tools and external clients</a></li></ul></section>
+<section class="nav-section"><h2>Remote access</h2><ul><li><a href="remote-access.html" aria-current="page">Remote access, PWA and notifications</a></li><li><a href="security-basics.html">Security basics</a></li></ul></section>
+<section class="nav-section"><h2>Backups and data</h2><ul><li><a href="backups-and-data.html">Backups and data</a></li></ul></section>
+<section class="nav-section"><h2>Troubleshooting and FAQ</h2><ul><li><a href="troubleshooting.html">Troubleshooting</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Remote access, PWA and notifications</h1>
+<p>Cretli listens on <code>127.0.0.1</code> by default, so only the machine it runs on can reach it. Everything below is opt-in.</p>
+<h2 id="enable-lan-access">Enable LAN access</h2>
+<p>To use a phone or another computer on a trusted network, set a setup token and start the LAN script:</p>
+<pre class="hljs"><code class="language-bash"><span class="hljs-built_in">export</span> CRETLI_SETUP_TOKEN=<span class="hljs-string">&quot;<span class="hljs-subst">$(openssl rand -hex 16)</span>&quot;</span>
+npm run start:lan
+</code></pre>
+<p>Set <code>CRETLI_LAN_HOST</code> to the address other devices will use, then open <code>https://&lt;that address&gt;:3011</code>. <code>CRETLI_BIND</code> accepts one address or a comma-separated list, for example <code>127.0.0.1,192.0.2.10</code>. As soon as any non-local address is bound, Cretli requires a password or the setup token. Allow the Node binary through your firewall when prompted. On WSL, LAN access needs the Windows LAN address and a forward from Windows; see <a href="troubleshooting.html">troubleshooting</a>.</p>
+<h2 id="https-and-the-pwa">HTTPS and the PWA</h2>
+<p>Cretli serves HTTPS with a self-signed certificate by default, so a browser shows a warning once per device. For a trusted certificate on your network, follow the trusted HTTPS guide in the repository. Browsers install a progressive web app and deliver push messages only from a trusted HTTPS origin. After installing, the app opens in its own window and shows an update banner when new assets are ready.</p>
+<h2 id="notifications">Notifications</h2>
+<p>Cretli can send web push notifications, for example when the Watcher finds waiting work or a task is blocked. They need a trusted HTTPS origin and your permission in the browser. Notifications are best effort and never replace checking the task.</p>
+<h2 id="expose-a-port">Expose a port</h2>
+<p>An agent can ask Cretli to open a development port to your LAN with <code>port_expose</code>. With the default policy (<code>agentMode</code> set to <code>ask</code>) you approve each request in a consent card in the chat. With <code>allow_in_range</code> the port is exposed without a card, and with <code>never</code> every request is refused. Cretli also refuses debug and similar ports, ports outside its range, and apps listening only on loopback. Check with <code>port_status</code> before sharing a link.</p>
+<h2 id="security-notes">Security notes</h2>
+<p>Cretli provides a full shell. Do not forward it to the internet. Read <a href="security-basics.html">security basics</a> before enabling remote access.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="mcp.html">&larr; MCP tools and external clients</a>
+      <a rel="next" href="security-basics.html">Security basics &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>
+      <li><a href="#enable-lan-access">Enable LAN access</a></li>
+      <li><a href="#https-and-the-pwa">HTTPS and the PWA</a></li>
+      <li><a href="#notifications">Notifications</a></li>
+      <li><a href="#expose-a-port">Expose a port</a></li>
+      <li><a href="#security-notes">Security notes</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Documentation</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

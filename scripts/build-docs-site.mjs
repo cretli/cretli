@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import yaml from 'js-yaml';
+import { checkLinks, checkBudget } from './docs-site/check-site.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ASSET_DIR = path.join(ROOT, 'scripts/docs-site');
@@ -129,8 +130,22 @@ function parseFrontMatter(raw, file, errors) {
   return { title: String(data.title || ''), description: String(data.description || ''), body: raw.replace(/\r\n/g, '\n').slice(m[0].length) };
 }
 
+/**
+ * Read pixel dimensions from a PNG header so rendered images reserve their space (no layout shift).
+ * @param {string} file
+ */
+function pngSize(file) {
+  try {
+    const buf = fs.readFileSync(file);
+    if (buf.length < 24 || buf.toString('latin1', 1, 4) !== 'PNG') return null;
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  } catch {
+    return null;
+  }
+}
+
 const pageHref = (slug) => `${slug}.html`;
-const canonical = (slug) => (slug === 'index' ? SITE_URL : `${SITE_URL}${slug}.html`);
+const canonical = (lang, slug) => `${SITE_URL}${lang}/${slug}.html`;
 
 function fill(template, values) {
   return template.replace(/\{\{(\w+)\}\}/g, (all, key) => (key in values ? values[key] : all));
@@ -138,20 +153,29 @@ function fill(template, values) {
 
 /**
  * Build the list of generated files (relative to outDir -> content) and errors.
- * @param {{ srcDir?: string, imgDir?: string }} [opts]
+ * @param {{ srcDir: string, imgDir: string, lang: string }} opts
  */
-export function generateOutputs({ srcDir = path.join(ROOT, 'docs/user'), imgDir = path.join(ROOT, 'website/docs/img') } = {}) {
+function generateLanguage({ srcDir, imgDir, lang }) {
   const errors = [];
   const outputs = new Map();
   const rel = (f) => path.join(path.basename(path.dirname(srcDir)) === 'docs' ? 'docs/user' : path.basename(srcDir), f);
 
   let nav = [];
+  let sections = [];
   try {
     const parsed = JSON.parse(fs.readFileSync(path.join(srcDir, '_nav.json'), 'utf8'));
-    if (!parsed || !Array.isArray(parsed.pages)) throw new Error('"pages" must be an array');
-    nav = parsed.pages;
+    if (!parsed || !Array.isArray(parsed.sections)) throw new Error('"sections" must be an array');
+    sections = parsed.sections;
+    const ids = new Set();
+    for (const section of sections) {
+      if (!section || !SLUG_RE.test(section.id) || ids.has(section.id) || typeof section.title !== 'string' || !section.title.trim() || !Array.isArray(section.pages) || section.pages.some((slug) => typeof slug !== 'string')) throw new Error('invalid or duplicate section');
+      ids.add(section.id);
+    }
+    nav = sections.flatMap((section) => section.pages);
   } catch (err) {
     errors.push(`${rel('_nav.json')}: ${err.message}`);
+    sections = [];
+    nav = [];
   }
   const files = fs.existsSync(srcDir) ? fs.readdirSync(srcDir).filter((f) => f.endsWith('.md')).sort() : [];
   const slugs = new Set();
@@ -174,7 +198,14 @@ export function generateOutputs({ srcDir = path.join(ROOT, 'docs/user'), imgDir 
   const pages = [];
   for (const slug of nav.filter((s) => slugs.has(s) && !pages.some((p) => p.slug === s))) {
     const file = rel(`${slug}.md`);
-    const fm = parseFrontMatter(fs.readFileSync(path.join(srcDir, `${slug}.md`), 'utf8'), file, errors);
+    const raw = fs.readFileSync(path.join(srcDir, `${slug}.md`), 'utf8');
+    const sources = [...raw.matchAll(/<!-- sources: ([^>]+) -->/g)];
+    if (!sources.length) errors.push(`${file}: missing sources comment`);
+    for (const match of sources) for (const source of match[1].split(',').map((value) => value.trim())) {
+      const resolved = path.resolve(ROOT, source);
+      if (!source || !resolved.startsWith(ROOT + path.sep) || !fs.existsSync(resolved)) errors.push(`${file}: missing source "${source}"`);
+    }
+    const fm = parseFrontMatter(raw, file, errors);
     if (!fm) continue;
     const env = {};
     const tokens = md.parse(stripComments(fm.body), env);
@@ -205,6 +236,15 @@ export function generateOutputs({ srcDir = path.join(ROOT, 'docs/user'), imgDir 
         } else if (t.type === 'image') {
           const src = t.attrGet('src') || '';
           if (!/^img\/[^/]+$/.test(src) || !fs.existsSync(path.join(imgDir, src.slice(4)))) errors.push(`${page.file}: missing image "${src}"`);
+          else {
+            t.attrSet('src', `../${src}`);
+            const size = pngSize(path.join(imgDir, src.slice(4)));
+            if (size) {
+              t.attrSet('width', String(size.width));
+              t.attrSet('height', String(size.height));
+            }
+            t.attrSet('loading', 'lazy');
+          }
         }
         if (t.children) visit(t.children);
       }
@@ -213,25 +253,33 @@ export function generateOutputs({ srcDir = path.join(ROOT, 'docs/user'), imgDir 
   }
 
   const template = fs.readFileSync(path.join(ASSET_DIR, 'template.html'), 'utf8');
-  const navHtml = (current) => `    <ul>\n${pages
-    .map((p) => `      <li><a href="${pageHref(p.slug)}"${p.slug === current ? ' aria-current="page"' : ''}>${escapeHtml(p.title)}</a></li>`)
-    .join('\n')}\n    </ul>`;
+  const navHtml = (current) => sections.map((section) => `<section class="nav-section"><h2>${escapeHtml(section.title)}</h2><ul>${section.pages.map((slug) => {
+    const p = bySlug.get(slug);
+    return p ? `<li><a href="${pageHref(slug)}"${slug === current ? ' aria-current="page"' : ''}>${escapeHtml(p.title)}</a></li>` : '';
+  }).join('')}</ul></section>`).join('\n');
   pages.forEach((page, i) => {
     const content = md.renderer.render(page.tokens, md.options, {});
     const toc = page.headings.length
-      ? `    <p class="toc-title">On this page</p>\n    <ul>\n${page.headings
+      ? `    <p class="toc-title">${labels[lang].onPage}</p>\n    <ul>\n${page.headings
         .map((h) => `      <li${h.level === 3 ? ' class="toc-sub"' : ''}><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`)
         .join('\n')}\n    </ul>`
       : '';
     const prev = pages[i - 1];
     const next = pages[i + 1];
     const prevNext = prev || next
-      ? `    <nav class="prev-next" aria-label="Previous and next page">\n      ${prev ? `<a rel="prev" href="${pageHref(prev.slug)}">&larr; ${escapeHtml(prev.title)}</a>` : '<span></span>'}\n      ${next ? `<a rel="next" href="${pageHref(next.slug)}">${escapeHtml(next.title)} &rarr;</a>` : '<span></span>'}\n    </nav>`
+      ? `    <nav class="prev-next" aria-label="${labels[lang].pagination}">\n      ${prev ? `<a rel="prev" href="${pageHref(prev.slug)}">&larr; ${escapeHtml(prev.title)}</a>` : '<span></span>'}\n      ${next ? `<a rel="next" href="${pageHref(next.slug)}">${escapeHtml(next.title)} &rarr;</a>` : '<span></span>'}\n    </nav>`
       : '';
     outputs.set(pageHref(page.slug), fill(template, {
+      ...labels[lang],
+      lang,
+      homeHref: lang === 'en' ? '/' : '/pl/',
+      otherLang: lang === 'en' ? 'pl' : 'en',
+      alternates: alternates((language) => canonical(language, page.slug)),
+      languageHref: `../${lang === 'en' ? 'pl' : 'en'}/${pageHref(page.slug)}`,
+      languageName: lang === 'en' ? 'Polski' : 'English',
       title: escapeHtml(page.title),
       description: escapeHtml(page.description),
-      canonical: escapeHtml(canonical(page.slug)),
+      canonical: escapeHtml(canonical(lang, page.slug)),
       nav: navHtml(page.slug),
       toc,
       content: content.trimEnd(),
@@ -247,19 +295,94 @@ export function generateOutputs({ srcDir = path.join(ROOT, 'docs/user'), imgDir 
     headings: p.headings.map((h) => ({ id: h.id, text: h.text })),
   })), null, 2)}\n`);
   outputs.set('sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages
-    .map((p) => `  <url><loc>${escapeHtml(canonical(p.slug))}</loc></url>\n`).join('')}</urlset>\n`);
-  return { outputs, errors, pages: pages.map((p) => p.slug) };
+    .map((p) => `  <url><loc>${escapeHtml(canonical(lang, p.slug))}</loc></url>\n`).join('')}</urlset>\n`);
+  return { outputs, errors, pages: pages.map((p) => p.slug), sections: sections.map((s) => s.id) };
 }
 
-/** Generated files currently present in outDir (img/ is never listed). */
+function landing(lang) {
+  const pl = lang === 'pl';
+  const text = (en, polish) => pl ? polish : en;
+  const title = text('Cretli — your agents, your machine', 'Cretli — Twoi agenci, Twój komputer');
+  const description = text('A self-hosted terminal and agent workspace, shared live across your devices.', 'Samodzielnie hostowany terminal i obszar pracy agentów, dostępny na Twoich urządzeniach.');
+  const url = pl ? 'https://cretli.com/pl/' : 'https://cretli.com/';
+  const docs = `/docs/${lang}/`;
+  const features = [
+    [text('Terminal, anywhere', 'Terminal pod ręką'), text('Run commands on your own machine from a desktop or phone.', 'Wykonuj polecenia na swoim komputerze z przeglądarki lub telefonu.')],
+    [text('Choose your agent', 'Wybierz agenta'), text('Connect a supported harness and use the models that suit your work.', 'Podłącz obsługiwany silnik i wybierz modele odpowiednie do zadania.')],
+    [text('Plan and review', 'Planuj i sprawdzaj'), text('Keep tasks, plans, implementation and independent reviews together.', 'Trzymaj zadania, plany, implementację i niezależne przeglądy w jednym miejscu.')],
+    [text('One live session', 'Jedna sesja na żywo'), text('Move between devices while keeping the same terminal and conversation.', 'Zmieniaj urządzenia, zachowując ten sam terminal i rozmowę.')],
+    [text('Files and browser', 'Pliki i przeglądarka'), text('Inspect workspace files and preview your app in the built-in browser.', 'Przeglądaj pliki projektu i sprawdzaj aplikację we wbudowanej przeglądarce.')],
+    [text('Stay in control', 'Zachowaj kontrolę'), text('Self-hosted and localhost by default. You choose how to enable trusted remote access.', 'Własny serwer i domyślny dostęp lokalny. Ty decydujesz o dostępie zdalnym.')],
+  ];
+  const flow = [text('Your browser', 'Przeglądarka'), text('Your Cretli server', 'Serwer Cretli'), text('Workspace + agents', 'Projekt i agenci')];
+  const template = fs.readFileSync(path.join(ASSET_DIR, 'landing.html'), 'utf8');
+  return fill(template, {
+    ...labels[lang], lang, title, description, canonical: url,
+    alternates: alternates((language) => language === 'en' ? 'https://cretli.com/' : 'https://cretli.com/pl/'),
+    docsLabel: labels[lang].docs,
+    languageHref: pl ? '/' : '/pl/', languageName: pl ? 'English' : 'Polski', otherLang: pl ? 'en' : 'pl', docs,
+    headline: text('Your coding workspace. On every screen.', 'Twój warsztat programisty. Na każdym ekranie.'),
+    eyebrow: text('Open source · self-hosted', 'Otwarty kod · własny serwer'),
+    install: text('Get started', 'Zacznij pracę'),
+    featuresTitle: text('Built for work that keeps moving', 'Praca, która nie stoi w miejscu'),
+    features: features.map(([heading, body]) => `<article class="feature"><h3>${heading}</h3><p>${body}</p></article>`).join('\n'),
+    howTitle: text('How it works', 'Jak to działa'),
+    diagram: `<svg class="flow" viewBox="0 0 900 130" role="img" aria-label="${flow.join(' → ')}"><title>${flow.join(' → ')}</title>${flow.map((label, i) => `<rect x="${i * 310 + 5}" y="20" width="265" height="80" rx="12"/><text x="${i * 310 + 137}" y="67" text-anchor="middle">${label}</text>`).join('')}<path d="M275 60h35m-10-7 10 7-10 7M585 60h35m-10-7 10 7-10 7"/></svg>`,
+    screensTitle: text('A familiar view, wherever you are', 'Znajomy widok, gdziekolwiek jesteś'),
+    screenshots: ['chat-desktop.png', 'todo-tree.png', 'watcher-panel.png'].map((name, i) => `<figure><img src="/docs/img/${name}" width="1280" height="720" loading="lazy" alt="${[text('Agent chat', 'Czat agenta'), text('Task tree', 'Drzewo zadań'), 'Watcher'][i]}"></figure>`).join(''),
+    startTitle: text('Start on your own machine', 'Uruchom na swoim komputerze'),
+    installNote: text('Run this in a terminal with Git and Node.js 22.18 or newer. Then open https://localhost:3011 and complete setup.', 'Uruchom w terminalu z Git i Node.js 22.18 lub nowszym. Otwórz https://localhost:3011 i dokończ konfigurację.'),
+    security: text('Cretli provides a full shell. Keep the default local bind; configure HTTPS and authentication before enabling trusted LAN access.', 'Cretli udostępnia pełny terminal. Zachowaj domyślny dostęp lokalny; przed udostępnieniem w zaufanej sieci LAN skonfiguruj HTTPS i uwierzytelnianie.'),
+  });
+}
+
+const labels = {
+  en: { skip: 'Skip to content', search: 'Search docs', theme: 'Theme', onPage: 'On this page', docs: 'Documentation', home: 'Home', pagination: 'Previous and next page' },
+  pl: { skip: 'Przejdź do treści', search: 'Szukaj w dokumentacji', theme: 'Motyw', onPage: 'Na tej stronie', docs: 'Dokumentacja', home: 'Strona główna', pagination: 'Poprzednia i następna strona' },
+};
+const alternates = (url) => ['en', 'pl', 'x-default'].map((lang) => `<link rel="alternate" hreflang="${lang}" href="${url(lang === 'x-default' ? 'en' : lang)}">`).join('\n');
+
+export function generateOutputs({ srcDir = path.join(ROOT, 'docs/user'), imgDir = path.join(ROOT, 'website/docs/img') } = {}) {
+  const outputs = new Map();
+  const errors = [];
+  const languages = ['en', 'pl'].map((lang) => generateLanguage({ srcDir: path.join(srcDir, lang), imgDir, lang }));
+  if (JSON.stringify([...languages[0].pages].sort()) !== JSON.stringify([...languages[1].pages].sort())) errors.push('Language slug parity mismatch');
+  if (JSON.stringify(languages[0].sections) !== JSON.stringify(languages[1].sections)) errors.push('Language section order parity mismatch');
+  for (const [i, lang] of ['en', 'pl'].entries()) {
+    const result = languages[i];
+    errors.push(...result.errors);
+    for (const [name, content] of result.outputs) if (name !== 'sitemap.xml' && !name.startsWith('assets/')) outputs.set(`docs/${lang}/${name}`, content);
+    outputs.set(lang === 'en' ? 'index.html' : 'pl/index.html', landing(lang));
+  }
+  // Keep the published documentation entry URL useful after the language migration.
+  if (outputs.has('docs/en/index.html')) {
+    const defaultPage = outputs.get('docs/en/index.html')
+      .replace('href="../assets/docs.css"', 'href="assets/docs.css"')
+      .replace('src="../assets/docs.js"', 'src="assets/docs.js"')
+      .replace('class="search"', 'class="search-redirect"')
+      .replace(/href="([a-z0-9-]+\.html(?:#[^"]*)?)"/g, 'href="en/$1"')
+      .replace('href="../pl/index.html"', 'href="pl/index.html"')
+      .replace('<meta charset="utf-8">', '<meta charset="utf-8">\n<meta http-equiv="refresh" content="0;url=en/index.html">');
+    outputs.set('docs/index.html', defaultPage);
+  }
+  for (const asset of ['docs.css', 'docs.js']) outputs.set(`docs/assets/${asset}`, fs.readFileSync(path.join(ASSET_DIR, asset), 'utf8'));
+  const urls = ['https://cretli.com/', 'https://cretli.com/pl/', 'https://cretli.com/docs/', ...languages.flatMap((result, i) => result.pages.map((slug) => canonical(['en', 'pl'][i], slug)))];
+  outputs.set('sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((url) => `  <url><loc>${url}</loc></url>`).join('\n')}\n</urlset>\n`);
+  return { outputs, errors, pages: languages[0].pages };
+}
+
+/** Only generator-owned directories are traversed; screenshots and deployment files are preserved. */
 function listGenerated(outDir) {
   const found = [];
-  if (!fs.existsSync(outDir)) return found;
-  for (const e of fs.readdirSync(outDir, { withFileTypes: true })) {
-    if (e.isFile() && GENERATED_ROOT_FILES.test(e.name)) found.push(e.name);
-  }
-  const assets = path.join(outDir, 'assets');
-  if (fs.existsSync(assets)) for (const e of fs.readdirSync(assets, { withFileTypes: true })) if (e.isFile()) found.push(`assets/${e.name}`);
+  const scan = (dir, prefix = '') => {
+    if (!fs.existsSync(dir)) return;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const name = prefix + e.name;
+      if (e.isFile() && (GENERATED_ROOT_FILES.test(e.name) || prefix.endsWith('assets/'))) found.push(name);
+      if (e.isDirectory() && ['docs', 'en', 'pl', 'assets'].includes(e.name)) scan(path.join(dir, e.name), name + '/');
+    }
+  };
+  scan(outDir);
   return found.sort();
 }
 
@@ -267,7 +390,7 @@ function listGenerated(outDir) {
  * @param {{ srcDir?: string, outDir?: string, imgDir?: string, write?: boolean }} [opts]
  * @returns {{ pages: string[], errors: string[], drift: string[] }}
  */
-export function buildDocsSite({ srcDir, outDir = path.join(ROOT, 'website/docs'), imgDir = path.join(outDir, 'img'), write = true } = {}) {
+export function buildDocsSite({ srcDir, outDir = path.join(ROOT, 'website'), imgDir = path.join(outDir, 'docs/img'), write = true } = {}) {
   const { outputs, errors, pages } = generateOutputs({ srcDir, imgDir });
   const drift = [];
   if (errors.length) return { pages, errors, drift };
@@ -299,5 +422,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error(`Generated docs are out of date:\n${drift.map((d) => `  ${d}`).join('\n')}\nRun: npm run docs:build`);
     process.exit(1);
   }
-  console.log(check ? `docs up to date (${pages.length} pages)` : `built ${pages.length} page(s) into website/docs`);
+  if (check) {
+    const site = path.join(ROOT, 'website');
+    const problems = [...checkLinks(site).errors, ...checkBudget(site).errors];
+    if (problems.length) {
+      for (const e of problems) console.error(e);
+      process.exit(1);
+    }
+  }
+  console.log(check ? `docs up to date (${pages.length} pages), links and budgets ok` : `built ${pages.length} page(s) per language and landing pages into website`);
 }

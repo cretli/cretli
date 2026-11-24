@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentRoomKernel } from '../lib/agent-harness/room-kernel.ts';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { writeChatPlanFile, readChatPlanDocument } from '../lib/chat-plan-persist.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import { clearHarnessUsageLimit } from '../lib/harness-usage-limits.js';

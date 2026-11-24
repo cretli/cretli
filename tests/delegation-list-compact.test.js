@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { mkdtempSync } from 'node:fs';
 import os from 'os';
 import path from 'path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationRecord, getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { createInProcessMcpClient } from '../lib/mcp/mcp-inprocess-client.js';
 import { DELEGATION_MCP_TOOLS } from '../lib/mcp/builtin/delegation-tools.js';

@@ -32,7 +32,7 @@ function mountRoutes(sandbox) {
   for (const method of ['get', 'put', 'patch', 'post', 'delete']) {
     app[method] = (route, handler) => routes.set(`${method.toUpperCase()} ${route}`, handler);
   }
-  registerWorkspaceWatcherRoutes(app, { dataDir: sandbox.dataDir, getCurrentCwd: () => sandbox.workspace });
+  registerWorkspaceWatcherRoutes(app, { dataDir: sandbox.dataDir });
   return async (method, body = {}) => {
     const handler = routes.get(`${method} /api/delegation-settings`);
     assert.ok(handler, `${method} route registered`);
@@ -42,7 +42,7 @@ function mountRoutes(sandbox) {
       status(code) { status = code; return res; },
       json(value) { payload = value; return res; },
     };
-    handler({ query: {}, body }, res);
+    handler({ query: { workspaceFolder: sandbox.workspace }, body }, res);
     return { status, body: payload };
   };
 }

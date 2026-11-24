@@ -13,6 +13,7 @@
 @use './features/git/git-panel';
 @use './features/browser/browser-panel';
 @use './layout/debug-overlay';
+@use './features/chat/chat-completion';
 @use './features/chat/chat-toolbar-and-modals';
 @use './features/chat/new-chat-dialog';
 @use './features/chat/restart-modal-and-send-bar';
@@ -31,6 +32,7 @@
 @use './features/settings/harness-diagnostics';
 @use './features/car/voice-listen';
 @use './features/car/car-view';
+@use './features/settings/category-navigation';
 
 .todo-lock-notice {
   display: flex;

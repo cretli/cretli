@@ -1,0 +1,14 @@
+# Opt in with: docker compose -f docker-compose.yml -f docker-compose.supervisor.yml up
+services:
+  cretli:
+    environment:
+      CRETLI_DOCKER_SUPERVISOR: "1"
+    init: true
+    stop_grace_period: 60s
+    # Visibility only: the supervisor, not Docker health status, recovers hangs.
+    healthcheck:
+      test: ["CMD", "node", "scripts/docker-healthcheck.mjs"]
+      start_period: 150s
+      interval: 30s
+      timeout: 15s
+      retries: 3

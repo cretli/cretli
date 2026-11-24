@@ -3,16 +3,18 @@
 import { applyWorkspaceWatcherModeLocal, listWorkspaceWatcherPinnedChats } from '../workspaceAutopilotBadge.js';
 import { setWorkspaceWatcherEnabled, setWorkspaceWatcherStartsEnabled } from '../workspaceWatcherToggle.js';
 import { chatBelongsToWorkspaceGroup, listCloneFoldersForWorkspaceFile, resolveWorkspaceTargetForChat } from '../workspaceChatMatch.js';
-import { readWatcherShowAllFlag, writeWatcherShowAllFlag, normalizePath } from '../state/sidebarPersistence.js';
+import { normalizePath } from '../state/sidebarPersistence.js';
 import { wireArchiveVirtualFocusTracking } from '../sidebarArchiveSidebarFocus.js';
 import { onSidebarBodyKeydown } from './sidebarBodyKeyboard.js';
+import { ALL_CHATS_KEY } from '../sidebarWorkspaceMarker.js';
+import { haptic } from '../../../lib/haptics.js';
 import { getSharedSpaNavigation } from '../../../app/appShell/spaNavigationBridge.js';
 
 /**
  * @param {Record<string, any>} ctx shared sidebar closure: deps, state and sibling modules
  */
 export function createSidebarBodyEvents(ctx) {
-  const { getWorkspaces, getChats, getActiveWorkspaceFile, getActiveWorkspaceFolder, selectChat, switchWorkspace, getPreferredWorkspaceFolder, chatFavorites, requestArchiveChat, requestRestoreChat, requestDeleteChat, requestNewChat, requestLoadArchivedChats, switchWorkspaceForChat, toggleChatUrlPinById, isMobileViewport, state, showAllChatsBySidebarKey, updateScheduler } = ctx;
+  const { getWorkspaces, getChats, getActiveWorkspaceFile, getActiveWorkspaceFolder, selectChat, switchWorkspace, getPreferredWorkspaceFolder, chatFavorites, requestArchiveChat, requestRestoreChat, requestDeleteChat, requestNewChat, requestLoadArchivedChats, switchWorkspaceForChat, toggleChatUrlPinById, isMobileViewport, escapeHtml, state, showAllChatsBySidebarKey, updateScheduler } = ctx;
   const getContainer = (...args) => ctx.getContainer(...args);
   const closeSidebar = (...args) => ctx.closeSidebar(...args);
   const setWorkspaceCollapsed = (...args) => ctx.setWorkspaceCollapsed(...args);
@@ -27,6 +29,7 @@ export function createSidebarBodyEvents(ctx) {
   const forceRerender = (...args) => ctx.forceRerender(...args);
 
   function activateChatPanelTab(chatId = '') {
+    /** @type {any} */
     const navigation = getSharedSpaNavigation();
     if (chatId && navigation) {
       // Commit the clicked chat together with the panel: a panel-only navigation
@@ -89,6 +92,24 @@ export function createSidebarBodyEvents(ctx) {
     ev.stopPropagation();
     const workspaceFile = newBtn.getAttribute('data-workspace-file') || '';
     const sidebarKey = newBtn.getAttribute('data-sidebar-key') || workspaceFile;
+    if (sidebarKey === ALL_CHATS_KEY) {
+      openNewChatDefault();
+      return;
+    }
+    openNewChatIn(workspaceFile, sidebarKey);
+  }
+
+  /**
+   * The flat view has no workspace of its own: open the new-chat dialog on the current
+   * workspace, where the workspace chooser at the top of the dialog switches it.
+   */
+  function openNewChatDefault() {
+    activateChatPanelTab();
+    requestNewChat({});
+    closeSidebarAfterMobileAction();
+  }
+
+  function openNewChatIn(workspaceFile, sidebarKey) {
     const preferredFolder = getPreferredWorkspaceFolder(sidebarKey);
 
     const openNewChat = () => {
@@ -122,6 +143,8 @@ export function createSidebarBodyEvents(ctx) {
     const li = header.closest('.sidebar-workspace');
     const workspaceFile = li?.dataset.workspaceFile || '';
     const sidebarKey = li?.dataset.sidebarKey || workspaceFile;
+    // The flat view's header is only a label: it is not a real workspace to switch to or fold.
+    if (sidebarKey === ALL_CHATS_KEY) return;
     if (ev.target instanceof Element && ev.target.closest('.sidebar-workspace-chevron')) {
       toggleWorkspaceCollapsed(sidebarKey);
       return;
@@ -204,6 +227,7 @@ export function createSidebarBodyEvents(ctx) {
       return;
     }
     if (btn.classList.contains('sidebar-chat-fav-btn')) {
+      haptic('tick');
       chatFavorites.toggleFavorite(chatId);
       render();
       return;
@@ -221,8 +245,12 @@ export function createSidebarBodyEvents(ctx) {
         void requestRestoreChat(chatId);
         return;
       }
-      if (isChatForkArchiveBlocked(chatId)) return;
+      if (isChatForkArchiveBlocked(chatId)) {
+        haptic('warn');
+        return;
+      }
       if (typeof requestArchiveChat !== 'function') return;
+      haptic('select');
       void requestArchiveChat(chatId, { preserveListOpen: true });
       return;
     }
@@ -296,6 +324,7 @@ export function createSidebarBodyEvents(ctx) {
     const scope = btn.dataset?.watcherScope === 'all' ? 'all' : 'workspace';
     const folder = String(btn.dataset?.workspaceFolder || '');
     const next = btn.getAttribute('aria-checked') !== 'true';
+    haptic('tick');
     btn.disabled = true;
     const result = scope === 'all'
       ? await setWorkspaceWatcherStartsEnabled(next)
@@ -317,12 +346,6 @@ export function createSidebarBodyEvents(ctx) {
     const target = ev.target instanceof Element ? ev.target : null;
     if (!target) return;
 
-    const watcherShowAll = target.closest('.sidebar-watcher-show-all');
-    if (watcherShowAll) {
-      writeWatcherShowAllFlag(!readWatcherShowAllFlag());
-      forceRerender();
-      return;
-    }
     const watcherToggle = target.closest('.sidebar-watcher-toggle');
     if (watcherToggle) {
       void handleWatcherToggle(watcherToggle);

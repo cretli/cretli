@@ -40,6 +40,7 @@ export function installViewApiHead(rv) {
 
     destroy() {
       rv.viewDestroyed = true;
+      rv.viewportController.dispose();
       rv.deferredBurstProtectIdentities.clear();
       for (const gen of [...rv.replayOutcomeByGeneration.keys()]) {
         rv.settleReplayOutcome(gen, 'destroyed');
@@ -57,6 +58,8 @@ export function installViewApiHead(rv) {
       mountEl.removeEventListener('scroll', rv.updateStickFromScroll);
       rv.stickResizeObserver?.disconnect();
       rv.stickResizeObserver = null;
+      rv.viewportChildrenObserver?.disconnect();
+      rv.viewportChildrenObserver = null;
       rv.scrollToBottomButton.remove();
       rv.disconnectHistoryTopObserver();
       if (rv.mdRaf) cancelAnimationFrame(rv.mdRaf);
@@ -151,7 +154,11 @@ export function installViewApiHead(rv) {
       rv.scrollToBottom();
     },
 
-    scrollToBottom: () => rv.scrollToBottom({ force: true }),
+    scrollToBottom: (opts = {}) => rv.scrollToBottom(opts),
+    getViewportSnapshot: () => rv.viewportController.snapshot(),
+    restoreViewportSnapshot: (snapshot) => rv.viewportController.restoreSnapshot(snapshot),
+    isViewportAtBottom: () => rv.viewportController.isAtBottom(),
+    isViewportNearBottom: () => rv.viewportController.isNearBottom(),
 
     /** Loading note while a chat opens; visible only until the first card renders. */
     setHistoryLoading(on) {
@@ -163,11 +170,11 @@ export function installViewApiHead(rv) {
      * end, a reader gets back the place they left.
      */
     restoreViewportAfterShow() {
-      if (rv.stickToBottom) {
-        rv.scrollToBottom({ force: true });
-        return;
-      }
-      mountEl.scrollTop = rv.lastScrollTop;
+      rv.viewportController.restoreSnapshot({
+        following: rv.stickToBottom,
+        scrollTop: rv.lastScrollTop,
+        readingAnchor: rv.viewportController.state.readingAnchor,
+      });
     },
 
     hasRenderedHistory() {
@@ -283,7 +290,7 @@ export function installViewApiHead(rv) {
       // A new prompt jumps to the bottom; the parked newer tail goes back first so the
       // previous answers land above the prompt, not after it. The instant restore
       // applies its records synchronously before its first await.
-      if (getHistoryParkedNewerLocal(chat).length > 0) {
+      if (opts.forceScroll !== false && getHistoryParkedNewerLocal(chat).length > 0) {
         rv.stickToBottom = true;
         void rv.restoreParkedNewerTailIfNeeded({ all: true });
       }
@@ -291,7 +298,7 @@ export function installViewApiHead(rv) {
       if (!echoKey) return;
       rv.openLiveTurn();
       if (!silent) hooks.appendPlain(`\n> ${echoKey}\n`);
-      rv.scrollToBottom({ force: true });
+      rv.scrollToBottom({ force: opts.forceScroll !== false });
       if (!silent && typeof hooks.onHistoryRecord === 'function' && !rv.suppressHistoryPersist) {
         const createdAt = new Date().toISOString();
         hooks.onHistoryRecord({ kind: 'localUser', text: echoKey, createdAt, ...(opts.origin ? { origin: opts.origin } : {}), ...(opts.requestId ? { requestId: opts.requestId } : {}) });
@@ -315,7 +322,8 @@ export function installViewApiHead(rv) {
       block.label = t('sdkView.youQueuedNumbered', { n: pos });
       rv.attachQueuedBlockActions(block, raw);
       rv.queuedUserBlocks.push({ text: raw, block });
-      rv.scrollToBottom({ force: true });
+      rv.relabelQueuedBlocks();
+      rv.scrollToBottom({ force: opts.forceScroll === true });
     },
 
     markUserPromptQueued(text) {
@@ -334,7 +342,7 @@ export function installViewApiHead(rv) {
       rv.attachQueuedBlockActions(block, raw);
       rv.queuedUserBlocks.push({ text: raw, block });
       rv.relabelQueuedBlocks();
-      rv.scrollToBottom({ force: true });
+      rv.scrollToBottom();
       return true;
     },
 
@@ -362,7 +370,7 @@ export function installViewApiHead(rv) {
         chat._sdkLastLocalUserEcho = raw;
         return;
       }
-      this.appendUserPrompt(raw, opts);
+      this.appendUserPrompt(raw, { ...opts, forceScroll: false });
     },
 
     /**
@@ -380,6 +388,31 @@ export function installViewApiHead(rv) {
         item.block.steerable = rv.queuedSteerable;
         item.block.steerReady = rv.queuedSteerReady;
       });
+    },
+
+    /**
+     * Applies the server queue order (UI texts, front first) after a `queueMove`.
+     * Prompts this view does not know keep their relative place at the end.
+     *
+     * @param {string[]} order
+     */
+    reorderQueuedPrompts(order) {
+      const keys = (Array.isArray(order) ? order : []).map((text) => rv.normalizeUserPromptText(text));
+      const rank = (item) => {
+        const idx = keys.indexOf(rv.normalizeUserPromptText(item.text));
+        return idx < 0 ? keys.length : idx;
+      };
+      const sorted = rv.queuedUserBlocks
+        .map((item, idx) => ({ item, idx }))
+        .sort((a, b) => rank(a.item) - rank(b.item) || a.idx - b.idx)
+        .map((entry) => entry.item);
+      rv.queuedUserBlocks.splice(0, rv.queuedUserBlocks.length, ...sorted);
+      // The queue is pinned to the bottom of the stream: re-append in the new order.
+      sorted.forEach((item) => {
+        const block = item.block;
+        if (block && block.parentNode === rv.stream) rv.stream.appendChild(block);
+      });
+      rv.relabelQueuedBlocks();
     },
 
     removeQueuedPrompt(text) {

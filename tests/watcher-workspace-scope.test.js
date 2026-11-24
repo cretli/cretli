@@ -19,6 +19,7 @@ import {
   scopeWatcherRequestToWorkspace,
   watcherWorkspaceScopeChanged,
 } from '../app_front/features/watcher/watcherWorkspaceScope.js';
+import { setSharedViewContextStore } from '../app_front/app/appShell/viewContextBridge.js';
 import { readWatcherSettingsSource } from './helpers/watcher-settings-source.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -99,7 +100,7 @@ test('a clone folder is scoped independently of its parent workspace', () => {
   );
 });
 
-test('a missing active folder leaves the request untouched for the server default', () => {
+test('a missing active folder leaves request scoping to the readiness gate', () => {
   const scoped = scopeWatcherRequestToWorkspace('/api/workspace-watcher', {}, '');
   assert.equal(scoped.path, '/api/workspace-watcher');
   assert.deepEqual(scoped.options, {});
@@ -181,4 +182,14 @@ test('the todo watcher bar is workspace-scoped too', () => {
     /addEventListener\('cretli-active-workspace-changed', \(\) => \{\s*void refreshWatcherPanel\(\);/,
     'the bar drops the previous workspace on a switch',
   );
+});
+
+
+test('Watcher scope reads resolved tab context before the header is mounted', () => {
+  setSharedViewContextStore({ getState: () => ({ runtime: { workspaceFolder: '/ws/tab' } }) });
+  try {
+    assert.equal(getWatcherWorkspaceFolder(), '/ws/tab');
+  } finally {
+    setSharedViewContextStore(null);
+  }
 });

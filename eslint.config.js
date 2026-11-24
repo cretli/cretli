@@ -90,6 +90,12 @@ export default [
       globals: { importScripts: 'readonly' },
     },
   },
+  {
+    files: ['extensions/cretli-chrome/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.browser, chrome: 'readonly' },
+    },
+  },
   // ANSI-aware parsers deliberately match control characters (\x1b, \x07) in
   // regular expressions to strip terminal escape sequences. Disable the rule
   // for those files instead of muting each regex.
@@ -105,6 +111,7 @@ export default [
       'scripts/test-fork-title.js',
       'tests/status-parser.test.js',
       'tests/status-parser-flow.test.js',
+      'lib/browser/cretli-extension-bridge.js',
     ],
     rules: {
       'no-control-regex': 'off',

@@ -250,7 +250,7 @@ export function createOpsToolHandlers(deps) {
   let driver;
 
   async function readContext() {
-    const raw = (await deps.getContext()) || {};
+    const raw = /** @type {Partial<OpsContext>} */ ((await deps.getContext()) || {});
     return { workspaceFolder: String(raw.workspaceFolder || ''), chatId: String(raw.chatId || ''), scopeKey: String(raw.scopeKey || '') };
   }
 
@@ -275,12 +275,13 @@ export function createOpsToolHandlers(deps) {
    * @param {string} action
    * @param {string} id id sent with the confirming call
    * @param {OpsContext} context current context
-   * @returns {{ ok: true, data: Record<string, any> } | { ok: false, result: object }}
+   * @returns {{ ok: true, data: Record<string, any>, result?: never } | { ok: false, result: object, data?: never }}
    */
   function consumeBinding(action, id, context) {
     const bound = pending;
     // One use only: even a refused attempt closes the window.
     pending = null;
+    /** @param {string} error @param {Record<string, unknown>} [extra] @returns {{ ok: false, result: { ok: false, error: string } }} */
     const refuse = (error, extra = {}) => ({ ok: false, result: { ok: false, ...extra, error: `${error} Nothing was done.` } });
     if (!bound || bound.action !== action) {
       return refuse('Nothing is awaiting confirmation for this action. Run the first step, tell the user what will happen, then confirm with the same id.', { needsClarification: true, code: 'no_pending' });

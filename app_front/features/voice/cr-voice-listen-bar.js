@@ -27,7 +27,7 @@ export class CrVoiceListenBar extends SignalWatcher(LitElement) {
     }
     try {
       const chatModule = await import('../chat/index.js');
-      chatModule.getActiveSendBar()?.input?.focus();
+      (/** @type {import('./voiceCommandTypes.js').VoiceSendBar|null} */ (chatModule.getActiveSendBar()))?.input?.focus();
     } catch {
       // The bar closes either way; focusing the field is a convenience.
     }

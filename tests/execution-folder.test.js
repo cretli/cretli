@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addChat, loadChats, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { getDelegationById, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import {

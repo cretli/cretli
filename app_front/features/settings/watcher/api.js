@@ -2,6 +2,7 @@
  * Workspace-scoped HTTP access and small lookups for the Watcher settings.
  */
 
+import { whenViewContextRuntimeReady } from '../../../app/appShell/viewContextBridge.js';
 import { ws } from './store.js';
 import { getCurrentLang } from '../../../i18n/index.js';
 import { cretliApiFetch } from '../../../lib/cretliApiRequest.js';
@@ -14,9 +15,8 @@ import { getWatcherWorkspaceFolder, scopeWatcherRequestToWorkspace } from '../..
  * @returns {Promise<{ status: number, json: any }>}
  */
 export async function watcherApi(path, options = {}) {
-  // Every watcher call is workspace-scoped: without an explicit folder the
-  // server answers for its own "current cwd", which can be a different
-  // workspace than the one the operator opened Settings for.
+  if (!path.startsWith('/api/workspace-watcher/runtime-control')) await whenViewContextRuntimeReady();
+  // Per-workspace calls must wait for the tab's folder before attaching scope.
   const scoped = scopeWatcherRequestToWorkspace(path, options, getWatcherWorkspaceFolder());
   if (isWorkspaceWatcherRead(scoped.path, scoped.options)) return getWorkspaceWatcherView(scoped.path);
   const headers = {

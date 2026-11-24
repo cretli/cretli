@@ -9,7 +9,7 @@ import {
   createChatCatalog,
   readChatCatalog,
 } from '../lib/chat-catalog.js';
-import { getChatsReadStats, loadChats, peekChats, saveChats } from '../lib/persist/chats-persist.js';
+import { getChatsReadStats, loadChats, peekChats, saveChats } from '../lib/persist/chats-legacy-store.js';
 
 const folderA = path.join(ISOLATED_DATA_DIR, 'ws-a');
 const folderB = path.join(ISOLATED_DATA_DIR, 'ws-b');

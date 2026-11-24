@@ -13,6 +13,13 @@ export const SERVER_RESTART_READY_EVENT = 'cretli-server-restart-ready';
 const STORAGE_KEY = 'cretli-server-restart';
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 90000;
+/** A fast restart waits the grace window before the server even goes down; allow boot time on top. */
+const FAST_RESTART_BOOT_MARGIN_MS = 60000;
+
+/** @param {{ timeoutMs?: number } | null | undefined} flow */
+function pollTimeoutFor(flow) {
+  return Number.isFinite(flow?.timeoutMs) ? Math.max(POLL_TIMEOUT_MS, flow.timeoutMs) : POLL_TIMEOUT_MS;
+}
 const STABLE_PROBE_COUNT = 2;
 const RECOVERING_TRANSITION_MS = 1200;
 const SUCCESS_AUTO_DISMISS_MS = 1800;
@@ -364,7 +371,7 @@ function poll() {
   if (!isPollingPhase() || restartFlowFinished) return;
   if (isServerRestartTimedOut({
     startedAt: state.startedAt,
-    timeoutMs: POLL_TIMEOUT_MS,
+    timeoutMs: pollTimeoutFor(state),
   })) {
     finishWithError(t('serverRestart.timeout'));
     return;
@@ -459,7 +466,7 @@ export function shouldSuppressServerDisconnectUi() {
   });
 }
 
-export async function restartServer({ source = 'manual' } = {}) {
+export async function restartServer({ source = 'manual', mode = 'drain' } = {}) {
   initServerRestartCoordinator();
   if (!canStartServerRestart(state?.phase)) {
     showWaitingModal();
@@ -503,10 +510,14 @@ export async function restartServer({ source = 'manual' } = {}) {
     return { ok: false, error: t('serverRestart.missingInstanceId') };
   }
   flow.previousToken = previousToken;
+  if (mode === 'fast') {
+    const grace = Number(settings?.restartGraceMs);
+    flow.timeoutMs = (Number.isFinite(grace) ? grace : 75000) + FAST_RESTART_BOOT_MARGIN_MS;
+  }
   storeState();
   let response;
   try {
-    response = await api.postDevAction('restart-server');
+    response = await api.postDevAction('restart-server', { mode });
   } catch {
     if (abandoned()) return { ok: true, uncertain: true, abandoned: true };
     flow.phase = 'waiting';
@@ -529,7 +540,7 @@ export async function restartServer({ source = 'manual' } = {}) {
       return response;
     }
     try {
-      response = await api.postDevAction('restart-server', { force: true });
+      response = await api.postDevAction('restart-server', { force: true, mode });
     } catch {
       if (abandoned()) return { ok: true, uncertain: true, abandoned: true };
       flow.phase = 'waiting';
@@ -564,7 +575,7 @@ export function initServerRestartCoordinator() {
   if (!stored) return;
   if (isServerRestartTimedOut({
     startedAt: stored.startedAt,
-    timeoutMs: POLL_TIMEOUT_MS,
+    timeoutMs: pollTimeoutFor(stored),
   })) {
     state = null;
     storeState();

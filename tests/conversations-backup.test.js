@@ -8,7 +8,7 @@ import test from 'node:test';
 import express from 'express';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 
-const { saveChats, loadChats } = await import('../lib/persist/chats-persist.js');
+const { saveChats, loadChats } = await import('../lib/persist/chats-legacy-store.js');
 const { appendChatHistoryEvents, loadChatHistory, deleteChatHistory } = await import('../lib/persist/chat-history-service.js');
 const { createDefaultConversationStore } = await import('../lib/backup/conversations-store.js');
 const { buildStoreZip, readStoreZip, ZipArchiveError } = await import('../lib/backup/zip-store.js');

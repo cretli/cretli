@@ -1,6 +1,6 @@
 import { externalizeToolResultImages, chatMediaSaver } from '../agent-harness/tool-result-images.ts';
 import { isReviewReadOnlyAssignment } from '../delegation-review-policy.js';
-import { CodexAppServer, CODEX_APP_SERVER_REQUEST_TIMEOUT_MS, isCodexAppServerEnabled, runCodexAppServerTurn } from './codex-app-server.ts';
+import { CodexAppServer, CODEX_APP_SERVER_REQUEST_TIMEOUT_MS, isCodexAppServerEnabled, isMissingCodexRolloutError, runCodexAppServerTurn } from './codex-app-server.ts';
 import { createCodexSteering, resolveCodexPromptKind } from './codex-steer.ts';
 import {
   setActiveSelection,
@@ -92,13 +92,32 @@ type CodexChatRow = NonNullable<Awaited<ReturnType<typeof getChatByCursorSession
  * A usage reading that follows a `compacted` rollout record carries `compactedAt`.
  * Bump the epoch once per compaction, ignoring ones replayed from before this run.
  */
-function isNewCodexCompaction(room: any, event: { compactedAt?: string } | null | undefined): boolean {
+export function isNewCodexCompaction(room: any, event: { compactedAt?: string } | null | undefined): boolean {
   const compactedAt = event?.compactedAt;
   if (!compactedAt || room._codexCompactedAt === compactedAt) return false;
   const compactedMs = Date.parse(compactedAt);
   if (Number.isFinite(compactedMs) && Number.isFinite(room._runStartedAt) && compactedMs < room._runStartedAt) return false;
   room._codexCompactedAt = compactedAt;
+  // The app-server's native `thread/compacted` signal already counted this compaction.
+  if (Number.isFinite(compactedMs) && Number.isFinite(room._codexLastCompactionMs)
+    && Math.abs(compactedMs - room._codexLastCompactionMs) < CODEX_COMPACTION_DEDUPE_MS) return false;
   return true;
+}
+
+/**
+ * The saved thread has no rollout any more: forget it so the chat continues on
+ * a fresh thread, invalidate the old context and tell the user why.
+ */
+function dropMissingCodexThread(room: any): void {
+  if (!room?.codexThreadId) return;
+  room.codexThreadId = '';
+  if (room.chatId) runChatWrite('setChatCodexThreadId', () => setChatCodexThreadIdAsync(room.chatId, ''), room.chatId);
+  recordContextRestart({ chatId: room.chatId, harness: 'codex', reason: CONTEXT_RESTART_REASON.SESSION_DROP, room });
+  broadcastRoom(room, { type: 'sdkEvent', event: buildCodexCompactionEvent(new Date().toISOString()) });
+  broadcastRoom(room, { type: 'sdkEvent', event: {
+    kind: 'notice', noticeType: 'session_drop',
+    message: 'Codex no longer has the saved thread of this chat; continuing in a new thread without the earlier messages.',
+  } });
 }
 
 /**
@@ -309,7 +328,14 @@ function bindCodexPromptRunner(room: any, chat: object | null): void {
   }
 
   async function runPrompt(text: string, modeOverride?: string, fromQueue: boolean = false, displayText: string = '', selection: unknown = null, origin?: Record<string, unknown>, requestId = ''): Promise<void> {
-    if (await rejectArchivedRoomPromptAsync(room, broadcastRoom)) return;
+    // Callers fire this without awaiting: a storage error here must not become a
+    // fatal unhandled rejection.
+    try {
+      if (await rejectArchivedRoomPromptAsync(room, broadcastRoom)) return;
+    } catch (error) {
+      broadcastRoom(room, { type: 'sdkError', code: 'chat_lookup_failed', message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     const trimmed = String(text || '').trim();
     if (!trimmed) return;
     const uiText = resolvePromptUiText(trimmed, displayText);
@@ -468,10 +494,14 @@ function bindCodexPromptRunner(room: any, chat: object | null): void {
           if (room._codexContextSignature === signature) return;
           room._codexContextSignature = signature;
           if (event.reset) {
+            // A compaction that ended the previous run (e.g. read after a server restart) is old news.
+            const resetMs = Date.parse(String(event.observedAt || ''));
+            if (Number.isFinite(resetMs) && Number.isFinite(room._runStartedAt) && resetMs < room._runStartedAt) return;
             emitCodexCompaction(room, event.observedAt);
             return;
           }
-          if (isNewCodexCompaction(room, event)) advanceRoomContextEpoch(room, 'compaction');
+          // Reset the meter as well: the exec path may only show the compaction on the next reading.
+          if (isNewCodexCompaction(room, event)) emitCodexCompaction(room, event.compactedAt ?? null);
           broadcastRoom(room, { type: 'sdkEvent', event });
         },
       });
@@ -481,7 +511,9 @@ function bindCodexPromptRunner(room: any, chat: object | null): void {
           requestTimeoutMs: CODEX_APP_SERVER_REQUEST_TIMEOUT_MS });
         room._appServer = client;
         room._codexSteering = createSteering();
-        const threadId = await client.initialize(clientOptions.threadOptions, room.codexThreadId, ctor.config);
+        const threadId = await client.initialize(clientOptions.threadOptions, room.codexThreadId, ctor.config, {
+          onResumeMissing: () => dropMissingCodexThread(room),
+        });
         handleThreadEvent(room, { type: 'thread.started', thread_id: threadId });
         // Raw diagnostics for missing bridge tools (e.g. todo_show) in read-only review sessions; names only, no secrets.
         console.info(`[codex-ws] thread ${threadId} started; configured MCP servers: ${room._codexMcpToolNames || '(none)'}`);
@@ -528,6 +560,8 @@ function bindCodexPromptRunner(room: any, chat: object | null): void {
       const failure = err as { code?: unknown; message?: unknown } | null;
       const errCode = String(failure?.code || '');
       if (isMcpOrchestratorErrorCode(errCode)) mcpGateErrorCode = errCode;
+      // `codex exec resume` cannot fall back in place; the next prompt starts a new thread.
+      if (isMissingCodexRolloutError(err)) dropMissingCodexThread(room);
       if (room.cancelled) {
         status = room._planGuardTriggered ? 'plan_guard_cancelled' : 'cancelled';
       } else {

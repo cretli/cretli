@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildResumeAdvice } from '../lib/usage/resume-advice.ts';
 import { registerUsageRoutes } from '../lib/routes/usage-routes.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { noteHarnessCacheState, resetCacheStateForTests } from '../lib/usage/cache-state.ts';
 import { normalizeUsageSettings } from '../lib/usage/usage-settings.ts';
 

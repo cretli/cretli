@@ -4,7 +4,7 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.05rem 0.4rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-family: var(--cr-font-mono);
   color: var(--cr-text-muted);
   background: var(--cr-surface-inset);
@@ -117,7 +117,7 @@ cr-todo-card.todo-card {
 
 .todo-item-tab-empty {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
   color: var(--cr-text-muted);
 }
 
@@ -134,7 +134,7 @@ cr-todo-card.todo-card {
 
 .todo-editor-label {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -196,7 +196,7 @@ cr-todo-card.todo-card {
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
-  font-size: 18px;
+  font-size: var(--cr-font-size-legacy-18px);
   line-height: 18px;
   text-align: center;
   color: var(--cr-neutral);
@@ -239,7 +239,7 @@ cr-todo-card.todo-card {
 .todo-item-title::part(control) {
   resize: none;
   font-weight: 500;
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
 }
 
 /* Same for the notes editor: cr-bar-textarea auto-grows, a manual grip would
@@ -262,7 +262,7 @@ cr-todo-card.todo-card {
 
 .todo-item-idbadge {
   font-family: var(--cr-font-mono, monospace);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   letter-spacing: 0.02em;
   color: var(--cr-text-muted);
 }
@@ -277,7 +277,7 @@ cr-todo-card.todo-card {
   background: var(--cr-surface-translucent);
   color: var(--cr-text);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   cursor: pointer;
 }
 
@@ -287,7 +287,7 @@ cr-todo-card.todo-card {
 }
 
 .todo-item-copy .mdi {
-  font-size: 0.95rem;
+  font-size: var(--cr-font-size-legacy-095);
 }
 
 .todo-item-hint {
@@ -299,7 +299,7 @@ cr-todo-card.todo-card {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem 0.1rem;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   color: var(--cr-text-muted);
   flex: 0 0 auto;
 }
@@ -330,7 +330,7 @@ cr-todo-card.todo-card {
   background: transparent;
   color: var(--cr-text-muted);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   cursor: pointer;
 }
 
@@ -364,7 +364,7 @@ cr-todo-card.todo-card {
 
 .todo-item-chats-title {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--cr-font-size-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -425,18 +425,18 @@ cr-todo-card.todo-card {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 
 .todo-item-chat-sub {
-  font-size: 0.7rem;
+  font-size: var(--cr-font-size-legacy-07);
   color: var(--cr-text-muted);
 }
 
 .todo-item-history-chat {
   display: inline-block;
   margin-right: 0.35rem;
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   font-weight: 600;
   color: var(--cr-text);
 }
@@ -456,7 +456,7 @@ cr-todo-card.todo-card {
   gap: 0.35rem;
   max-width: 100%;
   color: var(--cr-accent);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   text-decoration: none;
   min-width: 0;
 }
@@ -521,7 +521,7 @@ cr-todo-card.todo-card {
 
 .todo-item-meta {
   color: var(--cr-text-muted);
-  font-size: 0.85em;
+  font-size: var(--cr-font-size-legacy-085em);
 }
 
 .todo-item-plan-body {
@@ -536,7 +536,7 @@ cr-todo-card.todo-card {
 
 .todo-item-plan-approved {
   color: var(--cr-success, var(--cr-color-22c55e));
-  font-size: 1em;
+  font-size: var(--cr-font-size-legacy-1em);
 }
 
 .todo-item-plan-approve-btn {
@@ -550,7 +550,7 @@ cr-todo-card.todo-card {
   background: transparent;
   color: var(--cr-success, var(--cr-color-22c55e));
   font: inherit;
-  font-size: 0.9em;
+  font-size: var(--cr-font-size-legacy-09em);
   cursor: pointer;
   transition: background 0.15s;
 
@@ -576,7 +576,7 @@ cr-todo-card.todo-card {
   border-radius: var(--cr-radius-sm);
   border: 1px solid var(--cr-border);
   background: var(--cr-bg);
-  font-size: 0.82rem;
+  font-size: var(--cr-font-size-legacy-082);
 }
 
 .todo-item-history-kind {
@@ -650,7 +650,7 @@ cr-todo-card.todo-card {
 }
 
 .git-status-badge {
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   color: var(--cr-text-muted);
   border: 1px solid var(--cr-border-control);
   border-radius: 999px;
@@ -687,7 +687,7 @@ cr-todo-card.todo-card {
   display: grid;
   grid-template-columns: minmax(6rem, auto) 1fr;
   gap: 0.35rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
 }
 
 .git-info-row {

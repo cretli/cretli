@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationService, finishDelegation } from '../lib/delegation-service.js';
 import { getDelegationById, listDelegationsForController, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import {

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex</title>
+<meta name="description" content="Configure Codex authentication, choose models, and understand its limits.">
+<link rel="canonical" href="https://cretli.com/docs/en/harness-codex.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/harness-codex.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/harness-codex.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/harness-codex.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/en/harness-codex.html">
+<meta property="og:title" content="Codex">
+<meta property="og:description" content="Configure Codex authentication, choose models, and understand its limits.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Documentation</a>
+  <a href="../pl/harness-codex.html" hreflang="pl">Polski</a>
+  <a href="/" class="home-link">Home</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Getting started</h2><ul><li><a href="index.html">Cretli documentation</a></li><li><a href="getting-started.html">Getting started</a></li><li><a href="install-docker.html">Install with Docker</a></li></ul></section>
+<section class="nav-section"><h2>Harnesses</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html" aria-current="page">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Workspaces</h2><ul><li><a href="workspaces.html">Workspaces</a></li><li><a href="settings.html">Settings</a></li></ul></section>
+<section class="nav-section"><h2>Working surfaces</h2><ul><li><a href="chat-and-agents.html">Working surfaces</a></li></ul></section>
+<section class="nav-section"><h2>Todo and plans</h2><ul><li><a href="todos.html">Todo and plans</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Workspace Watcher</a></li></ul></section>
+<section class="nav-section"><h2>Delegation and review</h2><ul><li><a href="delegation-review.html">Delegation and independent review</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">MCP tools and external clients</a></li></ul></section>
+<section class="nav-section"><h2>Remote access</h2><ul><li><a href="remote-access.html">Remote access, PWA and notifications</a></li><li><a href="security-basics.html">Security basics</a></li></ul></section>
+<section class="nav-section"><h2>Backups and data</h2><ul><li><a href="backups-and-data.html">Backups and data</a></li></ul></section>
+<section class="nav-section"><h2>Troubleshooting and FAQ</h2><ul><li><a href="troubleshooting.html">Troubleshooting</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Codex</h1>
+<p>Codex runs OpenAI's coding CLI on the Cretli server and streams its work into chat. Cretli normally uses the CLI's app-server transport; the optional SDK provides a fallback. Check <strong>Settings → Harness → Codex</strong> for the package, executable, and authentication, then create a Codex chat.</p>
+<h2 id="authentication-and-models">Authentication and models</h2>
+<p>Choose a ChatGPT plan login or API-key billing. For ChatGPT, enable device-code authorization in account security settings and complete <strong>Sign in with ChatGPT</strong>. For API billing, enter a key in Settings or <code>CODEX_API_KEY</code>. Plan usage and Platform API charges are separate. Cretli keeps the plan session separate from API-key execution.</p>
+<p>With a ChatGPT plan, models come from the account catalog maintained by Codex. A model absent from that catalog can fail even if another account has it. API-key mode uses Cretli's fallback catalog, with a configurable default. Select from the current enabled list rather than assuming a particular model is included with every plan.</p>
+<h2 id="known-limits">Known limits</h2>
+<p>Agent mode has full host access and does not ask interactive execution approvals. Plan and default review use a read-only sandbox. Mid-turn steering is supported by the normal app-server transport; SDK fallback does not support it. Stop interrupts the active turn, while later prompts resume the saved thread. Optional binaries may be unavailable on Android, so Termux requires extra platform-specific setup and is not guaranteed to run Codex.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="harness-claude.html">&larr; Claude Code</a>
+      <a rel="next" href="harness-cursor-sdk.html">Cursor SDK &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>
+      <li><a href="#authentication-and-models">Authentication and models</a></li>
+      <li><a href="#known-limits">Known limits</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Documentation</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

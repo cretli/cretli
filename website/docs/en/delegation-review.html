@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delegation and independent review</title>
+<meta name="description" content="How Cretli splits work across harnesses and why a different model reviews the result.">
+<link rel="canonical" href="https://cretli.com/docs/en/delegation-review.html">
+<link rel="alternate" hreflang="en" href="https://cretli.com/docs/en/delegation-review.html">
+<link rel="alternate" hreflang="pl" href="https://cretli.com/docs/pl/delegation-review.html">
+<link rel="alternate" hreflang="x-default" href="https://cretli.com/docs/en/delegation-review.html">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://cretli.com/docs/en/delegation-review.html">
+<meta property="og:title" content="Delegation and independent review">
+<meta property="og:description" content="How Cretli splits work across harnesses and why a different model reviews the result.">
+<script>try{var t=localStorage.getItem('cretli-docs-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">☰</button>
+  <a class="brand" href="index.html">Cretli · Documentation</a>
+  <a href="../pl/delegation-review.html" hreflang="pl">Polski</a>
+  <a href="/" class="home-link">Home</a>
+  <input class="search" type="search" placeholder="Search docs" aria-label="Search docs" hidden>
+  <button class="theme-toggle" type="button" aria-label="Theme">Theme</button>
+</header>
+<div class="layout">
+  <nav id="site-nav" class="site-nav" aria-label="Documentation">
+    <ul class="search-results" hidden></ul>
+<section class="nav-section"><h2>Getting started</h2><ul><li><a href="index.html">Cretli documentation</a></li><li><a href="getting-started.html">Getting started</a></li><li><a href="install-docker.html">Install with Docker</a></li></ul></section>
+<section class="nav-section"><h2>Harnesses</h2><ul><li><a href="harness-opencode.html">OpenCode</a></li><li><a href="harness-openrouter.html">OpenRouter</a></li><li><a href="harness-deepseek.html">DeepSeek</a></li><li><a href="harness-qwen.html">Qwen Code</a></li><li><a href="harness-mistral.html">Mistral</a></li><li><a href="harness-mimo.html">Xiaomi MiMo</a></li><li><a href="harness-zai.html">Z.AI</a></li><li><a href="harness-codebuddy.html">CodeBuddy</a></li><li><a href="harness-antigravity.html">Antigravity</a></li><li><a href="harness-claude.html">Claude Code</a></li><li><a href="harness-codex.html">Codex</a></li><li><a href="harness-cursor-sdk.html">Cursor SDK</a></li></ul></section>
+<section class="nav-section"><h2>Workspaces</h2><ul><li><a href="workspaces.html">Workspaces</a></li><li><a href="settings.html">Settings</a></li></ul></section>
+<section class="nav-section"><h2>Working surfaces</h2><ul><li><a href="chat-and-agents.html">Working surfaces</a></li></ul></section>
+<section class="nav-section"><h2>Todo and plans</h2><ul><li><a href="todos.html">Todo and plans</a></li></ul></section>
+<section class="nav-section"><h2>Watcher</h2><ul><li><a href="workspace-watcher.html">Workspace Watcher</a></li></ul></section>
+<section class="nav-section"><h2>Delegation and review</h2><ul><li><a href="delegation-review.html" aria-current="page">Delegation and independent review</a></li></ul></section>
+<section class="nav-section"><h2>MCP</h2><ul><li><a href="mcp.html">MCP tools and external clients</a></li></ul></section>
+<section class="nav-section"><h2>Remote access</h2><ul><li><a href="remote-access.html">Remote access, PWA and notifications</a></li><li><a href="security-basics.html">Security basics</a></li></ul></section>
+<section class="nav-section"><h2>Backups and data</h2><ul><li><a href="backups-and-data.html">Backups and data</a></li></ul></section>
+<section class="nav-section"><h2>Troubleshooting and FAQ</h2><ul><li><a href="troubleshooting.html">Troubleshooting</a></li><li><a href="faq.html">FAQ</a></li></ul></section>
+  </nav>
+  <main id="content">
+    <article>
+<h1>Delegation and independent review</h1>
+<p>Cretli can split one task across several harnesses. A coordinating chat does not write the code itself. It starts child chats on other models, reads their reports, and decides what happens next. Use it when a result should be checked by something other than the model that produced it.</p>
+<h2 id="the-loop">The loop</h2>
+<ol>
+<li><strong>Plan.</strong> A plan is drafted and, where your workspace requires it, approved by you. Agents never approve plans.</li>
+<li><strong>Implement.</strong> One child chat edits the workspace and reports what it changed.</li>
+<li><strong>Verify.</strong> Cretli can run a fixed catalog of checks on the result before any review starts.</li>
+<li><strong>Review.</strong> A different child chat inspects the work read-only and ends with a verdict: PASS, FAIL, or BLOCKED.</li>
+<li><strong>Fix.</strong> On FAIL, an implementer addresses the findings and the loop repeats until the work passes, a round limit is reached, or a human decides.</li>
+</ol>
+<p>The same loop runs inside <a href="workspace-watcher.html">Watcher</a> cycles, and the outcome appears on the <a href="todos.html">task</a> as a review badge. Only the server writes that badge, based on real delegation records; nobody sets it by hand.</p>
+<h2 id="how-a-reviewer-is-chosen">How a reviewer is chosen</h2>
+<p>In plain terms, Cretli picks from the models you enabled as favorites in <strong>Settings</strong> for each role (plan, implement, review, fix). When it picks a reviewer, it:</p>
+<ul>
+<li>prefers a model other than the one that implemented the work, and avoids repeating the last reviewer when it has a choice;</li>
+<li>skips models that recently hit a usage limit or failed to start;</li>
+<li>avoids very fast, lightweight models for reviews unless you ask for one explicitly;</li>
+<li>spreads work across harnesses, so one provider is not always the only reviewer.</li>
+</ul>
+<p>You can instead set a <strong>fixed pair</strong> of reviewers per kind of review. Plan reviews can also run in three cooperation modes: independent (the default, reviewers cannot see each other), exchange (one round to see peer summaries), or collaborative.</p>
+<h2 id="limits-you-control">Limits you control</h2>
+<p>Delegated children cannot start further delegations by default; nesting is an explicit opt-in with a depth limit. You can set round, time, and spending budgets per task. Check which harnesses you enable before allowing automatic work, and read the diff yourself before integrating.</p>
+    </article>
+    <nav class="prev-next" aria-label="Previous and next page">
+      <a rel="prev" href="workspace-watcher.html">&larr; Workspace Watcher</a>
+      <a rel="next" href="mcp.html">MCP tools and external clients &rarr;</a>
+    </nav>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p class="toc-title">On this page</p>
+    <ul>
+      <li><a href="#the-loop">The loop</a></li>
+      <li><a href="#how-a-reviewer-is-chosen">How a reviewer is chosen</a></li>
+      <li><a href="#limits-you-control">Limits you control</a></li>
+    </ul>
+  </aside>
+</div>
+<footer class="site-footer">Cretli · Documentation</footer>
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

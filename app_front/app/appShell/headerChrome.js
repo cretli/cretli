@@ -65,6 +65,19 @@ export function createHeaderChrome({ embedBridge }) {
       setFullscreenIcon(fullscreenBtn, false);
     };
 
+    // The embedded widget has no drawer: the modal toggle, voice and the car view stay in the header.
+    if (typeof document !== 'undefined' && document.body?.classList.contains('embed-mode')) {
+      const headerRight = document.querySelector('.header-right');
+      const before = document.getElementById('header-notifications-btn');
+      for (const id of ['header-voice-mode-btn', 'header-car-mode-btn', 'header-app-fullscreen-btn']) {
+        const btn = document.getElementById(id);
+        if (!btn || !headerRight) continue;
+        btn.classList.remove('sidebar-footer-btn');
+        btn.classList.add('header-settings-btn');
+        if (id !== 'header-app-fullscreen-btn') btn.classList.add('header-voice-mode-btn');
+        headerRight.insertBefore(btn, before);
+      }
+    }
     const appFullscreenBtn = document.getElementById('header-app-fullscreen-btn');
     if (appFullscreenBtn) {
       const isEmbedMode = typeof document !== 'undefined' && document.body?.classList.contains('embed-mode');
@@ -119,6 +132,7 @@ export function createHeaderChrome({ embedBridge }) {
       void getSharedSpaNavigation()?.navigate({ panel: getLastMainPanel() }, { explicit: true });
     };
     const settingsBtn = document.getElementById('header-settings-btn');
+    document.getElementById('header-settings-exit-btn')?.addEventListener('click', leaveSettings);
     document.getElementById('header-decisions-btn')?.addEventListener('click', () => {
       void (/** @type {any} */ (getSharedSpaNavigation()))?.navigate({ panel: 'decisions' }, { explicit: true });
     });
@@ -130,12 +144,8 @@ export function createHeaderChrome({ embedBridge }) {
           return;
         }
         resetChatFullscreenMode();
-        void getSharedSpaNavigation()?.navigate({ panel: 'settings' }, { explicit: true });
+        void getSharedSpaNavigation()?.navigate({ panel: 'settings', settingsTab: '' }, { explicit: true });
       });
-    }
-    const backBtn = document.getElementById('settings-back-btn');
-    if (backBtn) {
-      backBtn.addEventListener('click', leaveSettings);
     }
     initAccountLogout();
     initAppUpdateSettings();

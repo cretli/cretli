@@ -12,10 +12,12 @@ import { getHostPagePickLabel } from '../../../embed/widgetHostPagePick.js';
 import { t } from '../../../i18n/index.js';
 import '../../browser/browserConsentCard.js';
 import '../../apps/exposeConsentCard.js';
+import '../../devices/runConsentCard.js';
 import { createSdkRichView } from '../../../lib/sdk-rich-view.js';
 import { createSendBar } from '../../sendBar/index.js';
 import { clearPushPreview } from '../../pwa/pushInbox.js';
 import { createSendBarTodoChip } from '../../sendBar/sendBarTodoChip.js';
+import { createSendBarPromptSuggestion } from '../../sendBar/sendBarPromptSuggestion.js';
 import { resetViewAppliedState } from '../chatHistoryConvergence.js';
 import { getChatSendBarResizeObserver, scheduleChatSendBarReserveSync } from '../chatSendBarLayout.js';
 import { isChatDiagEnabled } from '../chatSettingsPrefs.js';
@@ -180,6 +182,10 @@ export function openTerminal(chat) {
   exposeConsent.setAttribute('chat-id', chat.id);
   exposeConsent.hidden = true;
   pane.appendChild(exposeConsent);
+  const runConsent = document.createElement('cr-device-run-consent');
+  runConsent.setAttribute('chat-id', chat.id);
+  runConsent.hidden = true;
+  pane.appendChild(runConsent);
   pane.appendChild(sendBar.root);
   // First idle focus of the composer; the throttle in checkChatResumeAdvice avoids repeats.
   pane.addEventListener('focusin', (event) => {
@@ -196,6 +202,14 @@ export function openTerminal(chat) {
       onLayoutChange: () => sendBar.syncContextStack?.(),
     });
     syncChatTodoChip(chat);
+  }
+  if (sendBar.promptSuggestionHost instanceof HTMLElement) {
+    chat._promptSuggestionChip = createSendBarPromptSuggestion({
+      host: sendBar.promptSuggestionHost,
+      input: sendBar.input,
+      focusInput: sendBar.focusInput,
+      onLayoutChange: () => sendBar.syncContextStack?.(),
+    });
   }
   if (getChatSendBarResizeObserver() && sendBar.root instanceof HTMLElement) {
     getChatSendBarResizeObserver().observe(sendBar.root);
@@ -222,26 +236,6 @@ export function openTerminal(chat) {
   }
   chatTabs.appendChild(pane);
   if (chat.id === chatRuntime.activeChatId) pane.classList.add('active');
-
-  /** @param {FocusEvent} event */
-  function scrollChatPaneIntoView(event) {
-    // Only text entry opens the on-screen keyboard. Focus moving to a card button
-    // (copy, details summary) must not start a smooth page scroll under the reader.
-    // composedPath()[0] reaches the real field inside a shadow-DOM input component.
-    const target = typeof event?.composedPath === 'function' ? event.composedPath()[0] : event?.target;
-    const editable = target instanceof HTMLElement
-      && (target.isContentEditable || /^(INPUT|TEXTAREA)$/.test(target.tagName));
-    if (!editable) return;
-    const scrollIntoView = () => {
-      viewportWrap.scrollIntoView({ behavior: 'smooth', block: 'end', inline: 'nearest' });
-    };
-    if (typeof window !== 'undefined' && /Mobi|Android/i.test(navigator.userAgent)) {
-      setTimeout(scrollIntoView, 150);
-    } else {
-      scrollIntoView();
-    }
-  }
-  pane.addEventListener('focusin', scrollChatPaneIntoView);
 
   chat._connectionStatus = resolvePaneOpenConnectionStatus(chat);
   if (chat.id === chatRuntime.activeChatId) setChatStatus(chat._connectionStatus);

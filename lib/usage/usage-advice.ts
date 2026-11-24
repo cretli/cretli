@@ -13,15 +13,14 @@ export const ADVICE_BURN_MIN_BLAMED = 2;
 export const ADVICE_RESUME_MIN_DELEGATIONS = 10;
 /** Share of delegations that must have a measured usage event, else the comparison is skipped. */
 export const ADVICE_RESUME_MIN_COVERAGE = 0.5;
-export const ADVICE_COVERAGE_MIN_SEEN = 20;
 export const ADVICE_RESUME_HURT_RATIO = 1.25;
 
 /**
- * @param {{ models?: Record<string, any>, leaves?: Record<string, any>, chats?: Record<string, any>, burn?: Record<string, any>, resume?: Record<string, any> }} input
+ * @param {{ models?: Record<string, any>, leaves?: Record<string, any>, chats?: Record<string, any>, burn?: Record<string, any>, resume?: Record<string, any>, coverage?: Record<string, any> }} input
  *   `models`/`leaves`/`chats` are `buildUsageTop` results for those axes.
  * @returns {Array<{ kind: string, severity: 'high'|'medium', subject: string, label?: string, evidence: Record<string, any>, suggestion: string }>}
  */
-export function buildUsageAdvice(input: Partial<{ models?: Record<string, any>, leaves?: Record<string, any>, chats?: Record<string, any>, burn?: Record<string, any>, resume?: Record<string, any> }> = {}) {
+export function buildUsageAdvice(input: Partial<{ models?: Record<string, any>, leaves?: Record<string, any>, chats?: Record<string, any>, burn?: Record<string, any>, resume?: Record<string, any>, coverage?: Record<string, any> }> = {}) {
   const findings = [];
   for (const row of input.models?.rows || []) {
     if (row.fresh < ADVICE_UNCACHED_MIN_FRESH || row.events < ADVICE_UNCACHED_MIN_EVENTS) continue;
@@ -67,37 +66,29 @@ export function buildUsageAdvice(input: Partial<{ models?: Record<string, any>, 
       suggestion: 'Repeatedly among the heaviest same-harness consumers right before usage limits were hit. Move it to another harness or schedule it outside the busy window.',
     });
   }
-  findings.push(...findCoverageGaps(input.resume?.rows || []));
+  findings.push(...findCoverageGaps(input.coverage?.rows || []));
   findings.push(...findResumeHurts(input.resume?.rows || []));
   return findings;
 }
 
 /**
- * Delegations that have run markers but no token measurement make every
- * per-delegation number for that harness and role an undercount.
+ * Harness x role pairs whose measured share of eligible attempts is below the
+ * coverage target. Fed by `buildUsageCoverage` (denominator = terminal attempts,
+ * not delegations seen in events), so an adapter that emits nothing is visible.
  *
- * @param {Record<string, any>[]} rows `resume` axis rows (`harness|role|resumed|fresh`)
+ * @param {Record<string, any>[]} rows `buildUsageCoverage` rows
  * @returns {Record<string, any>[]}
  */
 function findCoverageGaps(rows) {
-  const byPair = new Map();
-  for (const row of rows) {
-    const [harness, role, mode] = String(row.key).split('|');
-    if (!mode) continue;
-    const agg = byPair.get(`${harness}|${role}`) || { seen: 0, measured: 0 };
-    agg.seen += row.delegationsSeen;
-    agg.measured += row.delegations;
-    byPair.set(`${harness}|${role}`, agg);
-  }
   const out = [];
-  for (const [subject, agg] of byPair) {
-    if (agg.seen < ADVICE_COVERAGE_MIN_SEEN || agg.measured / agg.seen >= ADVICE_RESUME_MIN_COVERAGE) continue;
+  for (const row of rows) {
+    if (row.quality !== 'low_coverage') continue;
     out.push({
       kind: 'low_measurement_coverage',
       severity: 'high',
-      subject,
-      evidence: { delegationsSeen: agg.seen, delegationsMeasured: agg.measured, coverage: Number((agg.measured / agg.seen).toFixed(3)) },
-      suggestion: 'Most delegations of this harness and role have no token usage event, so its totals and per-delegation costs are undercounted. Fix usage capture for this adapter before drawing cost conclusions.',
+      subject: `${row.harness}|${row.role}`,
+      evidence: { attempts: row.attempts, eligible: row.eligible, measured: row.measured, coverage: row.coverage, missingReasons: row.missingReasons },
+      suggestion: 'Too few attempts of this harness and role have a measured usage run, so its totals and per-delegation costs are undercounted. Fix usage capture for this adapter before drawing cost conclusions.',
     });
   }
   return out;

@@ -1,4 +1,5 @@
 import { LitElement, css, html } from 'lit';
+import '../../components/ui/cr-bar-textarea.js';
 import { t } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { bindDecisionFlush, canSwipe, createDecisionQueue, decisionRequestInit, directionForPointer, formatDuration, formatPercent, groupDecisions, groupKeyOfCard, swipeOption } from './decisionLogic.js';
@@ -31,7 +32,8 @@ class CrDecisionStack extends LitElement {
     .evidence { overflow-wrap:anywhere; }
     .evidence img { max-width:100%; height:auto; border-radius:var(--cr-radius-sm); }
     .evidence pre { white-space:pre-wrap; font:inherit; }
-    textarea { width:100%; box-sizing:border-box; min-height:5rem; background:var(--cr-field-bg); color:var(--cr-text); border:1px solid var(--cr-field-border); border-radius:var(--cr-radius-sm); font:inherit; }
+    .journey-event { border-inline-start:2px solid var(--cr-border-strong); padding-inline-start:var(--cr-space-3); margin:var(--cr-space-2) 0; overflow-wrap:anywhere; }
+    cr-bar-textarea { display:block; }
   `;
   constructor() {
     super();
@@ -41,12 +43,15 @@ class CrDecisionStack extends LitElement {
     this.pending = new Map();
     this.expanded = new Set();
     this.queue = createDecisionQueue((entry, keepalive) => this.sendDecision(entry, keepalive));
+    this.lastAnsweredId = '';
     this.onLanguage = () => this.requestUpdate();
   }
   connectedCallback() {
     super.connectedCallback();
     this.unbindFlush = bindDecisionFlush(this.queue, window, document);
     window.addEventListener('cr-lang-changed', this.onLanguage);
+    try { this.lastAnsweredId = localStorage.getItem('cretli-last-answered-decision') || ''; } catch {}
+    if (this.lastAnsweredId) void this.loadAnsweredDecision(this.lastAnsweredId);
   }
   disconnectedCallback() {
     this.queue.flush();
@@ -55,6 +60,60 @@ class CrDecisionStack extends LitElement {
     super.disconnectedCallback();
   }
   setCards(cards) { this.cards = Array.isArray(cards) ? cards : []; }
+  draftKey(card) { return `cretli-decision-draft:${card.id}`; }
+  readDraft(card) { try { return localStorage.getItem(this.draftKey(card)) || ''; } catch { return ''; } }
+  saveDraft(card, value) {
+    try { value ? localStorage.setItem(this.draftKey(card), value) : localStorage.removeItem(this.draftKey(card)); } catch { /* Storage may be unavailable in private browsing. */ }
+  }
+  async loadJourney(card) {
+    this.journeyLoading = this.journeyLoading || new Set();
+    if (this.journeyLoading.has(card.id)) return;
+    this.journeyLoading.add(card.id);
+    const prior = this.journey?.[card.id] || { events: [], cursor: '' };
+    this.journey = { ...(this.journey || {}), [card.id]: { ...prior, loading: true, error: false } };
+    this.requestUpdate();
+    try {
+      const query = new URLSearchParams({ limit: '50' });
+      if (prior.cursor) query.set('cursor', prior.cursor);
+      const response = await cretliApiFetch(`/api/decisions/${encodeURIComponent(card.id)}/events?${query}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      this.journey = { ...this.journey, [card.id]: { loading: false, error: false, events: [...prior.events, ...(body.items || [])], cursor: body.nextCursor || '' } };
+    } catch { this.journey = { ...this.journey, [card.id]: { ...prior, loading: false, error: true } }; }
+    finally { this.journeyLoading.delete(card.id); this.requestUpdate(); }
+  }
+  async retryContinuation(card) {
+    this.retrying = new Set([...(this.retrying || []), card.id]);
+    try {
+      const response = await cretliApiFetch(`/api/decisions/${encodeURIComponent(card.id)}/continuation/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.notice = t('decisions.retrySent');
+      this.dispatchEvent(new CustomEvent('cr-decisions-refresh', { bubbles: true, composed: true }));
+    } catch { this.notice = t('decisions.retryError'); }
+    finally { const next = new Set(this.retrying); next.delete(card.id); this.retrying = next; }
+  }
+  async loadAnsweredDecision(id) {
+    try {
+      const response = await cretliApiFetch(`/api/decisions/${encodeURIComponent(id)}`, { cache: 'no-store' });
+      if (!response.ok) {
+        try { localStorage.removeItem('cretli-last-answered-decision'); } catch {}
+        this.lastAnsweredId = '';
+        return;
+      }
+      const body = await response.json();
+      this.lastAnswered = body.decision;
+      this.requestUpdate();
+    } catch { /* The pending decisions view remains usable if this read fails. */ }
+  }
+  async openRelatedDecision(id) {
+    try {
+      const response = await cretliApiFetch(`/api/decisions/${encodeURIComponent(id)}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      this.relatedDecision = body.decision;
+      this.detailId = body.decision.id;
+    } catch { this.notice = t('decisions.relatedUnavailable'); }
+  }
   /**
    * Opens the details of one card, expanding its group first, and scrolls to it.
    *
@@ -80,6 +139,7 @@ class CrDecisionStack extends LitElement {
   setInsights({ metrics, history } = {}) { this.metrics = metrics || null; this.history = Array.isArray(history) ? history : []; }
   openDetails(card) {
     this.detailId = card.id;
+    if (card.kind === 'needs_human') void this.loadJourney(card);
     this.opened = this.opened || new Map();
     if (!this.opened.has(card.id)) this.opened.set(card.id, Date.now());
   }
@@ -117,7 +177,12 @@ class CrDecisionStack extends LitElement {
         return;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      this.cards = this.cards.filter((item) => item.id !== card.id);
+      const body = await response.json();
+      this.cards = this.cards.map((item) => item.id === card.id ? { ...item, ...body.decision } : item);
+      this.lastAnsweredId = card.id;
+      this.lastAnswered = body.decision;
+      try { localStorage.setItem('cretli-last-answered-decision', card.id); } catch {}
+      this.saveDraft(card, '');
       this.notice = t('decisions.sent');
       this.dispatchEvent(new CustomEvent('cr-decisions-refresh', { bubbles: true, composed: true }));
     } catch {
@@ -135,7 +200,7 @@ class CrDecisionStack extends LitElement {
     if (event.key === 'Enter') { event.preventDefault(); this.openDetails(card); }
   }
   onPointerDown(event, card) {
-    if (event.target.closest('button, a, textarea')) return;
+    if (event.target.closest('button, a, textarea, cr-bar-textarea')) return;
     const onHandle = Boolean(canSwipe(card, this.autonomy) && event.target.closest('.gesture-handle'));
     this.pointerStart = { id: card.id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, onHandle };
     if (onHandle) event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -143,7 +208,7 @@ class CrDecisionStack extends LitElement {
   onPointerUp(event, card) {
     const start = this.pointerStart;
     this.pointerStart = null;
-    if (!start || start.id !== card.id || start.pointerId !== event.pointerId || event.target.closest('button, a, textarea')) return;
+    if (!start || start.id !== card.id || start.pointerId !== event.pointerId || event.target.closest('button, a, textarea, cr-bar-textarea')) return;
     const direction = directionForPointer(start, { x: event.clientX, y: event.clientY });
     if (direction === 'tap') { this.detailId = card.id; return; }
     if (!canSwipe(card, this.autonomy)) return;
@@ -166,6 +231,8 @@ class CrDecisionStack extends LitElement {
   }
   renderCard(card) {
     const queued = this.pending.has(card.id);
+    const journey = this.journey?.[card.id];
+    const continuation = card.continuationState;
     return html`<article class="card" data-card-id=${card.id} tabindex="0" aria-label=${card.title || ''}
       @keydown=${(event) => this.onKey(event, card)}
       @pointerdown=${(event) => this.onPointerDown(event, card)}
@@ -173,17 +240,29 @@ class CrDecisionStack extends LitElement {
       @pointercancel=${() => { this.pointerStart = null; }}>
       ${canSwipe(card, this.autonomy) ? html`<div class="gesture-handle">${t('decisions.swipeHint')}</div>` : ''}
       <h3>${card.title}</h3><p class="summary">${card.summary}</p>
+      ${card.projectName || card.todos?.length ? html`<p class="meta">${card.projectName || ''}${card.todos?.length ? ` · ${card.todos.map((todo) => todo.title || todo.id).join(', ')}` : ''}</p>` : ''}
+      ${card.kind === 'needs_human' && card.question ? html`<p>${card.question}</p>` : ''}
       ${card.why ? html`<p class="meta">${t('decisions.recommended')}: ${card.why}</p>` : ''}
       ${queued ? html`<div class="row"><span>${t('decisions.waiting')}</span><button @click=${() => this.undo(card.id)}>${t('decisions.undo')}</button></div>` : html`
         <div class="actions"><button @click=${() => { this.openDetails(card); }}>${t('decisions.details')}</button>
-        ${!canSwipe(card, this.autonomy) ? card.options.map((option) => html`<button class=${option.id === card.recommended ? 'primary' : ''} @click=${() => this.select(card, option.id)}>${option.label}</button>`) : ''}</div>`}
+        ${card.status === 'pending' && !canSwipe(card, this.autonomy) ? card.options.map((option) => html`<button class=${option.id === card.recommended ? 'primary' : ''} @click=${() => this.select(card, option.id)}>${option.label}${option.effect ? ` — ${option.effect}` : ''}</button>`) : ''}</div>`}
       ${this.detailId === card.id ? html`<section class="details"><h4>${t('decisions.details')}</h4>
         <p>${card.why || ''}</p>
+        <p class="meta">${t('decisions.source')}: ${card.origin?.kind || t('decisions.originUnknown')}</p>
+        ${card.relations?.supersedes?.length || card.relations?.supersededBy?.length ? html`<ul>${[...(card.relations.supersedes || []).map((id) => ({ id, label: t('decisions.previousVersion') })), ...(card.relations.supersededBy || []).map((id) => ({ id, label: t('decisions.nextVersion') }))].map((entry) => html`<li>${entry.label}: <button @click=${() => this.openRelatedDecision(entry.id)}>${entry.id}</button></li>`)}</ul>` : ''}
+        ${card.relations?.todoIds?.length ? html`<ul>${card.relations.todoIds.map((id) => { const todo = card.todos?.find((item) => item.id === id); return html`<li>${todo?.missing || !todo ? `${todo?.title || id} — ${t('decisions.unavailable')}` : html`<a href=${`/todo?todo=${encodeURIComponent(id)}`}>${todo.title || id}</a>`}</li>`; })}</ul>` : ''}
+        ${card.relations?.refs?.length ? html`<ul>${card.relations.refs.map((ref) => html`<li>${ref.missing ? `${ref.type}: ${t('decisions.unavailable')}` : ref.type === 'chat' ? html`<a href=${`/chat?chat=${encodeURIComponent(ref.id)}`}>${t('decisions.reference', { type: ref.type, id: ref.id })}</a>` : ref.type === 'todo' ? html`<a href=${`/todo?todo=${encodeURIComponent(ref.id)}`}>${t('decisions.reference', { type: ref.type, id: ref.id })}</a>` : t('decisions.reference', { type: ref.type, id: ref.id })}</li>`)}</ul>` : ''}
+        ${continuation ? html`<div role="status"><strong>${t('decisions.continuation')}</strong><p>${t(`decisions.continuationStatus.${continuation.status}`)}${continuation.waitingFor ? ` · ${continuation.waitingFor}` : ''}${continuation.error ? ` · ${continuation.error}` : ''}</p>${continuation.retryable ? html`<button ?disabled=${this.retrying?.has(card.id)} @click=${() => this.retryContinuation(card)}>${t('decisions.retry')}</button>` : ''}</div>` : ''}
+        <h4>${t('decisions.journey')}</h4>
+        ${journey?.events?.map((event) => html`<div class="journey-event"><strong>${t(`decisions.event.${event.type}`)}</strong><span class="meta"> · ${event.at || ''}</span><p>${event.snapshot?.title || event.snapshot?.answer?.text || event.snapshot?.continuation?.status || ''}</p>${event.snapshot?.relations?.supersedes?.map((id) => html`<button @click=${() => this.openRelatedDecision(id)}>${t('decisions.supersedes', { id })}</button>`)}${event.snapshot?.chatId ? html`<a href=${`/chat?chat=${encodeURIComponent(event.snapshot.chatId)}`}>${t('decisions.openChat')}</a>` : ''}${event.snapshot?.todoId ? html`<a href=${`/todo?todo=${encodeURIComponent(event.snapshot.todoId)}`}>${t('decisions.openTask')}</a>` : ''}</div>`)}
+        ${journey?.loading ? html`<p class="meta">${t('decisions.loadingHistory')}</p>` : ''}${journey?.error ? html`<p class="error" role="alert">${t('decisions.historyError')} <button @click=${() => this.loadJourney(card)}>${t('decisions.retry')}</button></p>` : ''}
+        ${journey?.cursor ? html`<button @click=${() => this.loadJourney(card)}>${t('decisions.moreHistory')}</button>` : ''}
+        ${!journey ? html`<button @click=${() => this.loadJourney(card)}>${t('decisions.loadHistory')}</button>` : ''}
         ${card.subject?.chatId ? html`<p><a href=${`/chat?chat=${encodeURIComponent(card.subject.chatId)}`}>${t('decisions.openChat')}</a></p>` : ''}
         ${(card.evidence || []).map((item) => this.evidence(item))}
-        <div class="actions">${card.options.map((option) => html`<button @click=${() => this.select(card, option.id)}>${option.label}: ${option.effect}</button>`)}</div>
-        ${card.otherOption !== null ? html`<label>${t('decisions.other')}<textarea id=${`other-${card.id}`}></textarea></label>
-        <button @click=${() => { const input = /** @type {HTMLTextAreaElement | null} */ (this.renderRoot.querySelector(`#other-${card.id}`)); const reason = input?.value?.trim(); if (reason) this.select(card, '__other__', reason); }}>${t('decisions.sendOther')}</button>` : ''}
+        ${card.status === 'pending' ? html`<div class="actions">${card.options.map((option) => html`<button @click=${() => this.select(card, option.id)}>${option.label}: ${option.effect}</button>`)}</div>` : ''}
+        ${card.status === 'pending' && card.otherOption !== null ? html`<label>${t('decisions.other')}<cr-bar-textarea id=${`other-${card.id}`} aria-label=${t('decisions.other')} .value=${this.readDraft(card)} @input=${(event) => this.saveDraft(card, event.target.value)}></cr-bar-textarea></label>
+        <button @click=${() => { const input = /** @type {import('../../components/ui/cr-bar-textarea.js').CrBarTextarea | null} */ (this.renderRoot.querySelector(`#other-${card.id}`)); const reason = input?.value?.trim(); if (reason) this.select(card, '__other__', reason); }}>${t('decisions.sendOther')}</button>` : ''}
         <button @click=${() => { this.detailId = ''; }}>${t('decisions.close')}</button>
       </section>` : ''}
     </article>`;
@@ -214,6 +293,8 @@ class CrDecisionStack extends LitElement {
           aria-expanded=${this.expanded.has(group.key)}>${t('decisions.integrationGroup', { count: group.cards.length, tree: group.treeId })}</button>
           ${this.expanded.has(group.key) ? group.cards.map((card) => this.renderCard(card)) : this.renderCard(group.cards[0])}</section>` : this.renderCard(group.cards[0]))
         : html`<p class="empty">${t('decisions.empty')}</p>`}
+      ${this.lastAnswered ? html`<p class="meta" role="status">${t('decisions.answerRecorded')}: ${this.lastAnswered.response?.option || this.lastAnswered.response?.optionId || ''}${this.lastAnswered.response?.text ? ` · ${this.lastAnswered.response.text}` : ''} · ${t('decisions.continuation')}: ${this.lastAnswered.continuationState?.status ? t(`decisions.continuationStatus.${this.lastAnswered.continuationState.status}`) : t('decisions.taskNotCompleted')}</p>${this.renderCard(this.lastAnswered)}` : ''}
+      ${this.relatedDecision ? this.renderCard(this.relatedDecision) : ''}
       ${this.renderMetrics()}${this.renderHistory()}
     </div>`;
   }

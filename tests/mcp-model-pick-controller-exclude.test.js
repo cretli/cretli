@@ -2,7 +2,7 @@ import './helpers/isolated-data-dir.js';
 import { ISOLATED_DATA_DIR } from './helpers/isolated-data-dir.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { CATALOG_MCP_TOOLS } from '../lib/mcp/builtin/catalog-tools.js';
 import { setBuiltinMcpRuntimeDeps } from '../lib/mcp/builtin/runtime-deps.js';
 

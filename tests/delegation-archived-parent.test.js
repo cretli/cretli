@@ -2,7 +2,7 @@ import './helpers/isolated-data-dir.js';
 import './fixtures/fake-transport.js';
 import assert from 'node:assert/strict';
 import { ISOLATED_DATA_DIR, removeIsolatedDataDir } from './helpers/isolated-data-dir.js';
-import { addChat, loadChats, updateChat } from '../lib/persist/chats-persist.js';
+import { addChat, loadChats, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { createDelegationService } from '../lib/delegation-service.js';
 import { createDelegationRecord, getDelegationById, listDelegationsForController, updateDelegationRecord } from '../lib/persist/delegations-persist.js';
 import { registerMockChatRunAdapter } from '../lib/chat-run/mock-adapter.ts';

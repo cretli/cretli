@@ -196,11 +196,7 @@ export function installStreamOrder(rv) {
    */
   function captureInsertScroll(later) {
     if (!(later instanceof HTMLElement) || !(mountEl instanceof HTMLElement)) return;
-    rv.noteForcedGeometryRead('getBoundingClientRect');
-    rv.pendingViewportAnchor = {
-      el: later,
-      top: later.getBoundingClientRect().top,
-    };
+    rv.pendingViewportAnchor = rv.viewportController.captureAnchor();
     rv.preserveViewportAnchor = true;
   }
 
@@ -218,14 +214,7 @@ export function installStreamOrder(rv) {
   }
 
   function restoreInsertScroll() {
-    const anchor = rv.pendingViewportAnchor;
-    if (!anchor?.el?.isConnected || !(mountEl instanceof HTMLElement)) return;
-    rv.noteForcedGeometryRead('getBoundingClientRect');
-    const delta = anchor.el.getBoundingClientRect().top - anchor.top;
-    if (Math.abs(delta) < 0.5) return;
-    mountEl.scrollTop += delta;
-    rv.noteForcedGeometryRead('getBoundingClientRect');
-    anchor.top = anchor.el.getBoundingClientRect().top;
+    rv.viewportController.restoreAnchor(rv.pendingViewportAnchor);
   }
 
   /**

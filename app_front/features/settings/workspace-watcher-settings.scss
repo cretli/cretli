@@ -79,7 +79,8 @@
   white-space: nowrap;
 }
 
-.watcher-form textarea {
+.watcher-form textarea,
+.watcher-form cr-bar-textarea {
   min-height: 3.5rem;
   resize: vertical;
   font-family: var(--cr-font-mono, monospace);

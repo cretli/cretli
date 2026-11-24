@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { registerMcpRoutes } from '../lib/routes/mcp-routes.js';
 import { registerTodosRoutes } from '../lib/routes/todos-routes.js';
 import { mintMcpIntegrationToken } from '../lib/mcp/mcp-integration-token.js';

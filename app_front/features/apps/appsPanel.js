@@ -3,6 +3,7 @@ import { t } from '../../i18n/index.js';
 import { cretliApiFetch } from '../../lib/cretliApiRequest.js';
 import { navigateSpa } from '../../app/appShell/spaNavigationBridge.js';
 import { readCurrentWorkspaceScope } from '../tasks/state/workspaceScope.js';
+import { takeoverAncestors, takeoverPids } from './takeoverPids.js';
 import '../../components/ui/index.js';
 import './apps-panel.scss';
 
@@ -188,7 +189,7 @@ async function submitSuggestion(s) {
 function takeOver(d) {
   state.dialog = null;
   return runAction(`takeover:${d.app.id}`, async () => {
-    await post(scoped(`/api/apps/${encodeURIComponent(d.app.id)}/takeover`), { pids: d.conflicts.map((p) => p.listener.pid) });
+    await post(scoped(`/api/apps/${encodeURIComponent(d.app.id)}/takeover`), { pids: takeoverPids(d.conflicts) });
     for (const ms of AFTER_START_REFRESH_MS) setTimeout(() => { void load({ refresh: true }); }, ms);
   });
 }
@@ -435,6 +436,8 @@ function dialog() {
     return html`<cr-dialog open .heading=${t('apps.takeoverTitle')} @cr-dialog-close=${closeDialog}>
       <p class="cr-hint">${t('apps.takeoverHint', { name: d.app.name })}</p>
       ${d.conflicts.map((p) => html`<code class="apps-dialog-command">:${p.port} · PID ${p.listener.pid} · ${p.listener.command || '?'}</code>`)}
+      ${takeoverAncestors(d.conflicts).length ? html`<p class="cr-hint">${t('apps.takeoverAncestorsHint')}</p>
+        ${takeoverAncestors(d.conflicts).map((a) => html`<code class="apps-dialog-command">PID ${a.pid} · ${a.command || '?'}</code>`)}` : nothing}
       <div slot="actions">
         <cr-bar-button @click=${closeDialog}>${t('apps.cancel')}</cr-bar-button>
         <cr-bar-button variant="primary" @click=${() => takeOver(d)}>${t('apps.takeover')}</cr-bar-button>

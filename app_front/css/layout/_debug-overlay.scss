@@ -14,7 +14,7 @@
   border-top: 2px solid var(--cr-color-569cd6);
   box-shadow: 0 -6px 28px var(--cr-color-rgba-0-0-0-0-55);
   font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
-  font-size: 11px;
+  font-size: var(--cr-font-size-legacy-11px);
   line-height: 1.35;
   color: var(--cr-color-d4d4d4);
   pointer-events: auto;
@@ -47,7 +47,7 @@
 
 .cr-debug-overlay-btn {
   padding: 0.2rem 0.45rem;
-  font-size: 11px;
+  font-size: var(--cr-font-size-legacy-11px);
   background: transparent;
   color: var(--cr-color-858585);
   border: 1px solid var(--cr-color-555);

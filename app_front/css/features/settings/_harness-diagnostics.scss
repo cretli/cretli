@@ -74,7 +74,7 @@
 .chat-context-breakdown-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
 
   th, td {
     padding: var(--cr-space-1) var(--cr-space-2);
@@ -115,19 +115,19 @@
 
 #chat-context-details-breakdown {
   margin-top: var(--cr-space-3);
-  h3 { margin: 0 0 var(--cr-space-2); font-size: 1rem; }
+  h3 { margin: 0 0 var(--cr-space-2); font-size: var(--cr-font-size-lg); }
 }
 
 .chat-context-breakdown-note {
   margin: 0 0 var(--cr-space-3);
   color: var(--cr-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--cr-font-size-legacy-078);
   line-height: 1.45;
 }
 
 .chat-context-measurement-details {
   margin-top: var(--cr-space-3);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   summary { color: var(--cr-text-muted); cursor: pointer; padding: var(--cr-space-1) 0; }
   &[open] > summary { margin-bottom: var(--cr-space-2); }
 }
@@ -139,7 +139,7 @@
     max-height: calc(100dvh - 1rem - var(--cr-keyboard-offset, 0px));
   }
   .chat-context-breakdown-table {
-    font-size: 0.8rem;
+    font-size: var(--cr-font-size-sm);
     th, td { padding: var(--cr-space-2) var(--cr-space-1); }
     td { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .chat-context-breakdown-blocks { display: none; }
@@ -149,7 +149,7 @@
 
 #chat-context-details-plan-limits {
   margin-top: var(--cr-space-3);
-  h3 { margin: 0 0 var(--cr-space-2); font-size: 1rem; }
+  h3 { margin: 0 0 var(--cr-space-2); font-size: var(--cr-font-size-lg); }
 }
 
 .chat-context-quota-grid {
@@ -162,7 +162,7 @@
   padding: var(--cr-space-2);
   border: 1px solid var(--cr-border);
   border-radius: var(--cr-radius-sm);
-  p { margin: var(--cr-space-1) 0 0; font-size: 0.75rem; }
+  p { margin: var(--cr-space-1) 0 0; font-size: var(--cr-font-size-legacy-075); }
 }
 
 .chat-context-quota-pace {
@@ -196,7 +196,7 @@
   flex-wrap: wrap;
   gap: var(--cr-space-1);
   margin-bottom: var(--cr-space-2);
-  font-size: 0.8rem;
+  font-size: var(--cr-font-size-sm);
   strong { font-variant-numeric: tabular-nums; }
 }
 
@@ -207,7 +207,7 @@
 
 #chat-context-details-cache {
   margin-top: var(--cr-space-3);
-  h3 { margin: 0 0 var(--cr-space-2); font-size: 1rem; }
+  h3 { margin: 0 0 var(--cr-space-2); font-size: var(--cr-font-size-lg); }
   progress { width: 100%; height: 0.4rem; accent-color: var(--cr-accent); }
   .settings-hint { margin: var(--cr-space-1) 0 var(--cr-space-2); }
 }
@@ -216,7 +216,7 @@
   display: flex;
   justify-content: space-between;
   gap: var(--cr-space-2);
-  font-size: 0.85rem;
+  font-size: var(--cr-font-size-md);
   font-variant-numeric: tabular-nums;
 }
 
@@ -232,7 +232,7 @@
   color: var(--cr-text-muted);
   border: 1px solid var(--cr-border-strong);
   border-radius: var(--cr-radius-sm);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   cursor: pointer;
 
   &[aria-pressed='true'] {
@@ -253,7 +253,7 @@
   background: var(--cr-surface);
   border: 1px solid var(--cr-border-strong);
   border-radius: var(--cr-radius-sm);
-  font-size: 0.75rem;
+  font-size: var(--cr-font-size-legacy-075);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
   white-space: nowrap;
@@ -292,7 +292,7 @@ $context-layer-hues: (systemPrompt: 210, systemTools: 195, mcpTools: 180, mcpIns
 .chat-context-series-grid { stroke: var(--cr-border-strong); stroke-width: 0.5; opacity: 0.5; }
 .chat-context-series-window { stroke: var(--cr-text-muted); stroke-width: 1; stroke-dasharray: 1 3; }
 .chat-context-series-cursor { stroke: var(--cr-text-muted); stroke-width: 1; }
-.chat-context-series-axis { fill: var(--cr-text-muted); stroke: none; font-size: 7px; }
+.chat-context-series-axis { fill: var(--cr-text-muted); stroke: none; font-size: var(--cr-font-size-legacy-7px); }
 .chat-context-series-compaction-key { background: var(--cr-warn); margin-left: var(--cr-space-2); }
 .chat-context-series-break-key { background: var(--cr-error); margin-left: var(--cr-space-2); }
 
@@ -338,7 +338,7 @@ $context-layer-hues: (systemPrompt: 210, systemTools: 195, mcpTools: 180, mcpIns
 
 .chat-context-countdown {
   font-variant-numeric: tabular-nums;
-  font-size: 1.75rem;
+  font-size: var(--cr-font-size-legacy-175);
   line-height: 1.1;
   color: var(--countdown-color, inherit);
 }

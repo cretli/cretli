@@ -20,7 +20,7 @@ import {
 const CHATS = 50_000;
 const SAMPLES = 20;
 const WRITE = process.env.CRETLI_PERF_BASELINE_WRITE === '1';
-const { saveChats, updateChat } = await import('../lib/persist/chats-persist.js');
+const { saveChats, updateChat } = await import('../lib/persist/chats-legacy-store.js');
 const { readChatCatalog } = await import('../lib/chat-catalog.js');
 
 function buildChats(count, rand) {

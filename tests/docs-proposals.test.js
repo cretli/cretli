@@ -298,3 +298,23 @@ test('R1A1-R1: concurrent chats share the workspace byte budget; listing and hum
   await submit(100);
   assert.equal((await call('/api/docs/proposals?workspaceUuid=ws', undefined, human, 'GET')).status, 200);
 });
+
+test('agent proposal responses never expose the absolute workspace folder', async () => {
+  const { CretliApiClient } = await import('../lib/remote-api-client.js');
+  const { createInProcessMcpClient } = await import('../lib/mcp/mcp-inprocess-client.js');
+  const { DOC_MCP_TOOLS, DOC_PROPOSAL_MCP_TOOLS } = await import('../lib/mcp/builtin/doc-tools.js');
+  assert.ok(DOC_MCP_TOOLS.length && DOC_PROPOSAL_MCP_TOOLS.length);
+  const remote = new CretliApiClient({ baseUrl: base, bearerToken: bearer.authorization.slice(7) });
+  const local = createInProcessMcpClient({ dataDir: () => dataDir });
+  const seen = [
+    (await propose('write', { path: 'leak-rest.md', text: '# REST leak check' })).body,
+    await remote.docRequest({ op: 'propose_write', args: { path: 'leak-stdio.md', text: '# stdio leak check' } }),
+    await local.docRequest({ op: 'propose_write', scope: { workspaceId: 'ws' }, chatId: 'leak-chat', args: { path: 'leak-local.md', text: '# local leak check' } }),
+  ];
+  for (const body of seen) {
+    assert.ok(body.decision.id && body.decision.revision);
+    assert.equal(Object.hasOwn(body.decision, 'workspaceFolder'), false);
+    assert.equal(JSON.stringify(body).includes(home), false, 'absolute workspace path leaked');
+  }
+  assert.equal((await call('/api/docs/proposals?workspaceUuid=ws', undefined, bearer, 'GET')).status, 403);
+});

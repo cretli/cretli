@@ -19,7 +19,7 @@ import {
 let wired = false;
 let isSaving = false;
 let loadSeq = 0;
-/** @type {object|null} */
+/** @type {Record<string, any>|null} */
 let currentPayload = null;
 
 /**

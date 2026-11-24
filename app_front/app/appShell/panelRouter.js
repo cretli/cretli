@@ -9,6 +9,7 @@ import { resolveBootRouteIntent } from './viewRouteStorage.js';
 import { t } from '../../i18n/index.js';
 import { probeSync } from '../../lib/perfProbe.js';
 import { scheduleChatSendBarReserveSync } from '../../features/chat/chatSendBarLayout.js';
+import { initTabIndicator } from './tabIndicator.js';
 
 const LAST_PANEL_STORAGE_KEY = 'cretli-last-panel';
 const SETTINGS_TAB_STORAGE_KEY = 'cretli-settings-tab';
@@ -137,6 +138,7 @@ export function createPanelRouter(deps = {}) {
     refreshTodoList = () => {},
     refreshInstancesPanel = () => {},
     refreshAppsPanel = () => {},
+    refreshDevicesPanel = () => {},
     refreshBrowserPanel = () => {},
     onShowSettings = () => {},
     onMainTabSelect = null,
@@ -310,12 +312,20 @@ export function createPanelRouter(deps = {}) {
       runPanelReady('apps', () => refreshAppsPanel());
     }
 
+    if (panelId === 'devices') {
+      runPanelReady('devices', () => refreshDevicesPanel());
+    }
+
     if (panelId === 'logs') {
       refreshLogsPanelDom();
     }
 
     if (panelId === 'instances') {
       runPanelReady('instances', () => refreshInstancesPanel());
+    }
+
+    if (panelId === 'fleet') {
+      runPanelReady('fleet', () => {});
     }
 
     if (panelId === 'browser') {
@@ -403,6 +413,7 @@ export function createPanelRouter(deps = {}) {
         showPanel(targetPanelId, modeConfig);
       });
     });
+    initTabIndicator();
   }
 
   return {

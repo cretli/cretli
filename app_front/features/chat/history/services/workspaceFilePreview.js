@@ -7,8 +7,10 @@ import { preloadMarkdown, renderMarkdownHtml } from '../../../../lib/render-mark
 import { bindWorkspaceFileLinks } from './workspaceFileLinks.js';
 
 /** A chat-scoped preview never changes the global Files panel workspace. */
+/** @param {string} chatId @param {string} path */
 export async function openWorkspaceFilePreview(chatId, path) {
-  const dialog = document.createElement('cr-dialog');
+  /** @type {HTMLElement & { heading: string, closable: boolean, closeLabel: string, show: () => void }} */
+  const dialog = /** @type {any} */ (document.createElement('cr-dialog'));
   dialog.heading = path;
   dialog.closable = true;
   dialog.closeLabel = t('common.close');
@@ -33,7 +35,7 @@ export async function openWorkspaceFilePreview(chatId, path) {
       if (!dialog.isConnected) return;
       if (!allowOutsideWorkspace && data.code === 'files.outsideWorkspace') {
         content.textContent = t('files.externalPreviewHint');
-        const button = document.createElement('cr-bar-button');
+        const button = /** @type {HTMLElement & { variant?: string }} */ (/** @type {unknown} */ (document.createElement('cr-bar-button')));
         button.slot = 'actions';
         button.variant = 'primary';
         button.textContent = t('files.openExternalPreview');

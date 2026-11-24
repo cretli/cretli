@@ -15,6 +15,7 @@ import { AUTO_TITLE_TIMEOUT_MS } from '../chatTitleFork.js';
 import { withDocReadHint } from '../../../../lib/docs/doc-ref.js';
 import { appendTodoRef } from '../todoMention.js';
 import { isWatcherPinnedChat } from '../watcherPinnedChat.js';
+import { handleOperatorOwnerSend, isOperatorChat } from '../operatorChat.js';
 import { handleWatcherPinnedCommandSend, readTodoContinueBlock, sendTextToAgent } from './chatComposer.js';
 import { debugAutoTitle } from './chatDebugLogs.js';
 import { hideChatResumeAdvice } from './chatResumeAdvice.js';
@@ -58,6 +59,12 @@ export function createChatSendHandlers(chat) {
     if (!trimmed && !hasPageSelection && !hasAttachments && !draftTodoId) {
       if (textareaMode) return false;
       sendKeyToAgent('\r');
+      return true;
+    }
+    if (isOperatorChat(chat)) {
+      // The operator thread is a view: the owner message goes to the human-only route, never to an agent run.
+      void handleOperatorOwnerSend(chat, trimmed || rawText);
+      chatHost.writeChatDraft(chat.id, '');
       return true;
     }
     if (isWatcherPinnedChat(chat)) {

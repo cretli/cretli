@@ -92,7 +92,7 @@ function openUsage() {
 }
 
 /**
- * @param {object} report
+ * @param {Record<string, any>} report
  * @returns {void}
  */
 function render(report) {

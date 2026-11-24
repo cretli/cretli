@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { createChatViaApi, cretliCsrfHeaders, deleteChatViaApi, ensureMockNewChatEnvironment } from './chat-e2e-helpers.js';
+import { clickSidebarFooterButton, createChatViaApi, cretliCsrfHeaders, deleteChatViaApi, ensureMockNewChatEnvironment } from './chat-e2e-helpers.js';
 
 /**
  * Car mode at phone width (375x812): choose a decision card with big buttons (two steps), stop,
@@ -60,7 +60,7 @@ test('car mode: pick, confirm, stop, listening keeps controls free, type instead
   const chat = await createChatViaApi(page.request, { title: 'Car stop chat', transport: 'opencode', model: 'opencode/mock-model', workspaceFolder: process.cwd() });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureMockNewChatEnvironment(page);
-  await page.locator('#header-car-mode-btn').click();
+  await clickSidebarFooterButton(page, '#header-car-mode-btn');
   const view = page.getByTestId('car-view');
   await expect(view).toBeVisible();
   await expect(page.getByTestId('car-card')).toContainText('Which database?');
@@ -111,9 +111,9 @@ test('car mode: header dictation is moved into the view without covering Stop', 
   });
   await page.route('**/api/decisions**', (route) => route.fulfill({ json: { ok: true, revision: 1, items: [], autonomy: null } }));
   await ensureMockNewChatEnvironment(page);
-  await page.locator('#header-voice-mode-btn').click();
+  await clickSidebarFooterButton(page, '#header-voice-mode-btn');
   await expect(page.locator('.cr-voice-listen')).toHaveCount(1);
-  await page.locator('#header-car-mode-btn').click();
+  await clickSidebarFooterButton(page, '#header-car-mode-btn');
   await expect(page.getByTestId('car-view')).toBeVisible();
   await expect(page.locator('.cr-voice-listen')).toHaveCount(1);
   const stop = await page.getByTestId('car-stop').boundingBox();
@@ -129,7 +129,7 @@ test('car mode: no speech recognition shows the large message and an inline type
   });
   await page.route('**/api/decisions**', (route) => route.fulfill({ json: { ok: true, revision: 1, items: [], autonomy: null } }));
   await ensureMockNewChatEnvironment(page);
-  await page.locator('#header-car-mode-btn').click();
+  await clickSidebarFooterButton(page, '#header-car-mode-btn');
   await page.getByTestId('car-mic').click();
   await expect(page.getByTestId('voice-listen-error')).toBeVisible();
   await expectBigControls(page);
@@ -158,7 +158,7 @@ test('car mode agents screen: two workspaces, switch by tap and by drag with act
   const chatB = await createChatViaApi(page.request, { title: `Car agent beta ${tag}`, transport: 'opencode', model: 'opencode/mock-model', workspaceFolder: otherDir });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureMockNewChatEnvironment(page);
-  await page.locator('#header-car-mode-btn').click();
+  await clickSidebarFooterButton(page, '#header-car-mode-btn');
   await page.getByTestId('car-agents-toggle').click();
   await expect(page.getByTestId('car-agents')).toBeVisible();
   await expectBigControls(page);

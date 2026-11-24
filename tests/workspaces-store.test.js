@@ -58,9 +58,11 @@ test('schema: workspace migrations apply once on a fresh database', () => {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON');
   const first = applyMigrations(db, { migrations: WORKSPACE_MIGRATIONS });
-  assert.deepEqual(first.applied, [1]);
+  assert.deepEqual(first.applied, [1, 2]);
   assert.deepEqual(applyMigrations(db, { migrations: WORKSPACE_MIGRATIONS }).applied, []);
   const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
+  const columns = db.prepare('PRAGMA table_info(workspaces)').all().map((r) => r.name);
+  assert.ok(columns.includes('sidebar_color') && columns.includes('sidebar_icon'), 'appearance columns');
   for (const name of ['workspaces', 'workspace_aliases', 'workspace_folders', 'workspace_overlays', 'workspace_route_keys']) {
     assert.ok(tables.includes(name), name);
   }
@@ -341,4 +343,20 @@ test('an explicit empty value clears only that section', () => {
   saveSettings({ workspaces: [] });
   after = loadSettings();
   assert.equal(after.workspaces, undefined);
+});
+
+test('sidebar colour and icon survive a save / load round trip and can be cleared', () => {
+  reset();
+  const base = { workspaces: [{ id: FOLDER_WS, kind: 'folders', label: 'Direct' }] };
+  saveSettings({ ...base, workspaceSidebarConfig: { [FOLDER_WS]: { color: 'teal', icon: '🌊', label: 'Sea' } } });
+  closeAllWorkspacesStores();
+  const loaded = loadSettings();
+  assert.equal(loaded.workspaceSidebarConfig[FOLDER_WS].color, 'teal');
+  assert.equal(loaded.workspaceSidebarConfig[FOLDER_WS].icon, '🌊');
+  assert.equal(loaded.workspaceSidebarConfig[FOLDER_WS].label, 'Sea');
+  saveSettings({ ...base, workspaceSidebarConfig: { [FOLDER_WS]: { label: 'Sea' } } });
+  closeAllWorkspacesStores();
+  const cleared = loadSettings().workspaceSidebarConfig[FOLDER_WS];
+  assert.equal(cleared.color, undefined);
+  assert.equal(cleared.icon, undefined);
 });

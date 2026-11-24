@@ -1,11 +1,23 @@
 import type { IncomingMessage } from 'node:http';
 import { readEnvAlias } from '../env-alias.js';
 import {
+  isChromeExtPath,
   isPageBridgePath,
   isWidgetChatPath,
 } from './ws-path.ts';
 
 const WIDGET_PROTOCOLS = new Set(['cretli-widget', 'cursor-remote-widget']);
+const CHROME_EXT_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
+
+/** Checks the exact origin format emitted by a Chrome extension. */
+export function isChromeExtensionOrigin(origin: string): boolean {
+  return typeof origin === 'string' && CHROME_EXT_ORIGIN.test(origin.trim());
+}
+
+/** Extracts a validated Chrome extension id from its origin. */
+export function chromeExtensionIdFromOrigin(origin: string): string {
+  return isChromeExtensionOrigin(origin) ? origin.trim().slice('chrome-extension://'.length) : '';
+}
 
 export function parseExtraWsOrigins(value: string): string[] {
   return String(value || '')
@@ -143,6 +155,8 @@ export function isWsOriginAllowed(req: IncomingMessage, urlPath: string, options
   const origin = String(req?.headers?.origin || '').trim();
   const protocols = parseWebSocketProtocols(req);
   const widgetProtocol = hasWidgetProtocol(protocols);
+  // Extension ids are validated here; pairing later binds the id to an install.
+  if (isChromeExtPath(urlPath)) return !widgetProtocol && isChromeExtensionOrigin(origin);
   if (widgetProtocol && !isWidgetChatPath(urlPath)) return false;
   if (isPageBridgePath(urlPath)) return isValidOriginHeader(origin);
   if (isWidgetChatPath(urlPath) && widgetProtocol) return isValidOriginHeader(origin);

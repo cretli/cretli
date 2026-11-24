@@ -16,7 +16,7 @@ import { MCP_PLAN_MODE_OPEN_TOOLS } from '../lib/mcp/mcp-tool-names.js';
 import { isValidSdkHistoryRecord } from '../lib/persist/chat-history-validate.js';
 import { subscribeChatHistoryUpdates } from '../lib/sdk/sdk-history-updates.ts';
 import { toSpeakableText } from '../lib/voice/speakable-text.js';
-import { addChat } from '../lib/persist/chats-persist.js';
+import { addChat } from '../lib/persist/chats-legacy-store.js';
 import { loadChatHistory } from '../lib/persist/chat-history-service.js';
 import { isServerAuthoredHistoryMeta } from '../app_front/features/chat/sdkEventReplayGuard.js';
 import { toSpeakableText as frontToSpeakableText } from '../app_front/features/voice/speakableText.js';

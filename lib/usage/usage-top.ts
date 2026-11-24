@@ -10,8 +10,10 @@
 import { sumUsageCost, sumUsageTokenBuckets } from './usage-insights.ts';
 import { buildDelegationJoinIndex, joinTodoUsageEvents } from './todo-usage.ts';
 import { formatZoneDay } from './usage-window.ts';
+import { buildDelegationRoleIndex, resolveEffectiveUsageRole } from './usage-role.ts';
+import { listAttemptLifecycleOutcomes } from './usage-lifecycle-outcome.ts';
 
-export const USAGE_TOP_GROUPS = Object.freeze(['chat', 'delegation', 'leaf', 'model', 'harness', 'role', 'cycle', 'day', 'resume']);
+export const USAGE_TOP_GROUPS = Object.freeze(['chat', 'delegation', 'leaf', 'model', 'harness', 'role', 'cycle', 'day', 'resume', 'outcome']);
 export const USAGE_TOP_METRICS = Object.freeze(['fresh', 'total', 'output', 'weighted', 'cacheRead', 'usd', 'events', 'limitHits']);
 export const USAGE_EXPLAIN_SUBJECTS = Object.freeze(['chat', 'delegation', 'leaf', 'cycle']);
 /** Relative price of a cache read vs a fresh token; used only for the `weighted` comparison metric. */
@@ -50,14 +52,15 @@ function modelKey(event) {
  * @param {string} tz
  * @returns {(event: Record<string, any>) => string}
  */
-function groupKeyFn(groupBy, tz) {
+function groupKeyFn(groupBy, tz, roleIndex?, outcomeIndex?) {
   switch (groupBy) {
     case 'chat': return (e) => text(e.chatId) || USAGE_TOP_UNATTRIBUTED;
     case 'delegation': return (e) => text(e.delegationId) || USAGE_TOP_UNATTRIBUTED;
     case 'cycle': return (e) => text(e.cycleId) || USAGE_TOP_UNATTRIBUTED;
     case 'model': return modelKey;
+    case 'outcome': return (e) => outcomeIndex?.get(`${text(e.delegationId)}|${text(e.attemptId)}`) || USAGE_TOP_UNATTRIBUTED;
     case 'harness': return (e) => text(e.harness) || 'other';
-    case 'role': return (e) => text(e.role) || '-';
+    case 'role': return (e) => resolveEffectiveUsageRole(e, roleIndex) || '-';
     case 'day': return (e) => {
       const ms = Date.parse(text(e.at));
       return Number.isFinite(ms) ? formatZoneDay(ms, tz) : 'unknown';
@@ -202,7 +205,7 @@ function groupByKey(events, keyOf) {
  * @param {Record<string, any>[]} delegations
  * @returns {Map<string, Record<string, any>[]>}
  */
-function groupByResume(events, delegations) {
+function groupByResume(events, delegations, roleIndex?) {
   const resumedIds = new Set();
   const cappedIds = new Set();
   const known = new Set();
@@ -217,7 +220,7 @@ function groupByResume(events, delegations) {
   for (const e of events) {
     const id = text(e.delegationId);
     const key = id && known.has(id)
-      ? `${text(e.harness) || 'other'}|${text(e.role) || '-'}|${resumedIds.has(id) ? USAGE_TOP_RESUMED : cappedIds.has(id) ? USAGE_TOP_RESUME_CONTEXT_CAP : USAGE_TOP_FRESH_SESSION}`
+      ? `${text(e.harness) || 'other'}|${resolveEffectiveUsageRole(e, roleIndex) || '-'}|${resumedIds.has(id) ? USAGE_TOP_RESUMED : cappedIds.has(id) ? USAGE_TOP_RESUME_CONTEXT_CAP : USAGE_TOP_FRESH_SESSION}`
       : USAGE_TOP_NOT_DELEGATED;
     (groups.get(key) || groups.set(key, []).get(key)).push(e);
   }
@@ -243,11 +246,12 @@ export function buildUsageTop(input: Partial<{ events: Record<string, any>[], de
   const groupBy = USAGE_TOP_GROUPS.includes(input.groupBy) ? input.groupBy : 'chat';
   const metric = USAGE_TOP_METRICS.includes(input.metric) ? input.metric : 'fresh';
   const limit = Number.isInteger(input.limit) && input.limit > 0 ? Math.min(input.limit, USAGE_TOP_MAX_LIMIT) : USAGE_TOP_DEFAULT_LIMIT;
+  const roleIndex = buildDelegationRoleIndex(input.delegations);
   const groups = groupBy === 'leaf'
     ? groupByLeaf(events, input.delegations)
     : groupBy === 'resume'
-      ? groupByResume(events, input.delegations)
-      : groupByKey(events, groupKeyFn(groupBy, input.tz || 'UTC'));
+      ? groupByResume(events, input.delegations, roleIndex)
+      : groupByKey(events, groupKeyFn(groupBy, input.tz || 'UTC', roleIndex, groupBy === 'outcome' ? new Map(listAttemptLifecycleOutcomes(input.delegations).map((r) => [`${r.delegationId}|${r.attemptId}`, r.outcome])) : undefined));
   const totals = summarizeUsageGroup(events);
   const rows = [...groups].map(([key, list]) => {
     const row: Record<string, any> = { key, ...summarizeUsageGroup(list) };
@@ -300,7 +304,8 @@ export function explainUsage(input: Partial<{ events: Record<string, any>[], del
   const subject = { type: USAGE_EXPLAIN_SUBJECTS.includes(input.subject?.type) ? input.subject.type : 'chat', id: text(input.subject?.id) };
   const limit = Number.isInteger(input.limit) && input.limit > 0 ? Math.min(input.limit, USAGE_TOP_MAX_LIMIT) : 10;
   const events = selectSubjectEvents(Array.isArray(input.events) ? input.events : [], input.delegations || [], subject);
-  const part = (groupBy) => buildUsageTop({ events, groupBy, metric: 'fresh', limit, tz: input.tz }).rows;
+  const part = (groupBy) => buildUsageTop({ events, delegations: input.delegations, groupBy, metric: 'fresh', limit, tz: input.tz }).rows;
+  const roleIndex = buildDelegationRoleIndex(input.delegations);
   const byRun = new Map();
   for (const e of events) {
     const key = text(e.runId) || USAGE_TOP_UNATTRIBUTED;
@@ -318,7 +323,7 @@ export function explainUsage(input: Partial<{ events: Record<string, any>[], del
       at: text(e.at),
       harness: text(e.harness),
       model: text(e.model),
-      role: text(e.role),
+      role: resolveEffectiveUsageRole(e, roleIndex),
       runId: text(e.runId) || null,
       fresh: s.fresh,
       cacheRead: s.cacheRead,

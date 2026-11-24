@@ -7,6 +7,7 @@
 const importers = {
   terminal: () => import(/* webpackChunkName: "panel-terminal" */ '../../features/terminal/index.js'),
   tasks: () => import(/* webpackChunkName: "panel-tasks" */ '../../features/tasks/index.js'),
+  devices: () => import(/* webpackChunkName: "panel-misc" */ '../../features/devices/index.js'),
   apps: () => import(/* webpackChunkName: "panel-misc" */ '../../features/apps/index.js'),
   agentsSettings: () => import(/* webpackChunkName: "settings-agents" */ '../../features/settings/agentsSettingsPanel.js'),
   files: () => import(/* webpackChunkName: "panel-files" */ '../../features/files/index.js'),
@@ -20,6 +21,7 @@ const importers = {
   watcherSettings: () => import(/* webpackChunkName: "panel-misc" */ '../../features/settings/workspaceWatcherSettings.js'),
   instances: () =>
     import(/* webpackChunkName: "panel-misc" */ '../../features/instances/instancesPanel.js'),
+  fleet: () => import(/* webpackChunkName: "panel-misc" */ '../../features/fleet/fleetPanel.js'),
   statusTests: () => import(/* webpackChunkName: "panel-misc" */ '../../features/statusTests/views/statusTestsPanel.js'),
   browser: () =>
     import(/* webpackChunkName: "panel-browser" */ '../../features/browser/browserPanel.js'),

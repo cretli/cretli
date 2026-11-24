@@ -4,16 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  addChat,
-  addChatAsync,
-  getChatByIdAsync,
-  loadChatsAsync,
-  saveChatsAsync,
-  setChatClaudeSessionIdAsync,
-  updateChat,
-  updateChatAsync,
-} from '../lib/persist/chats-persist.js';
+import { addChatAsync, getChatByIdAsync, loadChatsAsync, saveChatsAsync, setChatClaudeSessionIdAsync, updateChatAsync } from '../lib/persist/chats-persist.js';
+import { addChat, updateChat } from '../lib/persist/chats-legacy-store.js';
 import { createChatsRuntime, setActiveChatsRuntime } from '../lib/persist/chats-runtime.js';
 import { createSqliteChatsBackend } from '../lib/persist/chats-backend-sqlite.js';
 import { createChatsStore } from '../lib/storage/chats-store.js';
@@ -120,9 +112,10 @@ describe('B2 scope contract', () => {
     assert.deepEqual(offenders, []);
   });
 
-  it('the sync compat shim is used only by the documented entry points (the list may only shrink)', () => {
-    const users = SCOPE_FILES.filter((file) => /chats-sync-compat\.js/.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
-    assert.deepEqual(users.sort(), [...SYNC_COMPAT_USERS].sort());
+  it('the sync compat shim is gone: no file in scope imports it', () => {
+    assert.equal(fs.existsSync(path.join(ROOT, 'lib/persist/chats-sync-compat.js')), false);
+    const users = SCOPE_FILES.filter((file) => /chats-sync-compat/.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
+    assert.deepEqual(users, []);
   });
 
   it('holds no lock across an await: no blocking wait or file lock in the scope', () => {

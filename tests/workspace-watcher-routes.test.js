@@ -66,7 +66,11 @@ function makeApp() {
         status(code) { this.statusCode = code; return this; },
         json(body) { resolve({ status: this.statusCode, body }); },
       };
-      fn({ params: {}, query: {}, body: {}, ...req }, res);
+      const query = { ...req.query };
+      const body = { ...req.body };
+      if (!query.workspaceId && !query.workspaceFile && !query.workspaceFolder && !query.chatId
+        && !body.workspaceId && !body.workspaceFile && !body.workspaceFolder && !body.chatId) query.workspaceFolder = cwd;
+      fn({ ...req, params: req.params || {}, query, body }, res);
     });
   };
   return { invoke };

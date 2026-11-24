@@ -391,7 +391,7 @@ export function renderTodoSortMenuItems() {
     row.setAttribute('role', 'menuitemradio');
     const checked = S.todoSort === mode;
     row.setAttribute('aria-checked', String(checked));
-    const icon = createSpan(`todo-sort-row-check mdi ${checked ? 'mdi-check' : ''}`, true);
+    const icon = createSpan('cr-radio-mark', true);
     const label = document.createElement('span');
     label.textContent = todoSortLabel(mode);
     row.append(icon, label);

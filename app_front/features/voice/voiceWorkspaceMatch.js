@@ -3,7 +3,7 @@
  */
 
 /**
- * @param {object} workspace
+ * @param {any} workspace
  * @returns {string}
  */
 export function workspaceSpokenLabel(workspace) {
@@ -15,7 +15,7 @@ export function workspaceSpokenLabel(workspace) {
 }
 
 /**
- * @param {object} workspace
+ * @param {any} workspace
  * @returns {string[]}
  */
 function workspaceMatchLabels(workspace) {
@@ -45,7 +45,7 @@ function isSpokenMatch(label, needle) {
 }
 
 /**
- * @param {Array<object>} workspaces
+ * @param {any[]} workspaces
  * @param {string} spoken
  * @returns {{ match?: object|null, ambiguous?: boolean, candidates?: string[] }}
  */
@@ -69,7 +69,7 @@ export function matchWorkspaceBySpokenName(workspaces, spoken) {
 }
 
 /**
- * @param {object} folder
+ * @param {any} folder
  * @returns {string}
  */
 export function folderSpokenLabel(folder) {
@@ -82,7 +82,7 @@ export function folderSpokenLabel(folder) {
 /**
  * Unique folders a workspace can switch to (parent dir + enabled folders).
  *
- * @param {object} workspace
+ * @param {any} workspace
  * @returns {Array<{ name: string, path: string }>}
  */
 export function collectWorkspaceFolders(workspace) {

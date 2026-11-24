@@ -48,6 +48,9 @@ assert.deepEqual(takeMissingSdkHistoryRecords({}, [
 assert.deepEqual(takeMissingSdkHistoryRecords({}, [mailboxStarted, mailboxDelivered, relatedChat]), [
   mailboxStarted, mailboxDelivered, relatedChat,
 ]);
+const contextNotice = { kind: 'meta', variant: 'contextNotice', historySeq: 23, payload: JSON.stringify({ code: 'context_restored', turns: 7 }) };
+assert.deepEqual(takeMissingSdkHistoryRecords({}, [contextNotice]), [contextNotice], 'context notices survive catch-up');
+assert.deepEqual(takeMissingSdkHistoryRecords({}, [contextNotice, contextNotice]), [contextNotice, contextNotice], 'same catch-up batch preserves history sequence while UI record identity handles duplicate delivery');
 
 syncSdkEventStream(chat, 'room-a');
 assert.equal(shouldApplySdkRoomEvent(chat, { roomEventSeq: 1 }), true);

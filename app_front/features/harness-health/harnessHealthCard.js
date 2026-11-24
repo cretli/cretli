@@ -198,7 +198,7 @@ function markExpandedError() {
 }
 
 /**
- * @param {object} record
+ * @param {Record<string, any>} record
  * @returns {Promise<void>}
  */
 async function loadAndRender(record) {
@@ -213,7 +213,7 @@ async function loadAndRender(record) {
 }
 
 /**
- * @param {object} record
+ * @param {Record<string, any>} record
  * @param {boolean} force
  * @returns {Promise<void>}
  */
@@ -233,7 +233,7 @@ async function reloadCard(record, force) {
  * Dropping the cache first means a failing refresh can never re-render the
  * lockout that the POST just cleared.
  *
- * @param {object} record
+ * @param {Record<string, any>} record
  * @param {string} model
  * @returns {Promise<void>}
  */

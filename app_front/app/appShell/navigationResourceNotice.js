@@ -30,7 +30,7 @@ export function showNavigationResourceNotice(messageKey, detail) {
   banner.setAttribute('role', 'status');
   banner.innerHTML = `
     <span class="cr-pwa-update-banner__text"></span>
-    <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('common.close')}">×</button>
+    <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('common.close')}"><span class="mdi mdi-close" aria-hidden="true"></span></button>
   `;
   const textEl = banner.querySelector('.cr-pwa-update-banner__text');
   if (textEl) textEl.textContent = text;
@@ -50,7 +50,7 @@ export function showNavigationResourceNotice(messageKey, detail) {
  */
 export function initNavigationResourceNoticeListener() {
   if (typeof window === 'undefined') return;
-  window.addEventListener('cretli:toast', (event) => {
+  window.addEventListener('cretli:toast', (/** @type {CustomEvent} */ event) => {
     const message = event?.detail?.message;
     if (typeof message !== 'string' || !message.trim()) return;
     document.getElementById('cr-navigation-resource-notice')?.remove();
@@ -58,15 +58,28 @@ export function initNavigationResourceNoticeListener() {
     banner.id = 'cr-navigation-resource-notice';
     banner.className = 'cr-pwa-update-banner';
     banner.setAttribute('role', 'status');
+    const actionLabel = typeof event?.detail?.actionLabel === 'string' ? event.detail.actionLabel.trim() : '';
+    const onAction = typeof event?.detail?.onAction === 'function' ? event.detail.onAction : null;
+    const durationMs = Number(event?.detail?.durationMs) > 0 ? Number(event.detail.durationMs) : 0;
     banner.innerHTML = `
       <span class="cr-pwa-update-banner__text"></span>
-      <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('common.close')}">×</button>
+      ${actionLabel && onAction ? '<button type="button" class="cr-pwa-update-banner__action"></button>' : ''}
+      <button type="button" class="cr-pwa-update-banner__dismiss" aria-label="${t('common.close')}"><span class="mdi mdi-close" aria-hidden="true"></span></button>
     `;
     const textEl = banner.querySelector('.cr-pwa-update-banner__text');
     if (textEl) textEl.textContent = message.trim();
+    const actionEl = banner.querySelector('.cr-pwa-update-banner__action');
+    if (actionEl && onAction) {
+      actionEl.textContent = actionLabel;
+      actionEl.addEventListener('click', () => {
+        banner.remove();
+        onAction();
+      });
+    }
     banner.querySelector('.cr-pwa-update-banner__dismiss')?.addEventListener('click', () => {
       banner.remove();
     });
     document.body.appendChild(banner);
+    if (durationMs) window.setTimeout(() => banner.remove(), durationMs);
   });
 }
